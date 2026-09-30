@@ -23,6 +23,9 @@ pub enum CoreError {
 
     #[error("node `{0}` has an empty name")]
     EmptyNodeName(String),
+
+    #[error("reparenting `{child}` under `{parent}` would create a cycle")]
+    Cycle { child: String, parent: String },
 }
 
 /// Convenience alias for core results.

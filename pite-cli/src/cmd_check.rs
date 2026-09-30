@@ -107,18 +107,33 @@ fn check_scene_ref(
             return;
         }
     };
-    for issue in pite_scene::validate(&doc) {
-        warnings.push(format!("scene {}: {issue}", path.display()));
+    let scene_dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| root.to_path_buf());
+    let ids: std::collections::HashSet<&str> = doc.node.iter().map(|n| n.id.as_str()).collect();
+    if !ids.contains(doc.root.as_str()) {
+        errors.push(format!(
+            "scene {}: root {:?} not found in node list",
+            path.display(),
+            doc.root
+        ));
     }
     let registry = pite_core::NodeTypeRegistry::new();
     for node in &doc.node {
         if !registry.contains(&node.type_name) {
-            warnings.push(format!(
+            errors.push(format!(
                 "scene {}: node {:?} has unregistered type {:?}",
                 path.display(),
                 node.id,
                 node.type_name
             ));
+        }
+        if let Some(parent) = &node.parent {
+            if !ids.contains(parent.as_str()) {
+                errors.push(format!(
+                    "scene {}: node {:?} has unknown parent {parent:?}",
+                    path.display(),
+                    node.id
+                ));
+            }
         }
         if let Some(script) = &node.script {
             let script_path = if let Some(rel) = script.path.strip_prefix("res://") {
@@ -141,6 +156,44 @@ fn check_scene_ref(
                     node.id,
                     script.class
                 ));
+            }
+        }
+    }
+    for inst in &doc.instance {
+        let ref_path = if let Some(rel) = inst.scene.strip_prefix("res://") {
+            root.join(rel)
+        } else {
+            scene_dir.join(&inst.scene)
+        };
+        let ref_doc = match pite_scene::load_scene(&ref_path) {
+            Ok(doc) => doc,
+            Err(e) => {
+                errors.push(format!(
+                    "scene {}: instance of {} cannot load: {e:#}",
+                    path.display(),
+                    inst.scene
+                ));
+                continue;
+            }
+        };
+        let attach_at = inst.parent.clone().unwrap_or_else(|| doc.root.clone());
+        if !ids.contains(attach_at.as_str()) {
+            errors.push(format!(
+                "scene {}: instance of {} attaches to unknown parent {attach_at:?}",
+                path.display(),
+                inst.scene
+            ));
+        }
+        let ref_ids: std::collections::HashSet<&str> =
+            ref_doc.node.iter().map(|n| n.id.as_str()).collect();
+        for key in inst.overrides.keys() {
+            match key.split_once('.') {
+                Some((node_id, _)) if ref_ids.contains(node_id) => {}
+                _ => errors.push(format!(
+                    "scene {}: instance of {} has bad override target {key:?}",
+                    path.display(),
+                    inst.scene
+                )),
             }
         }
     }

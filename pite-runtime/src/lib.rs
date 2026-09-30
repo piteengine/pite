@@ -63,7 +63,13 @@ pub fn run_scene(scene: &Path, no_reload: bool) -> Result<()> {
 pub fn run_with_options(options: &RunOptions) -> Result<()> {
     let doc = pite_scene::load_scene(&options.scene)
         .with_context(|| format!("cannot load scene {}", options.scene.display()))?;
-    let tree = pite_scene::to_node_tree(&doc)?;
+    let scene_dir = options
+        .scene
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let project_dir = pite_project::find_project_root(&options.scene);
+    let tree = pite_scene::build_tree(&doc, &scene_dir, project_dir.as_deref())?;
     let title = format!(
         "Pite — {} ({} nodes)",
         options.scene.display(),

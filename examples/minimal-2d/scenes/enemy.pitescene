@@ -1,0 +1,17 @@
+format_version = 1
+root = "enemy"
+
+[[node]]
+id = "enemy"
+type = "Node2D"
+name = "Enemy"
+
+[[node]]
+id = "sprite"
+type = "Sprite2D"
+name = "Sprite"
+parent = "enemy"
+
+[node.props]
+texture = "res://assets/enemy.png"
+position = [0.0, 0.0]

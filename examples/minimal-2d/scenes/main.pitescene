@@ -5,3 +5,11 @@ root = "root"
 id = "root"
 type = "Node2D"
 name = "Main"
+
+[[instance]]
+scene = "res://scenes/enemy.pitescene"
+parent = "root"
+prefix = "e1_"
+
+[instance.overrides]
+"sprite.position" = [300.0, 120.0]
