@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "pite-assets",
+    "pite-cli",
+    "pite-core",
+    "pite-editor",
+    "pite-project",
+    "pite-render",
+    "pite-runtime",
+    "pite-scene",
+    "pite-script",
+]
+exclude = ["examples", "python"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# internal
+pite-assets = { path = "pite-assets", version = "0.1.0" }
+pite-cli = { path = "pite-cli", version = "0.1.0" }
+pite-core = { path = "pite-core", version = "0.1.0" }
+pite-editor = { path = "pite-editor", version = "0.1.0" }
+pite-project = { path = "pite-project", version = "0.1.0" }
+pite-render = { path = "pite-render", version = "0.1.0" }
+pite-runtime = { path = "pite-runtime", version = "0.1.0" }
+pite-scene = { path = "pite-scene", version = "0.1.0" }
+pite-script = { path = "pite-script", version = "0.1.0" }
+
+# external
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+pollster = "0.3"
+raw-window-handle = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+wgpu = "23"
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11"] }

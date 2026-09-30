@@ -1,0 +1,7 @@
+format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"

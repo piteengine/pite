@@ -1,0 +1,18 @@
+[package]
+name = "pite-runtime"
+description = "Game runner: window, main loop and subsystem wiring."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tracing.workspace = true
+winit.workspace = true
+pite-core.workspace = true
+pite-scene.workspace = true
+pite-render.workspace = true
+pite-script.workspace = true
+pite-project.workspace = true

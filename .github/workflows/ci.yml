@@ -1,0 +1,15 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  m0:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --workspace --locked
+      - run: cargo test --workspace
+      - run: cargo run -p pite-cli -- check

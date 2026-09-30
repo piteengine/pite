@@ -1,0 +1,11 @@
+[package]
+name = "pite-assets"
+description = "Minimal asset import: Importer trait plus uid registry."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true

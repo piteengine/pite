@@ -1,0 +1,12 @@
+[package]
+name = "pite-render"
+description = "Renderer2D trait plus wgpu stub for Pite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+pite-core.workspace = true
