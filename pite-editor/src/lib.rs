@@ -4,6 +4,7 @@
 //! code pane — all on the same `NodeTree` the game runs.
 
 mod app;
+pub mod theme;
 
 use anyhow::Result;
 

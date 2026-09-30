@@ -16,7 +16,10 @@ pub fn launch(scene: &Path) -> Result<()> {
     eframe::run_native(
         "Pite Editor",
         options,
-        Box::new(|_cc| Ok(Box::new(app) as Box<dyn eframe::App>)),
+        Box::new(|cc| {
+            crate::theme::apply(&cc.egui_ctx);
+            Ok(Box::new(app) as Box<dyn eframe::App>)
+        }),
     )
     .map_err(|e| anyhow::anyhow!("editor failed: {e}"))?;
     Ok(())
