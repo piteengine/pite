@@ -27,7 +27,32 @@ class Player(pite.Node2D):
 self.get_node("../Player").take_damage(1)
 ```
 
-Paths resolve against node names: `..` (parent), `.` (self), `Child` (named child), `/root/…` (absolute). A miss raises `KeyError`. The names `emit`/`connect` are reserved for the future signal system — do not define them.
+Paths resolve against node names: `..` (parent), `.` (self), `Child` (named child), `/root/…` (absolute). A miss raises `KeyError`.
+
+## Signals
+
+Nodes react to each other with typed signals. Declare them as class variables; access them as members:
+
+```python
+class Player(pite.Node2D):
+    hit = pite.signal(int)
+
+    def _process(self, delta):
+        if pite.pressed("Space"):
+            self.hit.emit(1)
+
+class Enemy(pite.Node2D):
+    def _ready(self):
+        self.get_node("../Player").hit.connect(self.on_player_hit)
+
+    def on_player_hit(self, damage):
+        self.hp = self.hp - damage
+```
+
+- `pite.signal(...)` takes payload types, bare or as strings (`pite.signal(int, "str")`). Both `hit = pite.signal(int)` and the annotated `hit: pite.signal(int)` form declare the same signal.
+- Emitting the wrong arity or type fails loudly; emitting an undeclared signal fails loudly. There are no untyped string signals.
+- `connect(handler)` takes a bound method of a live node; when that node drops, its connections go with it — emitting afterwards simply skips it, no crash.
+- `pite check` warns about `.emit(`/`.connect(` calls with no matching `pite.signal(` declaration in the same file. Do not define your own methods named `emit` or `connect`.
 
 ## Input
 

@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
+use std::collections::HashMap;
+
 use crate::{resolve_caller, ScriptBackend};
 use crate::host::NodeProxy;
 
@@ -96,12 +98,85 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySprite2D>()?;
     m.add_class::<PyCamera2D>()?;
     m.add_class::<PyTimer>()?;
-    m.add_class::<crate::host::NodeProxy>()?;
     m.add_function(wrap_pyfunction!(held, m)?)?;
     m.add_function(wrap_pyfunction!(pressed, m)?)?;
     m.add_function(wrap_pyfunction!(released, m)?)?;
     m.add_function(wrap_pyfunction!(mouse, m)?)?;
+    m.add_function(wrap_pyfunction!(signal, m)?)?;
+    m.add_class::<PySignalDecl>()?;
     Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (*types))]
+fn signal(types: Vec<Bound<'_, PyAny>>) -> PyResult<PySignalDecl> {
+    Ok(PySignalDecl {
+        payload: read_payload_types(&types)?,
+        attr: String::new(),
+    })
+}
+
+pub(crate) fn read_payload_types(types: &[Bound<'_, PyAny>]) -> PyResult<Vec<String>> {
+    let mut out = Vec::with_capacity(types.len());
+    for ty in types {
+        if let Ok(s) = ty.extract::<String>() {
+            out.push(s);
+        } else if ty.is_instance_of::<pyo3::types::PyType>() {
+            let type_name: String = ty.getattr("__name__")?.extract()?;
+            match type_name.as_str() {
+                "int" | "float" | "str" | "bool" => out.push(type_name),
+                _ => {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "signal payload type must be int, float, str or bool",
+                    ));
+                }
+            }
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "signal payload type must be int, float, str or bool",
+            ));
+        }
+    }
+    Ok(out)
+}
+
+#[pyclass(name = "Signal")]
+#[derive(Clone)]
+pub(crate) struct PySignalDecl {
+    #[pyo3(get)]
+    payload: Vec<String>,
+    #[pyo3(get, set)]
+    attr: String,
+}
+
+#[pymethods]
+impl PySignalDecl {
+    fn __set_name__(&mut self, _owner: Bound<'_, PyAny>, name: String) {
+        self.attr = name;
+    }
+
+    fn __get__(
+        &self,
+        py: Python<'_>,
+        obj: Option<Bound<'_, PyAny>>,
+        _owner: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        match obj {
+            None => Ok(Bound::new(py, self.clone())?.into_any().unbind()),
+            Some(obj) => {
+                let node_path: String = obj.getattr("node_path")?.extract()?;
+                let host = crate::host::current_host().ok_or_else(|| {
+                    pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+                })?;
+                Ok(Bound::new(
+                    py,
+                    crate::host::BoundSignal::with_host(host, node_path, self.attr.clone()),
+                )?
+                .into_any()
+                .unbind())
+            }
+        }
+    }
 }
 
 #[pyfunction]
@@ -152,6 +227,7 @@ pub struct Pyo3Backend {
     instance: Option<Py<PyAny>>,
     last_error: Option<String>,
     host: Option<std::sync::Arc<crate::ScriptHost>>,
+    pending_signals: Vec<(String, Vec<String>)>,
 }
 
 impl Pyo3Backend {
@@ -164,11 +240,70 @@ impl Pyo3Backend {
             instance: None,
             last_error: None,
             host: None,
+            pending_signals: Vec::new(),
         }
     }
 
     pub fn set_host(&mut self, host: std::sync::Arc<crate::ScriptHost>) {
+        if !self.pending_signals.is_empty() {
+            if let Err(e) = host.declare_signals(&self.node_path, self.pending_signals.clone()) {
+                self.last_error = Some(e.to_string());
+            } else {
+                self.pending_signals.clear();
+            }
+        }
         self.host = Some(host);
+    }
+
+    fn read_signal_defs(
+        py: Python<'_>,
+        cls: &Bound<'_, PyAny>,
+    ) -> Result<Vec<(String, Vec<String>)>> {
+        let mut defs: Vec<(String, Vec<String>)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut consider = |name: String, value: Bound<'_, PyAny>| {
+            if !seen.insert(name.clone()) {
+                return;
+            }
+            if !value.is_instance_of::<PySignalDecl>() {
+                return;
+            }
+            let Ok(payload) = value.getattr("payload") else {
+                return;
+            };
+            let Ok(types) = payload.extract::<Vec<String>>() else {
+                return;
+            };
+            defs.push((name, types));
+        };
+        for name in cls
+            .dir()
+            .map(|list| {
+                list.iter()
+                    .filter_map(|item| item.extract::<String>().ok())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+        {
+            if let Ok(value) = cls.getattr(name.as_str()) {
+                consider(name.to_string(), value);
+            }
+        }
+        if let Ok(ann) = cls.getattr("__annotations__") {
+            if !ann.is_none() {
+                if let Ok(map) = ann.extract::<HashMap<String, Bound<'_, PyAny>>>() {
+                    for (name, value) in map {
+                        if value.is_instance_of::<PySignalDecl>() {
+                            let _ = value.setattr("attr", name.as_str());
+                            let _ = cls.setattr(name.as_str(), &value);
+                        }
+                        consider(name, value);
+                    }
+                }
+            }
+        }
+        let _ = py;
+        Ok(defs)
     }
 
     fn exec(&mut self) -> Result<()> {
@@ -200,6 +335,17 @@ impl Pyo3Backend {
                     self.class
                 )
             })?;
+            let defs = Self::read_signal_defs(py, &cls).with_context(|| {
+                format!(
+                    "script {} class {} has bad signals declaration",
+                    self.file.display(),
+                    self.class
+                )
+            })?;
+            if let Some(host) = &self.host {
+                host.declare_signals(&self.node_path, defs.clone())?;
+            }
+            self.pending_signals = defs;
             let instance = cls.call0().with_context(|| {
                 format!(
                     "cannot instantiate {} in {}",
@@ -410,6 +556,7 @@ class Attacker(pite.Node2D):
 
     #[test]
     fn get_node_direct_call_hits_sibling() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
         use pite_core::{NodeDesc, NodeId, NodeTree};
         use std::sync::Arc;
 
@@ -445,6 +592,106 @@ class Attacker(pite.Node2D):
             let hp: i64 = inst.bind(py).getattr("hp").unwrap().extract().unwrap();
             assert_eq!(hp, 2);
         });
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const SENSOR: &str = r#"
+import pite
+
+class Sensor(pite.Node2D):
+    tripped: pite.signal(int, "str")
+
+    def _process(self, delta):
+        if pite.pressed("T-Trip"):
+            self.tripped.emit(7, "hi")
+"#;
+
+    const LISTENER: &str = r#"
+import pite
+
+class Listener(pite.Node2D):
+    def _ready(self):
+        self.get_node("../Sensor").tripped.connect(self.on_tripped)
+
+    def on_tripped(self, n, msg):
+        self.position = (float(n), 0.0)
+        self.last_msg = msg
+"#;
+
+    const BAD_DECL: &str = "import pite\n\nclass Bad(pite.Node2D):\n    bad = pite.signal(\"wat\")\n";
+
+    #[test]
+    fn signals_declare_connect_emit_drop() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("signals");
+        let sensor_file = fixture(&dir, "sensor.py", SENSOR);
+        let listener_file = fixture(&dir, "listener.py", LISTENER);
+        let bad_file = fixture(&dir, "bad.py", BAD_DECL);
+
+        let mut tree = NodeTree::new();
+        let mut root = NodeDesc::new(NodeId::from("root".to_string()), "Node");
+        root.name = "Root".to_string();
+        tree.insert(root).unwrap();
+        for (id, name) in [("s", "Sensor"), ("l", "Listener")] {
+            let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
+            d.name = name.to_string();
+            d.parent = Some(NodeId::from("root".to_string()));
+            tree.insert(d).unwrap();
+        }
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut bad = Pyo3Backend::new("bad");
+        bad.set_host(host.clone());
+        let err = bad.load(&bad_file, "Bad").unwrap_err();
+        assert!(err.to_string().contains("unknown payload type"));
+
+        let mut sensor = Pyo3Backend::new("s");
+        sensor.set_host(host.clone());
+        sensor.load(&sensor_file, "Sensor").unwrap();
+        let mut listener = Pyo3Backend::new("l");
+        listener.set_host(host.clone());
+        listener.load(&listener_file, "Listener").unwrap();
+        listener.call_ready().unwrap();
+
+        crate::input_begin_frame();
+        crate::input_set_key("T-Trip", true);
+        sensor.call_process(0.016).unwrap();
+        assert_eq!(listener.position(), Some((7.0, 0.0)));
+        Python::attach(|py| {
+            let inst = host.lookup_instance(py, "l").unwrap();
+            let msg: String = inst.bind(py).getattr("last_msg").unwrap().extract().unwrap();
+            assert_eq!(msg, "hi");
+        });
+
+        Python::attach(|py| {
+            let wrong = pyo3::types::PyTuple::new(
+                py,
+                vec![
+                    "nope".into_pyobject(py).unwrap(),
+                    "hi".into_pyobject(py).unwrap(),
+                ],
+            )
+            .unwrap();
+            let err = host.emit(py, "s", "tripped", &wrong).unwrap_err();
+            assert!(err.to_string().contains("wants int"));
+            let empty = pyo3::types::PyTuple::empty(py);
+            let err = host.emit(py, "s", "missing", &empty).unwrap_err();
+            assert!(err.to_string().contains("unknown signal"));
+            let err = host
+                .connect("s", "missing", "l", "on_tripped")
+                .unwrap_err();
+            assert!(err.to_string().contains("unknown signal"));
+        });
+
+        host.disconnect_node("l");
+        crate::input_begin_frame();
+        crate::input_set_key("T-Trip", true);
+        sensor.call_process(0.016).unwrap();
+        assert_eq!(listener.position(), Some((7.0, 0.0)));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

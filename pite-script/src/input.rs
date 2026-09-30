@@ -53,6 +53,7 @@ mod tests {
 
     #[test]
     fn key_edges_last_one_frame() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
         input_begin_frame();
         input_set_key("T-KeyEdgesLastOneFrame", false);
         input_begin_frame();

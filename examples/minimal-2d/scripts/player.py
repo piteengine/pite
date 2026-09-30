@@ -2,6 +2,7 @@ import pite
 
 
 class Player(pite.Node2D):
+    hit = pite.signal(int)
     speed: float = 200.0
 
     def _ready(self):
@@ -19,4 +20,5 @@ class Player(pite.Node2D):
             y -= self.speed * delta
         if pite.pressed("Space"):
             x += 10.0
+            self.hit.emit(1)
         self.position = (x, y)

@@ -113,9 +113,9 @@ impl GameSession {
             _watcher: None,
             watch_rx: None,
         };
-        session.rebuild()?;
         pite_script::set_current_host(session.host.clone());
-        if !no_reload {
+        session.rebuild()?;
+        if !session.no_reload {
             session.start_watcher()?;
         }
         Ok(session)
@@ -231,6 +231,7 @@ impl GameSession {
         }
         for (id, _) in olds {
             self.host.unregister(&id);
+            self.host.disconnect_node(&id);
         }
         tracing::info!(nodes = self.tree_len(), scripts = self.slots.len(), "scene ready");
         Ok(())
@@ -525,6 +526,8 @@ fn resolve_script(
 mod tests {
     use super::*;
 
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn make_project(tag: &str, class: &str, script_src: &str) -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir().join(format!("pite-sess-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("scenes")).unwrap();
@@ -558,6 +561,7 @@ mod tests {
 
     #[test]
     fn editing_script_changes_behavior_without_restart() {
+        let _guard = SERIAL.lock().unwrap();
         let (dir, script) = make_project("reload", "Mover", V1);
         let scene = dir.join("scenes").join("main.pitescene");
         let mut session = GameSession::open(&scene, false).unwrap();
@@ -583,6 +587,7 @@ mod tests {
 
     #[test]
     fn scene_edit_adds_nodes_live() {
+        let _guard = SERIAL.lock().unwrap();
         let (dir, _) = make_project("scene", "Mover", V1);
         let scene = dir.join("scenes").join("main.pitescene");
         let mut session = GameSession::open(&scene, false).unwrap();
@@ -607,6 +612,7 @@ mod tests {
 
     #[test]
     fn no_reload_disables_watching() {
+        let _guard = SERIAL.lock().unwrap();
         let (dir, _) = make_project("noreload", "Mover", V1);
         let scene = dir.join("scenes").join("main.pitescene");
         let session = GameSession::open(&scene, true).unwrap();
@@ -630,6 +636,7 @@ mod tests {
 
     #[test]
     fn keypress_moves_node_through_real_input() {
+        let _guard = SERIAL.lock().unwrap();
         use pite_script::{input_begin_frame, input_set_key};
 
         let (dir, _) = make_project("input", "Walker", WALKER);
@@ -653,5 +660,41 @@ mod tests {
         input_set_key("T-WalkRight", false);
         input_set_key("T-Step", false);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn node_x(session: &GameSession, id: &str) -> f64 {
+        session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from(id.to_string())) {
+                Some(n) => match n.props.get("position") {
+                    Some(PropValue::Vec2(x, _)) => *x,
+                    _ => f64::NAN,
+                },
+                None => f64::NAN,
+            })
+    }
+
+    #[test]
+    fn dogfood_player_hit_reaches_enemy() {
+        let _guard = SERIAL.lock().unwrap();
+        use pite_script::{input_begin_frame, input_set_key};
+
+        let scene = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("examples")
+            .join("minimal-2d")
+            .join("scenes")
+            .join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        assert_eq!(session.script_count(), 2);
+        input_begin_frame();
+        input_set_key("Space", true);
+        session.update(0.016);
+        input_set_key("Space", false);
+        let after = node_x(&session, "e1_enemy");
+        assert!(
+            (after + 5.0).abs() < 1e-6,
+            "enemy should recoil to x=-5, got {after}"
+        );
     }
 }
