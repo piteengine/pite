@@ -40,6 +40,23 @@ font_size = 20.0
 position = [100.0, 80.0]
 color = "#4ADE80"
 
+[[node]]
+id = "hitbtn"
+type = "Button"
+name = "HitBtn"
+parent = "root"
+
+[node.props]
+text = "HIT"
+font_size = 20.0
+position = [500.0, 200.0]
+size = [140.0, 44.0]
+color = "#4ADE80"
+
+[node.script]
+path = "res://scripts/hitbutton.py"
+class = "HitButton"
+
 [[instance]]
 scene = "res://scenes/enemy.pitescene"
 parent = "root"

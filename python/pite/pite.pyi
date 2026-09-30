@@ -34,3 +34,6 @@ class Timer(Node):
 
 class Label(Node):
     text: str
+
+class Button(Node2D):
+    text: str

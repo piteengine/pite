@@ -260,6 +260,21 @@ impl EditorApp {
                 });
             }
         });
+        if let Some(PropValue::Vec2(sw, sh)) = node.props.get("size") {
+            let mut size = (*sw, *sh);
+            ui.horizontal(|ui| {
+                ui.label("size");
+                if ui.add(egui::DragValue::new(&mut size.0).speed(1.0)).changed()
+                    || ui.add(egui::DragValue::new(&mut size.1).speed(1.0)).changed()
+                {
+                    self.session.host().with_tree_mut(|t| {
+                        if let Some(n) = t.get_mut(&node_id) {
+                            n.props.insert("size".to_string(), PropValue::Vec2(size.0, size.1));
+                        }
+                    });
+                }
+            });
+        }
         if let Some(PropValue::Str(current)) = node.props.get("text") {
             let mut text = current.clone();
             ui.horizontal(|ui| {
@@ -289,7 +304,7 @@ impl EditorApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui) {
-        let nodes: Vec<(String, String, (f64, f64), String)> =
+        let nodes: Vec<(String, String, (f64, f64), String, (f64, f64))> =
             self.session.host().with_tree(|t| {
                 t.iter()
                     .map(|n| {
@@ -301,7 +316,11 @@ impl EditorApp {
                             Some(PropValue::Str(s)) => s.clone(),
                             _ => String::new(),
                         };
-                        (n.id.to_string(), n.type_name.clone(), pos, text)
+                        let size = match n.props.get("size") {
+                            Some(PropValue::Vec2(w, h)) => (*w, *h),
+                            _ => (0.0, 0.0),
+                        };
+                        (n.id.to_string(), n.type_name.clone(), pos, text, size)
                     })
                     .collect()
             });
@@ -309,7 +328,7 @@ impl EditorApp {
             ui.allocate_painter(egui::Vec2::new(ui.available_width(), 240.0), egui::Sense::hover());
         let center = resp.rect.center();
         painter.rect_filled(resp.rect, 0.0, egui::Color32::from_gray(24));
-        for (id, type_name, (x, y), text) in nodes {
+        for (id, type_name, (x, y), text, (w, h)) in nodes {
             let p = center + egui::Vec2::new(x as f32, y as f32);
             let color = if type_name == "Sprite2D" {
                 egui::Color32::LIGHT_GREEN
@@ -317,6 +336,17 @@ impl EditorApp {
                 egui::Color32::LIGHT_BLUE
             };
             painter.circle_filled(p, 6.0, color);
+            if type_name == "Button" && w > 0.0 && h > 0.0 {
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(
+                        p,
+                        egui::Vec2::new(w as f32, h as f32),
+                    ),
+                    4.0,
+                    egui::Stroke::new(1.0, egui::Color32::LIGHT_GREEN),
+                    egui::StrokeKind::Middle,
+                );
+            }
             let caption = if text.is_empty() { id } else { text };
             painter.text(
                 p + egui::Vec2::new(10.0, -10.0),

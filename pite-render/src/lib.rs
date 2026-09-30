@@ -11,6 +11,7 @@ pub trait Renderer2D {
     fn begin_frame(&mut self) -> Result<()>;
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()>;
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
+    fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
     fn end_frame(&mut self) -> Result<()>;
 }
 
@@ -37,6 +38,17 @@ impl Renderer2D for NoopRenderer {
         Ok(())
     }
 
+    fn draw_rect(
+        &mut self,
+        _x: f64,
+        _y: f64,
+        _w: f64,
+        _h: f64,
+        _color: [u8; 4],
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn end_frame(&mut self) -> Result<()> {
         Ok(())
     }
@@ -51,6 +63,14 @@ pub fn world_to_screen(
     let sx = (size.0 as f64 / 2.0 + (world.0 - cam.0) * zoom) as f32;
     let sy = (size.1 as f64 / 2.0 + (world.1 - cam.1) * zoom) as f32;
     (sx, sy)
+}
+
+pub fn screen_to_world(screen: (f32, f32), cam: (f64, f64), zoom: f64, size: (u32, u32)) -> (f64, f64) {
+    let zoom = if zoom == 0.0 { 1.0 } else { zoom };
+    (
+        cam.0 + (screen.0 as f64 - size.0 as f64 / 2.0) / zoom,
+        cam.1 + (screen.1 as f64 - size.1 as f64 / 2.0) / zoom,
+    )
 }
 
 pub fn screen_to_ndc(screen: (f32, f32), size: (u32, u32)) -> (f32, f32) {
@@ -115,6 +135,7 @@ struct GpuTexture {
 struct QueuedSprite {
     tex_key: String,
     world: (f64, f64),
+    size_world: Option<(f64, f64)>,
 }
 
 fn create_sprite_pipeline(
@@ -338,6 +359,10 @@ impl WgpuRenderer {
         self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
     }
 
+    pub fn size(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
+    }
+
     fn load_texture(&self, key: &str) -> GpuTexture {
         match image::open(key).map(|img| img.to_rgba8()).ok() {
             Some(rgba) => {
@@ -395,7 +420,7 @@ impl WgpuRenderer {
                 }
             }
         }
-        self.queue_list.push(QueuedSprite { tex_key: key, world });
+        self.queue_list.push(QueuedSprite { tex_key: key, world, size_world: None });
     }
 }
 
@@ -409,6 +434,31 @@ impl Renderer2D for WgpuRenderer {
         self.queue_list.push(QueuedSprite {
             tex_key: texture.to_string(),
             world: (x, y),
+            size_world: None,
+        });
+        Ok(())
+    }
+
+    fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
+        let key = format!(
+            "rect\0{}\0{}\0{}\0{}",
+            color[0], color[1], color[2], color[3]
+        );
+        if !self.baked.contains_key(&key) {
+            self.baked.insert(
+                key.clone(),
+                text::BakedText {
+                    rgba: vec![color[0], color[1], color[2], color[3]],
+                    w: 1,
+                    h: 1,
+                },
+            );
+            text::lru_touch(&mut self.baked_order, &key, 64);
+        }
+        self.queue_list.push(QueuedSprite {
+            tex_key: key,
+            world: (x, y),
+            size_world: Some((w.max(1.0), h.max(1.0))),
         });
         Ok(())
     }
@@ -426,7 +476,10 @@ impl Renderer2D for WgpuRenderer {
         let sprites = std::mem::take(&mut self.queue_list);
         for sprite in sprites {
             let tex = self.texture_for(&sprite.tex_key);
-            let (w, h) = (tex.w as f32, tex.h as f32);
+            let (w, h) = match sprite.size_world {
+                Some((w, h)) => ((w * self.zoom) as f32, (h * self.zoom) as f32),
+                None => (tex.w as f32, tex.h as f32),
+            };
             let screen = world_to_screen(sprite.world, self.cam, self.zoom, size);
             let ndc = screen_to_ndc(screen, size);
             let quad = quad_for(ndc, w, h, size);
@@ -509,6 +562,17 @@ mod tests {
         assert!((xs[0] + 0.02).abs() < 1e-6 && (xs[1] - 0.02).abs() < 1e-6);
         assert_eq!(quad[0].uv, [0.0, 0.0]);
         assert_eq!(quad[2].uv, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn screen_to_world_inverts_projection() {
+        let size = (800, 600);
+        let world = (150.0, -40.0);
+        let screen = world_to_screen(world, (100.0, 200.0), 2.0, size);
+        let back = screen_to_world(screen, (100.0, 200.0), 2.0, size);
+        assert!((back.0 - world.0).abs() < 1e-3 && (back.1 - world.1).abs() < 1e-3);
+        let center = screen_to_world((400.0, 300.0), (100.0, 200.0), 1.0, size);
+        assert!((center.0 - 100.0).abs() < 1e-9 && (center.1 - 200.0).abs() < 1e-9);
     }
 
     #[test]

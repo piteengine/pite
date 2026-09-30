@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use pite_core::{global_position, NodeId, NodeTree, PropValue};
 use pite_render::{Renderer2D, WgpuRenderer};
-use pite_script::{Pyo3Backend, ScriptBackend, ScriptHost};
+use pite_script::{input_mouse, input_pressed, input_released, Pyo3Backend, ScriptBackend, ScriptHost};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -94,6 +94,8 @@ pub struct GameSession {
     no_reload: bool,
     _watcher: Option<RecommendedWatcher>,
     watch_rx: Option<Receiver<std::result::Result<notify::Event, notify::Error>>>,
+    viewport: (u32, u32),
+    armed: HashSet<String>,
 }
 
 impl GameSession {
@@ -112,6 +114,8 @@ impl GameSession {
             no_reload,
             _watcher: None,
             watch_rx: None,
+            viewport: (800, 600),
+            armed: HashSet::new(),
         };
         pite_script::set_current_host(session.host.clone());
         session.rebuild()?;
@@ -155,6 +159,56 @@ impl GameSession {
 
     pub fn script_count(&self) -> usize {
         self.slots.len()
+    }
+
+    pub fn set_viewport(&mut self, w: u32, h: u32) {
+        if w > 0 && h > 0 {
+            self.viewport = (w, h);
+        }
+    }
+
+    pub fn camera_view(&self) -> ((f64, f64), f64) {
+        self.host.with_tree(|tree| {
+            tree.iter()
+                .find(|n| n.type_name == "Camera2D")
+                .map(|cam| {
+                    let zoom = match cam.props.get("zoom") {
+                        Some(PropValue::Num(z)) => *z,
+                        _ => 1.0,
+                    };
+                    (global_position(tree, &cam.id), zoom)
+                })
+                .unwrap_or(((0.0, 0.0), 1.0))
+        })
+    }
+
+    pub fn button_at(&self, screen: (f64, f64)) -> Option<String> {
+        let ((cx, cy), zoom) = self.camera_view();
+        let (world_x, world_y) = pite_render::screen_to_world(
+            (screen.0 as f32, screen.1 as f32),
+            (cx, cy),
+            zoom,
+            self.viewport,
+        );
+        self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Button")
+                .find(|n| {
+                    let (w, h) = button_size(n);
+                    let (px, py) = global_position(tree, &n.id);
+                    (world_x - px).abs() <= w / 2.0 && (world_y - py).abs() <= h / 2.0
+                })
+                .map(|n| n.id.to_string())
+        })
+    }
+
+    fn fire_pressed(&self, id: &str) {
+        if !self.host.has_signal(id, "pressed") {
+            return;
+        }
+        if let Err(e) = pite_script::fire_pressed(&self.host, id) {
+            tracing::error!(node = %id, "pressed handlers failed: {e:#}");
+        }
     }
 
     fn rebuild(&mut self) -> Result<()> {
@@ -297,6 +351,7 @@ impl GameSession {
     }
 
     pub fn update(&mut self, delta: f64) {
+        self.poll_buttons();
         for slot in &mut self.slots {
             if slot.errored {
                 continue;
@@ -320,6 +375,30 @@ impl GameSession {
                 });
             }
         }
+    }
+
+    fn poll_buttons(&mut self) {
+        let mouse = input_mouse();
+        let hovered = self.button_at(mouse);
+        if input_pressed("MouseLeft") {
+            if let Some(id) = hovered.clone() {
+                self.armed.insert(id);
+            }
+        }
+        if input_released("MouseLeft") {
+            match hovered {
+                Some(id) if self.armed.contains(&id) => self.fire_pressed(&id),
+                _ => {}
+            }
+            self.armed.clear();
+        }
+    }
+}
+
+fn button_size(node: &pite_core::Node) -> (f64, f64) {
+    match node.props.get("size") {
+        Some(PropValue::Vec2(w, h)) => (*w, *h),
+        _ => (120.0, 40.0),
     }
 }
 
@@ -405,6 +484,10 @@ impl ApplicationHandler for App {
                 let delta = self.session_delta();
                 self.session.poll_watch();
                 pite_script::input_begin_frame();
+                if let Some(renderer) = &self.renderer {
+                    let (w, h) = renderer.size();
+                    self.session.set_viewport(w, h);
+                }
                 self.session.update(delta);
                 self.render_frame();
                 if let Some(window) = &self.window {
@@ -479,6 +562,37 @@ impl App {
                 });
             for (text, size, color, pos) in labels {
                 renderer.draw_text(&text, pos.0, pos.1, size, color)?;
+            }
+            let buttons: Vec<(String, f32, [u8; 4], (f64, f64), (f64, f64))> =
+                self.session.host().with_tree(|tree| {
+                    tree.iter()
+                        .filter(|n| n.type_name == "Button")
+                        .map(|n| {
+                            let text = match n.props.get("text") {
+                                Some(PropValue::Str(s)) => s.clone(),
+                                _ => String::new(),
+                            };
+                            let size = match n.props.get("font_size") {
+                                Some(PropValue::Num(s)) => *s as f32,
+                                Some(PropValue::Int(s)) => *s as f32,
+                                _ => 16.0,
+                            };
+                            let color = match n.props.get("color") {
+                                Some(PropValue::Str(s)) => {
+                                    pite_render::text::parse_color(s)
+                                }
+                                _ => [51, 65, 85, 255],
+                            };
+                            let (w, h) = button_size(n);
+                            (text, size, color, global_position(tree, &n.id), (w, h))
+                        })
+                        .collect()
+                });
+            for (text, size, color, pos, (w, h)) in buttons {
+                renderer.draw_rect(pos.0, pos.1, w, h, color)?;
+                if !text.is_empty() {
+                    renderer.draw_text(&text, pos.0, pos.1, size, [255, 255, 255, 255])?;
+                }
             }
             renderer.end_frame()?;
             Ok(())
@@ -726,6 +840,96 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    const COUNTER: &str = "import pite\n\nclass Counter(pite.Button):\n    pressed = pite.signal()\n    def _ready(self):\n        self.text = \"0\"\n        self.get_node(\".\").pressed.connect(self.on_pressed)\n    def on_pressed(self):\n        self.text = str(int(self.text) + 1)\n";
+
+    fn make_button_project(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pite-sess-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"btn\"\ntype = \"Button\"\nname = \"HitBtn\"\nparent = \"root\"\n\n[node.props]\nposition = [100.0, 100.0]\nsize = [120.0, 40.0]\ntext = \"0\"\n\n[node.script]\npath = \"res://scripts/counter.py\"\nclass = \"Counter\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("scripts").join("counter.py"), COUNTER).unwrap();
+        dir
+    }
+
+    fn btn_text(session: &GameSession) -> String {
+        session.host.with_tree(|t| match t.get(&NodeId::from("btn".to_string())) {
+            Some(n) => match n.props.get("text") {
+                Some(PropValue::Str(s)) => s.clone(),
+                _ => String::new(),
+            },
+            None => String::from("<gone>"),
+        })
+    }
+
+    fn click(session: &mut GameSession, down: (f64, f64), up: (f64, f64)) {
+        use pite_script::{input_begin_frame, input_set_key, input_set_mouse};
+        input_set_mouse(down.0, down.1);
+        input_set_key("MouseLeft", true);
+        session.update(0.016);
+        input_begin_frame();
+        input_set_mouse(up.0, up.1);
+        input_set_key("MouseLeft", false);
+        session.update(0.016);
+        input_begin_frame();
+    }
+
+    #[test]
+    fn click_inside_fires_once_per_click() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = make_button_project("btn-once");
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        assert_eq!(btn_text(&session), "0");
+        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        assert_eq!(btn_text(&session), "1");
+        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        assert_eq!(btn_text(&session), "2");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn click_outside_is_ignored() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = make_button_project("btn-out");
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        click(&mut session, (700.0, 500.0), (700.0, 500.0));
+        assert_eq!(btn_text(&session), "0");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn press_inside_release_outside_is_ignored() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = make_button_project("btn-drag");
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        click(&mut session, (500.0, 400.0), (700.0, 500.0));
+        assert_eq!(btn_text(&session), "0");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dropped_button_disconnects_silently() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = make_button_project("btn-drop");
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        session.host.with_tree_mut(|t| {
+            t.remove(&NodeId::from("btn".to_string())).unwrap();
+        });
+        session.host.disconnect_node("btn");
+        assert!(!session.host.has_signal("btn", "pressed"));
+        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        assert_eq!(btn_text(&session), "<gone>");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     const WALKER: &str = "import pite\n\nclass Walker(pite.Node2D):\n    def _process(self, delta):\n        x, y = self.position\n        if pite.held(\"T-WalkRight\"):\n            x += 200.0 * delta\n        if pite.pressed(\"T-Step\"):\n            x += 10.0\n        self.position = (x, y)\n";
 
     fn walker_x(session: &GameSession) -> f64 {
@@ -792,7 +996,7 @@ mod tests {
             .join("scenes")
             .join("main.pitescene");
         let mut session = GameSession::open(&scene, true).unwrap();
-        assert_eq!(session.script_count(), 2);
+        assert_eq!(session.script_count(), 3);
         input_begin_frame();
         input_set_key("Space", true);
         session.update(0.016);

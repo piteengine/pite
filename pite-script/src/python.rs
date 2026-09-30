@@ -110,6 +110,24 @@ impl PyLabel {
     }
 }
 
+#[pyclass(extends = PyNode2D, subclass, name = "Button")]
+struct PyButton {
+    #[pyo3(get, set)]
+    text: String,
+}
+
+#[pymethods]
+impl PyButton {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: (0.0, 0.0) })
+            .add_subclass(PyButton {
+                text: String::new(),
+            })
+    }
+}
+
 #[pymodule]
 fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
@@ -118,6 +136,7 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCamera2D>()?;
     m.add_class::<PyTimer>()?;
     m.add_class::<PyLabel>()?;
+    m.add_class::<PyButton>()?;
     m.add_function(wrap_pyfunction!(held, m)?)?;
     m.add_function(wrap_pyfunction!(pressed, m)?)?;
     m.add_function(wrap_pyfunction!(released, m)?)?;

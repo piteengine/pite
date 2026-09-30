@@ -20,7 +20,7 @@ class Player(pite.Node2D):
 
 - One file exports one class; attach with `path` + `class` in the scene file. `snake_case` everywhere.
 - `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
-- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float`, `Label` adds `text: str` (same two-way sync — set it and the screen updates).
+- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float`, `Label` adds `text: str` (same two-way sync — set it and the screen updates). `Button` extends `Node2D` with `text` plus a `size` prop (`[w, h]`, default `[120, 40]`).
 - The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`.
 - Talk across nodes with direct calls through `get_node`, which returns a proxy to the live node:
 
@@ -54,6 +54,18 @@ class Enemy(pite.Node2D):
 - Emitting the wrong arity or type fails loudly; emitting an undeclared signal fails loudly. There are no untyped string signals.
 - `connect(handler)` takes a bound method of a live node; when that node drops, its connections go with it — emitting afterwards simply skips it, no crash.
 - `pite check` warns about `.emit(`/`.connect(` calls with no matching `pite.signal(` declaration in the same file. Do not define your own methods named `emit` or `connect`.
+- `Button` clicks arrive as a zero-payload `pressed` signal fired by the engine (press-inside plus release-inside). Declare it and connect like any signal:
+
+```python
+class HitButton(pite.Button):
+    pressed = pite.signal()
+
+    def _ready(self):
+        self.get_node(".").pressed.connect(self.on_pressed)
+
+    def on_pressed(self):
+        self.get_node("../Player").hit.emit(1)
+```
 
 ## Input
 

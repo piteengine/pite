@@ -420,3 +420,7 @@ pub fn resolve_caller(caller: &str, path: &str) -> anyhow::Result<NodeProxy> {
         .ok_or_else(|| anyhow::anyhow!("{caller}: get_node({path:?}) found nothing"))?;
     Ok(proxy_for(host, target))
 }
+
+pub fn fire_pressed(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
+    Python::attach(|py| host.emit(py, id, "pressed", &PyTuple::empty(py)))
+}
