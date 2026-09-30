@@ -48,3 +48,9 @@ prefix = "e1_"
 ```
 
 Loading clones the referenced subtree under `parent` (`parent` defaults to the host root), remaps every id as `prefix + id` (collisions fail loudly), and applies overrides keyed `"node_id.prop"` (unknown targets fail loudly).
+
+## Rendering
+
+- `Sprite2D` draws its `texture` (a `res://` png path) centered on the node's global position at native pixel size. A missing texture renders magenta and warns once.
+- The first `Camera2D` node frames the view: the screen centers on its global position. Its optional `zoom` prop (number, default `1.0`) scales the world.
+- Global position is local `position` plus every ancestor's — moving a parent carries its children.

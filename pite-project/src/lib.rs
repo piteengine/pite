@@ -117,6 +117,15 @@ texture = "res://assets/player.png"
 [node.script]
 path = "res://scripts/player.py"
 class = "Player"
+
+[[node]]
+id = "cam"
+type = "Camera2D"
+name = "Camera"
+parent = "root"
+
+[node.props]
+position = [100.0, 200.0]
 "#;
 
 pub const TEMPLATE_SCRIPT: &str = r#"import pite
@@ -130,7 +139,17 @@ class Player(pite.Node2D):
 
     def _process(self, delta: float):
         x, y = self.position
-        self.position = (x + self.speed * delta, y)
+        if pite.held("ArrowRight"):
+            x += self.speed * delta
+        if pite.held("ArrowLeft"):
+            x -= self.speed * delta
+        if pite.held("ArrowDown"):
+            y += self.speed * delta
+        if pite.held("ArrowUp"):
+            y -= self.speed * delta
+        if pite.pressed("Space"):
+            x += 10.0
+        self.position = (x, y)
 "#;
 
 pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf> {

@@ -2,7 +2,8 @@
 //! the viewport talks to the trait so batching/3D later doesn't touch
 //! tree or editor code.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use wgpu::util::DeviceExt;
 
 pub trait Renderer2D {
     fn begin_frame(&mut self) -> Result<()>;
@@ -27,36 +28,547 @@ impl Renderer2D for NoopRenderer {
     }
 }
 
+pub fn world_to_screen(
+    world: (f64, f64),
+    cam: (f64, f64),
+    zoom: f64,
+    size: (u32, u32),
+) -> (f32, f32) {
+    let sx = (size.0 as f64 / 2.0 + (world.0 - cam.0) * zoom) as f32;
+    let sy = (size.1 as f64 / 2.0 + (world.1 - cam.1) * zoom) as f32;
+    (sx, sy)
+}
+
+pub fn screen_to_ndc(screen: (f32, f32), size: (u32, u32)) -> (f32, f32) {
+    (
+        screen.0 / size.0 as f32 * 2.0 - 1.0,
+        1.0 - screen.1 / size.1 as f32 * 2.0,
+    )
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct SpriteVertex {
+    pos: [f32; 2],
+    uv: [f32; 2],
+}
+
+fn quad_for(center_ndc: (f32, f32), w_px: f32, h_px: f32, size: (u32, u32)) -> [SpriteVertex; 4] {
+    let hw = w_px / size.0 as f32 / 2.0;
+    let hh = h_px / size.1 as f32 / 2.0;
+    let (cx, cy) = center_ndc;
+    [
+        SpriteVertex { pos: [cx - hw, cy + hh], uv: [0.0, 0.0] },
+        SpriteVertex { pos: [cx + hw, cy + hh], uv: [1.0, 0.0] },
+        SpriteVertex { pos: [cx + hw, cy - hh], uv: [1.0, 1.0] },
+        SpriteVertex { pos: [cx - hw, cy - hh], uv: [0.0, 1.0] },
+    ]
+}
+
+const SPRITE_SHADER: &str = r#"
+struct VertexOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@group(0) @binding(0) var sprite_tex: texture_2d<f32>;
+@group(0) @binding(1) var sprite_smp: sampler;
+
+@vertex
+fn vs(@location(0) p: vec2<f32>, @location(1) uv: vec2<f32>) -> VertexOut {
+    var out: VertexOut;
+    out.pos = vec4<f32>(p, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@fragment
+fn fs(in: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(sprite_tex, sprite_smp, in.uv);
+}
+"#;
+
+struct GpuTexture {
+    #[allow(dead_code)]
+    texture: wgpu::Texture,
+    #[allow(dead_code)]
+    view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+    w: u32,
+    h: u32,
+}
+
+struct QueuedSprite {
+    tex_key: String,
+    world: (f64, f64),
+}
+
+fn create_sprite_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> (wgpu::BindGroupLayout, wgpu::RenderPipeline, wgpu::Sampler) {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("pite sprite"),
+        source: wgpu::ShaderSource::Wgsl(SPRITE_SHADER.into()),
+    });
+    let tex_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("pite tex layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let pipe_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("pite pipe layout"),
+        bind_group_layouts: &[&tex_layout],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("pite sprite pipe"),
+        layout: Some(&pipe_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<SpriteVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+            }],
+            compilation_options: Default::default(),
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        multiview: None,
+        cache: None,
+    });
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("pite sampler"),
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+    (tex_layout, pipeline, sampler)
+}
+
+fn bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    view: &wgpu::TextureView,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("pite tex bind"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+fn upload(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    rgba: &[u8],
+    w: u32,
+    h: u32,
+) -> wgpu::Texture {
+    let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("pite tex"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * w),
+            rows_per_image: Some(h),
+        },
+        size,
+    );
+    tex
+}
+
 pub struct WgpuRenderer {
-    inner: NoopRenderer,
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    pipeline: wgpu::RenderPipeline,
+    sampler: wgpu::Sampler,
+    tex_layout: wgpu::BindGroupLayout,
+    textures: std::collections::HashMap<String, GpuTexture>,
+    queue_list: Vec<QueuedSprite>,
+    cam: (f64, f64),
+    zoom: f64,
 }
 
 impl WgpuRenderer {
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            inner: NoopRenderer,
-        })
-    }
-}
+    pub fn new(window: std::sync::Arc<winit::window::Window>) -> Result<Self> {
+        let size = window.inner_size();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let surface = instance.create_surface(window)?;
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            }))
+            .context("no suitable GPU adapter")?;
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor::default(),
+            None,
+        ))
+        .context("cannot request GPU device")?;
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
+        let alpha = caps
+            .alpha_modes
+            .first()
+            .copied()
+            .unwrap_or(wgpu::CompositeAlphaMode::Auto);
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: alpha,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
 
-impl Default for WgpuRenderer {
-    fn default() -> Self {
-        Self {
-            inner: NoopRenderer,
+        let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
+        let renderer = Self {
+            surface,
+            device,
+            queue,
+            config,
+            pipeline,
+            sampler,
+            tex_layout,
+            textures: std::collections::HashMap::new(),
+            queue_list: Vec::new(),
+            cam: (0.0, 0.0),
+            zoom: 1.0,
+        };
+        Ok(renderer)
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
         }
+    }
+
+    pub fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
+        self.cam = (x, y);
+        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+    }
+
+    fn load_texture(&self, key: &str) -> GpuTexture {
+        match image::open(key).map(|img| img.to_rgba8()).ok() {
+            Some(rgba) => {
+                let (w, h) = (rgba.width(), rgba.height());
+                let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                let view = texture.create_view(&Default::default());
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture { texture, view, bind_group, w, h }
+            }
+            None => {
+                tracing::warn!(texture = key, "cannot load texture, using fallback");
+                let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
+                let view = texture.create_view(&Default::default());
+                let bind_group =
+                    bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture { texture, view, bind_group, w: 8, h: 8 }
+            }
+        }
+    }
+
+    fn texture_for(&mut self, key: &str) -> &GpuTexture {
+        if !self.textures.contains_key(key) {
+            let entry = self.load_texture(key);
+            self.textures.insert(key.to_string(), entry);
+        }
+        &self.textures[key]
     }
 }
 
 impl Renderer2D for WgpuRenderer {
     fn begin_frame(&mut self) -> Result<()> {
-        self.inner.begin_frame()
+        self.queue_list.clear();
+        Ok(())
     }
 
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
-        self.inner.draw_sprite(texture, x, y)
+        self.queue_list.push(QueuedSprite {
+            tex_key: texture.to_string(),
+            world: (x, y),
+        });
+        Ok(())
     }
 
     fn end_frame(&mut self) -> Result<()> {
-        self.inner.end_frame()
+        let size = (self.config.width, self.config.height);
+        let mut groups: std::collections::HashMap<String, Vec<SpriteVertex>> =
+            std::collections::HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+        let sprites = std::mem::take(&mut self.queue_list);
+        for sprite in sprites {
+            let tex = self.texture_for(&sprite.tex_key);
+            let (w, h) = (tex.w as f32, tex.h as f32);
+            let screen = world_to_screen(sprite.world, self.cam, self.zoom, size);
+            let ndc = screen_to_ndc(screen, size);
+            let quad = quad_for(ndc, w, h, size);
+            if !groups.contains_key(&sprite.tex_key) {
+                order.push(sprite.tex_key.clone());
+            }
+            groups.entry(sprite.tex_key).or_default().extend_from_slice(&quad);
+        }
+        let frame = match self.surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                self.surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+            Err(e) => anyhow::bail!("surface failed: {e}"),
+        };
+        let view = frame.texture.create_view(&Default::default());
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pite pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.07,
+                            g: 0.07,
+                            b: 0.10,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            for key in order {
+                let verts = &groups[&key];
+                let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("pite verts"),
+                    contents: bytemuck::cast_slice(verts),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let tex = &self.textures[&key];
+                pass.set_bind_group(0, &tex.bind_group, &[]);
+                pass.set_vertex_buffer(0, buf.slice(..));
+                pass.draw(0..verts.len() as u32, 0..1);
+            }
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+        frame.present();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camera_frames_world_into_ndc() {
+        let size = (800, 600);
+        let (sx, sy) = world_to_screen((100.0, 200.0), (100.0, 200.0), 1.0, size);
+        assert_eq!((sx, sy), (400.0, 300.0));
+        let (nx, ny) = screen_to_ndc((sx, sy), size);
+        assert!((nx.abs() < 1e-6) && (ny.abs() < 1e-6));
+        let (sx2, _) = world_to_screen((110.0, 200.0), (100.0, 200.0), 2.0, size);
+        assert!((sx2 - 420.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn quad_is_centered_and_textured() {
+        let quad = quad_for((0.0, 0.0), 32.0, 32.0, (800, 600));
+        assert_eq!(quad.len(), 4);
+        let xs: Vec<f32> = quad.iter().map(|v| v.pos[0]).collect();
+        assert!((xs[0] + 0.02).abs() < 1e-6 && (xs[1] - 0.02).abs() < 1e-6);
+        assert_eq!(quad[0].uv, [0.0, 0.0]);
+        assert_eq!(quad[2].uv, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn demo_textures_decode() {
+        let player = image::open("../examples/minimal-2d/assets/player.png").unwrap();
+        assert_eq!((player.width(), player.height()), (32, 32));
+    }
+
+    #[test]
+    fn sprite_renders_green_pixel_offscreen() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let Some(adapter) = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            },
+        )) else {
+            eprintln!("SKIP: no fallback GPU adapter on this machine");
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .unwrap();
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
+
+        let rgba = image::open("../examples/minimal-2d/assets/player.png")
+            .unwrap()
+            .to_rgba8();
+        let sprite = upload(&device, &queue, &rgba, 32, 32);
+        let sprite_view = sprite.create_view(&Default::default());
+        let sprite_bg = bind_group(&device, &tex_layout, &sampler, &sprite_view);
+
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("pite test target"),
+            size: wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&Default::default());
+        let quad = [
+            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
+            SpriteVertex { pos: [1.0, 1.0], uv: [1.0, 0.0] },
+            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
+            SpriteVertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
+        ];
+        let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test verts"),
+            contents: bytemuck::cast_slice(&quad),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pite test pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &sprite_bg, &[]);
+            pass.set_vertex_buffer(0, vbuf.slice(..));
+            pass.draw(0..4, 0..1);
+        }
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pite test readback"),
+            size: 64 * 64 * 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(64 * 4),
+                    rows_per_image: Some(64),
+                },
+            },
+            wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+        let (tx, rx) = std::sync::mpsc::channel();
+        readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            tx.send(r).unwrap();
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let center: [u8; 4];
+        {
+            let view = readback.slice(..).get_mapped_range();
+            let i = (32 * 64 + 32) * 4;
+            center = [view[i], view[i + 1], view[i + 2], view[i + 3]];
+        }
+        readback.unmap();
+        assert!(
+            center[1] as i32 - center[0] as i32 > 60,
+            "center pixel should be sprite-green, got {center:?}"
+        );
     }
 }

@@ -19,6 +19,15 @@ texture = "res://assets/player.png"
 path = "res://scripts/player.py"
 class = "Player"
 
+[[node]]
+id = "cam"
+type = "Camera2D"
+name = "Camera"
+parent = "root"
+
+[node.props]
+position = [100.0, 200.0]
+
 [[instance]]
 scene = "res://scenes/enemy.pitescene"
 parent = "root"

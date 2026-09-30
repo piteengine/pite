@@ -9,7 +9,10 @@ use pite_runtime::GameSession;
 
 pub fn launch(scene: &Path) -> Result<()> {
     let app = EditorApp::new(scene)?;
-    let options = eframe::NativeOptions::default();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]),
+        ..Default::default()
+    };
     eframe::run_native(
         "Pite Editor",
         options,
@@ -103,7 +106,7 @@ impl eframe::App for EditorApp {
             });
         });
 
-        egui::SidePanel::left("tree").show(ctx, |ui| {
+        egui::SidePanel::left("tree").default_width(220.0).show(ctx, |ui| {
             ui.heading("Scene tree");
             let root = self
                 .session
@@ -114,7 +117,7 @@ impl eframe::App for EditorApp {
             }
         });
 
-        egui::SidePanel::right("inspector").show(ctx, |ui| {
+        egui::SidePanel::right("inspector").default_width(280.0).show(ctx, |ui| {
             ui.heading("Inspector");
             match self.selected.clone() {
                 Some(id) => self.show_inspector(ui, &id),
@@ -133,7 +136,7 @@ impl eframe::App for EditorApp {
             });
         });
 
-        egui::SidePanel::left("assets").show(ctx, |ui| {
+        egui::SidePanel::left("assets").default_width(220.0).show(ctx, |ui| {
             ui.heading("Assets");
             let files = self.asset_files();
             egui::ScrollArea::vertical().show(ui, |ui| {

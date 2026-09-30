@@ -29,6 +29,18 @@ self.get_node("../Player").take_damage(1)
 
 Paths resolve against node names: `..` (parent), `.` (self), `Child` (named child), `/root/…` (absolute). A miss raises `KeyError`. The names `emit`/`connect` are reserved for the future signal system — do not define them.
 
+## Input
+
+```python
+if pite.held("ArrowRight"):
+    x += self.speed * delta
+if pite.pressed("Space"):
+    x += 10.0
+```
+
+- `held(key)` is true while down (continuous movement); `pressed(key)` fires on the single frame it goes down (single steps); `released(key)` on the frame it comes up. `mouse()` returns the cursor `(x, y)` in pixels.
+- Key names: `A`–`Z`, `0`–`9`, `ArrowLeft/Right/Up/Down`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Shift`, `Control`, `Alt`, plus `MouseLeft/MouseRight/MouseMiddle`. Input is pumped on the main thread and visible inside `_process`.
+
 ## Errors and reload
 
 - A script exception is reported with node path, file, and line; the node keeps its last good state and the game keeps running. Repeat offenders are parked after the first error (see the console).

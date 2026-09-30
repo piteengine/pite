@@ -96,7 +96,32 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySprite2D>()?;
     m.add_class::<PyCamera2D>()?;
     m.add_class::<PyTimer>()?;
+    m.add_class::<crate::host::NodeProxy>()?;
+    m.add_function(wrap_pyfunction!(held, m)?)?;
+    m.add_function(wrap_pyfunction!(pressed, m)?)?;
+    m.add_function(wrap_pyfunction!(released, m)?)?;
+    m.add_function(wrap_pyfunction!(mouse, m)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn held(key: &str) -> bool {
+    crate::input_held(key)
+}
+
+#[pyfunction]
+fn pressed(key: &str) -> bool {
+    crate::input_pressed(key)
+}
+
+#[pyfunction]
+fn released(key: &str) -> bool {
+    crate::input_released(key)
+}
+
+#[pyfunction]
+fn mouse() -> (f64, f64) {
+    crate::input_mouse()
 }
 
 static INIT: Once = Once::new();
