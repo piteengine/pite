@@ -260,6 +260,19 @@ impl EditorApp {
                 });
             }
         });
+        if let Some(PropValue::Str(current)) = node.props.get("text") {
+            let mut text = current.clone();
+            ui.horizontal(|ui| {
+                ui.label("text");
+                if ui.text_edit_singleline(&mut text).changed() {
+                    self.session.host().with_tree_mut(|t| {
+                        if let Some(n) = t.get_mut(&node_id) {
+                            n.props.insert("text".to_string(), PropValue::Str(text.clone()));
+                        }
+                    });
+                }
+            });
+        }
         match &node.script {
             Some(script) => {
                 ui.label(format!("script: {} ({})", script.path, script.class_name));
@@ -276,22 +289,27 @@ impl EditorApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui) {
-        let nodes: Vec<(String, String, (f64, f64))> = self.session.host().with_tree(|t| {
-            t.iter()
-                .map(|n| {
-                    let pos = match n.props.get("position") {
-                        Some(PropValue::Vec2(x, y)) => (*x, *y),
-                        _ => (0.0, 0.0),
-                    };
-                    (n.id.to_string(), n.type_name.clone(), pos)
-                })
-                .collect()
-        });
+        let nodes: Vec<(String, String, (f64, f64), String)> =
+            self.session.host().with_tree(|t| {
+                t.iter()
+                    .map(|n| {
+                        let pos = match n.props.get("position") {
+                            Some(PropValue::Vec2(x, y)) => (*x, *y),
+                            _ => (0.0, 0.0),
+                        };
+                        let text = match n.props.get("text") {
+                            Some(PropValue::Str(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+                        (n.id.to_string(), n.type_name.clone(), pos, text)
+                    })
+                    .collect()
+            });
         let (resp, painter) =
             ui.allocate_painter(egui::Vec2::new(ui.available_width(), 240.0), egui::Sense::hover());
         let center = resp.rect.center();
         painter.rect_filled(resp.rect, 0.0, egui::Color32::from_gray(24));
-        for (id, type_name, (x, y)) in nodes {
+        for (id, type_name, (x, y), text) in nodes {
             let p = center + egui::Vec2::new(x as f32, y as f32);
             let color = if type_name == "Sprite2D" {
                 egui::Color32::LIGHT_GREEN
@@ -299,10 +317,11 @@ impl EditorApp {
                 egui::Color32::LIGHT_BLUE
             };
             painter.circle_filled(p, 6.0, color);
+            let caption = if text.is_empty() { id } else { text };
             painter.text(
                 p + egui::Vec2::new(10.0, -10.0),
                 egui::Align2::LEFT_TOP,
-                id,
+                caption,
                 egui::FontId::monospace(11.0),
                 egui::Color32::WHITE,
             );

@@ -195,6 +195,9 @@ impl GameSession {
                     if let Some((x, y)) = seed_position(tree, &id) {
                         slot.backend.set_position(x, y);
                     }
+                    if let Some(text) = seed_text(tree, &id) {
+                        slot.backend.set_text(&text);
+                    }
                 });
                 self.slots.push(slot);
                 continue;
@@ -210,6 +213,9 @@ impl GameSession {
                     self.host.with_tree(|tree| {
                         if let Some((x, y)) = seed_position(tree, &id) {
                             backend.set_position(x, y);
+                        }
+                        if let Some(text) = seed_text(tree, &id) {
+                            backend.set_text(&text);
                         }
                     });
                     let mut errored = false;
@@ -303,6 +309,13 @@ impl GameSession {
                 self.host.with_tree_mut(|tree| {
                     if let Some(node) = tree.get_mut(&slot.id) {
                         node.props.insert("position".to_string(), PropValue::Vec2(x, y));
+                    }
+                });
+            }
+            if let Some(text) = slot.backend.text() {
+                self.host.with_tree_mut(|tree| {
+                    if let Some(node) = tree.get_mut(&slot.id) {
+                        node.props.insert("text".to_string(), PropValue::Str(text));
                     }
                 });
             }
@@ -440,6 +453,33 @@ impl App {
                 let resolved = self.session.resolve_path(&tex);
                 renderer.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
             }
+            let labels: Vec<(String, f32, [u8; 4], (f64, f64))> =
+                self.session.host().with_tree(|tree| {
+                    tree.iter()
+                        .filter(|n| n.type_name == "Label")
+                        .filter_map(|n| {
+                            let text = match n.props.get("text") {
+                                Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                                _ => return None,
+                            };
+                            let size = match n.props.get("font_size") {
+                                Some(PropValue::Num(s)) => *s as f32,
+                                Some(PropValue::Int(s)) => *s as f32,
+                                _ => 16.0,
+                            };
+                            let color = match n.props.get("color") {
+                                Some(PropValue::Str(s)) => {
+                                    pite_render::text::parse_color(s)
+                                }
+                                _ => [255, 255, 255, 255],
+                            };
+                            Some((text, size, color, global_position(tree, &n.id)))
+                        })
+                        .collect()
+                });
+            for (text, size, color, pos) in labels {
+                renderer.draw_text(&text, pos.0, pos.1, size, color)?;
+            }
             renderer.end_frame()?;
             Ok(())
         })();
@@ -501,6 +541,13 @@ pub fn run_with_options(options: &RunOptions) -> Result<()> {
 fn seed_position(tree: &NodeTree, id: &NodeId) -> Option<(f64, f64)> {
     match tree.get(id)?.props.get("position") {
         Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
+        _ => None,
+    }
+}
+
+fn seed_text(tree: &NodeTree, id: &NodeId) -> Option<String> {
+    match tree.get(id)?.props.get("text") {
+        Some(PropValue::Str(s)) => Some(s.clone()),
         _ => None,
     }
 }
@@ -617,6 +664,65 @@ mod tests {
         let scene = dir.join("scenes").join("main.pitescene");
         let session = GameSession::open(&scene, true).unwrap();
         assert!(session.watch_rx.is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const HUD: &str = "import pite\n\nclass Hud(pite.Label):\n    def _process(self, delta):\n        self.text = \"HP: 2\"\n";
+    fn hud_text(session: &GameSession) -> String {
+        session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from("hud".to_string())) {
+                Some(n) => match n.props.get("text") {
+                    Some(PropValue::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                None => String::new(),
+            })
+    }
+
+    #[test]
+    fn script_text_reaches_tree_and_renderer() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-hud-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"hud\"\ntype = \"Label\"\nname = \"Hud\"\nparent = \"root\"\n\n[node.props]\ntext = \"HP: 3\"\nfont_size = 20.0\n\n[node.script]\npath = \"res://scripts/hud.py\"\nclass = \"Hud\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("scripts").join("hud.py"), HUD).unwrap();
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        assert_eq!(hud_text(&session), "HP: 3");
+        session.update(0.016);
+        assert_eq!(hud_text(&session), "HP: 2");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const PINGER: &str = "import pite\n\nclass Pinger(pite.Node2D):\n    ping = pite.signal(int)\n    def _process(self, delta):\n        if not getattr(self, \"_sent\", False):\n            self._sent = True\n            self.ping.emit(1)\n";
+    const PONGER: &str = "import pite\n\nclass Ponger(pite.Node2D):\n    def _ready(self):\n        self.get_node(\"../Pinger\").ping.connect(self.on_ping)\n    def on_ping(self, n):\n        self.get_node(\"../Hud\").text = \"hit!\"\n";
+
+    #[test]
+    fn signal_reaches_label_through_proxy() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-siglbl-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"pinger\"\ntype = \"Node2D\"\nname = \"Pinger\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/pinger.py\"\nclass = \"Pinger\"\n\n[[node]]\nid = \"ponger\"\ntype = \"Node2D\"\nname = \"Ponger\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/ponger.py\"\nclass = \"Ponger\"\n\n[[node]]\nid = \"hud\"\ntype = \"Label\"\nname = \"Hud\"\nparent = \"root\"\n\n[node.props]\ntext = \"waiting\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("scripts").join("pinger.py"), PINGER).unwrap();
+        std::fs::write(dir.join("scripts").join("ponger.py"), PONGER).unwrap();
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        assert_eq!(hud_text(&session), "waiting");
+        session.update(0.016);
+        assert_eq!(hud_text(&session), "hit!");
         std::fs::remove_dir_all(&dir).ok();
     }
 

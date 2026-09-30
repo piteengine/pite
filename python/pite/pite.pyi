@@ -14,6 +14,7 @@ class Node:
 
 class NodeProxy:
     position: tuple[float, float]
+    text: str
 
 def held(key: str) -> bool: ...
 def pressed(key: str) -> bool: ...
@@ -30,3 +31,6 @@ class Camera2D(Node2D): ...
 
 class Timer(Node):
     wait_time: float
+
+class Label(Node):
+    text: str

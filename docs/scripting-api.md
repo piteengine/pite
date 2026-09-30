@@ -20,7 +20,8 @@ class Player(pite.Node2D):
 
 - One file exports one class; attach with `path` + `class` in the scene file. `snake_case` everywhere.
 - `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
-- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float`.
+- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float`, `Label` adds `text: str` (same two-way sync — set it and the screen updates).
+- The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`.
 - Talk across nodes with direct calls through `get_node`, which returns a proxy to the live node:
 
 ```python

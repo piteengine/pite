@@ -326,9 +326,38 @@ impl NodeProxy {
         });
     }
 
+    #[getter]
+    fn text(&self) -> PyResult<String> {
+        use pite_core::PropValue;
+        self.host.with_tree(|tree| {
+            let node =
+                tree.get(&NodeId::from(self.target.clone())).ok_or_else(|| {
+                    pyo3::exceptions::PyKeyError::new_err(format!(
+                        "node {:?} no longer exists",
+                        self.target
+                    ))
+                })?;
+            match node.props.get("text") {
+                Some(PropValue::Str(s)) => Ok(s.clone()),
+                _ => Ok(String::new()),
+            }
+        })
+    }
+
+    #[setter]
+    fn set_text(&self, text: String) {
+        use pite_core::PropValue;
+        self.host.with_tree_mut(|tree| {
+            if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
+                node.props
+                    .insert("text".to_string(), PropValue::Str(text));
+            }
+        });
+    }
+
     fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<Py<PyAny>> {
-        if name == "position" {
-            return Err(pyo3::exceptions::PyAttributeError::new_err("position"));
+        if name == "position" || name == "text" {
+            return Err(pyo3::exceptions::PyAttributeError::new_err(name));
         }
         if self.host.has_signal(&self.target, &name) {
             let bound = BoundSignal {

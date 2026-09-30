@@ -5,9 +5,12 @@
 use anyhow::{Context, Result};
 use wgpu::util::DeviceExt;
 
+pub mod text;
+
 pub trait Renderer2D {
     fn begin_frame(&mut self) -> Result<()>;
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()>;
+    fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
     fn end_frame(&mut self) -> Result<()>;
 }
 
@@ -20,6 +23,17 @@ impl Renderer2D for NoopRenderer {
     }
 
     fn draw_sprite(&mut self, _texture: &str, _x: f64, _y: f64) -> Result<()> {
+        Ok(())
+    }
+
+    fn draw_text(
+        &mut self,
+        _text: &str,
+        _x: f64,
+        _y: f64,
+        _size: f32,
+        _color: [u8; 4],
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -242,6 +256,9 @@ pub struct WgpuRenderer {
     sampler: wgpu::Sampler,
     tex_layout: wgpu::BindGroupLayout,
     textures: std::collections::HashMap<String, GpuTexture>,
+    baked: std::collections::HashMap<String, text::BakedText>,
+    baked_order: std::collections::VecDeque<String>,
+    atlas: text::TextAtlas,
     queue_list: Vec<QueuedSprite>,
     cam: (f64, f64),
     zoom: f64,
@@ -298,6 +315,9 @@ impl WgpuRenderer {
             sampler,
             tex_layout,
             textures: std::collections::HashMap::new(),
+            baked: std::collections::HashMap::new(),
+            baked_order: std::collections::VecDeque::new(),
+            atlas: text::TextAtlas::new()?,
             queue_list: Vec::new(),
             cam: (0.0, 0.0),
             zoom: 1.0,
@@ -340,10 +360,42 @@ impl WgpuRenderer {
 
     fn texture_for(&mut self, key: &str) -> &GpuTexture {
         if !self.textures.contains_key(key) {
-            let entry = self.load_texture(key);
+            let baked = self
+                .baked
+                .get(key)
+                .map(|b| (b.rgba.clone(), b.w, b.h));
+            let entry = match baked {
+                Some((rgba, w, h)) => {
+                    let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                    let view = texture.create_view(&Default::default());
+                    let bind_group =
+                        bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                    GpuTexture { texture, view, bind_group, w, h }
+                }
+                None => self.load_texture(key),
+            };
             self.textures.insert(key.to_string(), entry);
         }
         &self.textures[key]
+    }
+
+    fn draw_text_queued(&mut self, text: &str, world: (f64, f64), size: f32, color: [u8; 4]) {
+        if text.is_empty() {
+            return;
+        }
+        let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
+        let key = text::glyph_cache_key(text, px, color);
+        if !self.baked.contains_key(&key) {
+            self.baked.insert(key.clone(), self.atlas.bake(text, px as f32, color));
+            text::lru_touch(&mut self.baked_order, &key, 64);
+            while self.baked_order.len() > 64 {
+                if let Some(old) = self.baked_order.pop_front() {
+                    self.baked.remove(&old);
+                    self.textures.remove(&old);
+                }
+            }
+        }
+        self.queue_list.push(QueuedSprite { tex_key: key, world });
     }
 }
 
@@ -358,6 +410,11 @@ impl Renderer2D for WgpuRenderer {
             tex_key: texture.to_string(),
             world: (x, y),
         });
+        Ok(())
+    }
+
+    fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
+        self.draw_text_queued(text, (x, y), size, color);
         Ok(())
     }
 
@@ -570,5 +627,113 @@ mod tests {
             center[1] as i32 - center[0] as i32 > 60,
             "center pixel should be sprite-green, got {center:?}"
         );
+    }
+
+    #[test]
+    fn baked_text_renders_bright_pixels_offscreen() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let Some(adapter) = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            },
+        )) else {
+            eprintln!("SKIP: no fallback GPU adapter on this machine");
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .unwrap();
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
+
+        let atlas = text::TextAtlas::new().unwrap();
+        let baked = atlas.bake("HP", 32.0, [255, 255, 255, 255]);
+        let glyph = upload(&device, &queue, &baked.rgba, baked.w, baked.h);
+        let glyph_view = glyph.create_view(&Default::default());
+        let glyph_bg = bind_group(&device, &tex_layout, &sampler, &glyph_view);
+
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("pite text test target"),
+            size: wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&Default::default());
+        let quad = [
+            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
+            SpriteVertex { pos: [1.0, 1.0], uv: [1.0, 0.0] },
+            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
+            SpriteVertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
+        ];
+        let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite text test verts"),
+            contents: bytemuck::cast_slice(&quad),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pite text test pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.2, a: 1.0 }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &glyph_bg, &[]);
+            pass.set_vertex_buffer(0, vbuf.slice(..));
+            pass.draw(0..4, 0..1);
+        }
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pite text test readback"),
+            size: 64 * 64 * 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(64 * 4),
+                    rows_per_image: Some(64),
+                },
+            },
+            wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+        let (tx, rx) = std::sync::mpsc::channel();
+        readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            tx.send(r).unwrap();
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let bright = {
+            let view = readback.slice(..).get_mapped_range();
+            view.chunks(4)
+                .filter(|px| px[0] > 200 && px[1] > 200 && px[2] > 200)
+                .count()
+        };
+        readback.unmap();
+        assert!(bright > 10, "expected bright glyph pixels, got {bright}");
     }
 }

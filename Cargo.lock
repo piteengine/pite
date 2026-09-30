@@ -2577,6 +2577,7 @@ dependencies = [
 name = "pite-render"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "anyhow",
  "bytemuck",
  "image",

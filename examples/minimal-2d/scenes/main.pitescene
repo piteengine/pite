@@ -28,6 +28,18 @@ parent = "root"
 [node.props]
 position = [100.0, 200.0]
 
+[[node]]
+id = "hplabel"
+type = "Label"
+name = "HpLabel"
+parent = "root"
+
+[node.props]
+text = "HP: 3"
+font_size = 20.0
+position = [100.0, 80.0]
+color = "#4ADE80"
+
 [[instance]]
 scene = "res://scenes/enemy.pitescene"
 parent = "root"

@@ -32,6 +32,12 @@ pub trait ScriptBackend {
 
     fn set_position(&mut self, _x: f64, _y: f64) {}
 
+    fn text(&self) -> Option<String> {
+        None
+    }
+
+    fn set_text(&mut self, _text: &str) {}
+
     fn last_error(&self) -> Option<String> {
         None
     }

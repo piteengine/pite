@@ -30,7 +30,7 @@ class = "Player"
 
 - `format_version` starts at 1. An unsupported version fails loudly at parse — never silently reinterpreted.
 - `root` must name a node in the list. A node whose `parent` names nothing is tolerated at load and reported by `pite check` as an error.
-- `type` must be registered (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`); anything else is a `check` error.
+- `type` must be registered (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`); anything else is a `check` error.
 - `props` is open: scalars map to typed values, a 2-number array maps to `Vec2`, anything else is kept as text. **Unknown props warn and survive a save** (forward compat).
 - `script` is optional. A missing script file is a `check` warning and loads as a placeholder node — never a load failure.
 - All paths are project-relative (`res://…`); absolute paths are forbidden.
@@ -54,3 +54,8 @@ Loading clones the referenced subtree under `parent` (`parent` defaults to the h
 - `Sprite2D` draws its `texture` (a `res://` png path) centered on the node's global position at native pixel size. A missing texture renders magenta and warns once.
 - The first `Camera2D` node frames the view: the screen centers on its global position. Its optional `zoom` prop (number, default `1.0`) scales the world.
 - Global position is local `position` plus every ancestor's — moving a parent carries its children.
+
+## Text
+
+- `Label` draws its `text` (string, default empty) centered on the node's global position, through the same camera as sprites. `font_size` (number, default `16.0`) is in world units and scales with zoom; `color` is `#rgb`, `#rrggbb`, or `#rrggbbaa` (default white, garbage falls back to white).
+- Text rasterizes from the bundled Inter font; scripts and other nodes read/write it as a plain `text` prop.

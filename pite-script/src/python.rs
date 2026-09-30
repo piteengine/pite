@@ -91,6 +91,25 @@ impl PyTimer {
     }
 }
 
+#[pyclass(extends = PyNode, subclass, name = "Label")]
+struct PyLabel {
+    #[pyo3(get, set)]
+    text: String,
+}
+
+#[pymethods]
+impl PyLabel {
+    #[new]
+    fn new() -> (Self, PyNode) {
+        (
+            Self {
+                text: String::new(),
+            },
+            PyNode::new(),
+        )
+    }
+}
+
 #[pymodule]
 fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
@@ -98,6 +117,7 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySprite2D>()?;
     m.add_class::<PyCamera2D>()?;
     m.add_class::<PyTimer>()?;
+    m.add_class::<PyLabel>()?;
     m.add_function(wrap_pyfunction!(held, m)?)?;
     m.add_function(wrap_pyfunction!(pressed, m)?)?;
     m.add_function(wrap_pyfunction!(released, m)?)?;
@@ -415,10 +435,14 @@ impl ScriptBackend for Pyo3Backend {
 
     fn reload(&mut self) -> Result<()> {
         let pos = self.position();
+        let text = self.text();
         self.last_error = None;
         self.exec()?;
         if let Some((x, y)) = pos {
             self.set_position(x, y);
+        }
+        if let Some(text) = text {
+            self.set_text(&text);
         }
         Ok(())
     }
@@ -439,6 +463,26 @@ impl ScriptBackend for Pyo3Backend {
         Python::attach(|py| {
             if let Some(inst) = &self.instance {
                 let _ = inst.bind(py).setattr("position", (x, y));
+            }
+        });
+    }
+
+    fn text(&self) -> Option<String> {
+        Python::attach(|py| {
+            self.instance
+                .as_ref()?
+                .bind(py)
+                .getattr("text")
+                .ok()?
+                .extract()
+                .ok()
+        })
+    }
+
+    fn set_text(&mut self, text: &str) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("text", text);
             }
         });
     }
@@ -592,6 +636,44 @@ class Attacker(pite.Node2D):
             let hp: i64 = inst.bind(py).getattr("hp").unwrap().extract().unwrap();
             assert_eq!(hp, 2);
         });
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const LABELER: &str = r#"
+import pite
+
+class Hud(pite.Label):
+    def _ready(self):
+        self.text = "HP: 3"
+
+    def _process(self, delta):
+        self.text = "HP: 2"
+"#;
+
+    #[test]
+    fn label_text_syncs_both_ways() {
+        let dir = test_dir("label");
+        let file = fixture(&dir, "hud.py", LABELER);
+        let mut backend = Pyo3Backend::new("hud");
+        backend.load(&file, "Hud").unwrap();
+        backend.set_text("seed");
+        assert_eq!(backend.text().as_deref(), Some("seed"));
+        backend.call_ready().unwrap();
+        assert_eq!(backend.text().as_deref(), Some("HP: 3"));
+        backend.call_process(0.016).unwrap();
+        assert_eq!(backend.text().as_deref(), Some("HP: 2"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plain_node_has_no_text_channel() {
+        let dir = test_dir("notext");
+        let file = fixture(&dir, "plain.py", "import pite\n\nclass Plain(pite.Node):\n    pass\n");
+        let mut backend = Pyo3Backend::new("plain");
+        backend.load(&file, "Plain").unwrap();
+        assert_eq!(backend.text(), None);
+        backend.set_text("ignored");
+        backend.call_process(0.016).unwrap();
         std::fs::remove_dir_all(&dir).ok();
     }
 
