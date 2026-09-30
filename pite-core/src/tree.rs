@@ -62,6 +62,14 @@ impl NodeTree {
             .unwrap_or_default()
     }
 
+    pub fn get_mut(&mut self, id: &NodeId) -> Option<&mut Node> {
+        self.nodes.get_mut(id.as_str())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Node> {
+        self.order.iter().filter_map(|k| self.nodes.get(k))
+    }
+
     pub fn root(&self) -> Option<&NodeId> {
         self.root.as_ref()
     }

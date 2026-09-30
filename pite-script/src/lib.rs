@@ -1,7 +1,11 @@
 //! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl (M1b);
 //! future backends (or a mock for tests) plug in without touching runtime.
 
+mod python;
+
 use anyhow::Result;
+
+pub use python::Pyo3Backend;
 
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];
 
@@ -14,6 +18,16 @@ pub trait ScriptBackend {
     fn call_ready(&mut self) -> Result<()>;
     fn call_process(&mut self, delta: f64) -> Result<()>;
     fn reload(&mut self) -> Result<()>;
+
+    fn position(&self) -> Option<(f64, f64)> {
+        None
+    }
+
+    fn set_position(&mut self, _x: f64, _y: f64) {}
+
+    fn last_error(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Default)]

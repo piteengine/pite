@@ -6,6 +6,19 @@ id = "root"
 type = "Node2D"
 name = "Main"
 
+[[node]]
+id = "player"
+type = "Sprite2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+texture = "res://assets/player.png"
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+
 [[instance]]
 scene = "res://scenes/enemy.pitescene"
 parent = "root"

@@ -104,6 +104,33 @@ root = "root"
 id = "root"
 type = "Node2D"
 name = "Main"
+
+[[node]]
+id = "player"
+type = "Sprite2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+texture = "res://assets/player.png"
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+"#;
+
+pub const TEMPLATE_SCRIPT: &str = r#"import pite
+
+
+class Player(pite.Node2D):
+    speed: float = 200.0
+
+    def _ready(self):
+        self.position = (100.0, 200.0)
+
+    def _process(self, delta: float):
+        x, y = self.position
+        self.position = (x + self.speed * delta, y)
 "#;
 
 pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf> {
@@ -126,5 +153,6 @@ pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf
         TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
     )?;
     std::fs::write(dir.join("scenes").join("main.pitescene"), TEMPLATE_SCENE)?;
+    std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
     Ok(dir)
 }
