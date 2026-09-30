@@ -1,4 +1,5 @@
 mod cmd_check;
+mod cmd_edit;
 mod cmd_new;
 mod cmd_run;
 
@@ -33,6 +34,10 @@ enum Command {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    Edit {
+        #[arg(long)]
+        scene: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -44,5 +49,6 @@ fn main() -> Result<()> {
         Command::New { name, template } => cmd_new::run(&name, &template),
         Command::Run { scene, no_reload } => cmd_run::run(&scene, no_reload),
         Command::Check { path, strict, json } => cmd_check::run(path.as_deref(), strict, json),
+        Command::Edit { scene } => cmd_edit::run(scene.as_deref()),
     }
 }

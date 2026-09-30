@@ -1,10 +1,12 @@
 //! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl (M1b);
 //! future backends (or a mock for tests) plug in without touching runtime.
 
+mod host;
 mod python;
 
 use anyhow::Result;
 
+pub use host::{proxy_for, resolve_caller, NodeProxy, ScriptHost, set_current_host};
 pub use python::Pyo3Backend;
 
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];

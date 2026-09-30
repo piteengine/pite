@@ -11,6 +11,7 @@ publish.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 winit.workspace = true
+notify = "8"
 pite-core.workspace = true
 pite-scene.workspace = true
 pite-render.workspace = true

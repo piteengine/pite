@@ -5,11 +5,12 @@ use anyhow::{Context, Result};
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
-use crate::ScriptBackend;
+use crate::{resolve_caller, ScriptBackend};
+use crate::host::NodeProxy;
 
 #[pyclass(subclass, name = "Node")]
 struct PyNode {
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     node_path: String,
 }
 
@@ -22,10 +23,10 @@ impl PyNode {
         }
     }
 
-    fn get_node(&self, _path: &str) -> PyResult<Py<PyAny>> {
-        Err(pyo3::exceptions::PyNotImplementedError::new_err(
-            "get_node wires up with the runtime scene tree after M1b; direct calls only for now",
-        ))
+    fn get_node(&self, py: Python<'_>, path: &str) -> PyResult<Py<NodeProxy>> {
+        let proxy = resolve_caller(&self.node_path, path)
+            .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))?;
+        Py::new(py, proxy)
     }
 }
 
@@ -125,6 +126,7 @@ pub struct Pyo3Backend {
     class: String,
     instance: Option<Py<PyAny>>,
     last_error: Option<String>,
+    host: Option<std::sync::Arc<crate::ScriptHost>>,
 }
 
 impl Pyo3Backend {
@@ -136,7 +138,12 @@ impl Pyo3Backend {
             class: String::new(),
             instance: None,
             last_error: None,
+            host: None,
         }
+    }
+
+    pub fn set_host(&mut self, host: std::sync::Arc<crate::ScriptHost>) {
+        self.host = Some(host);
     }
 
     fn exec(&mut self) -> Result<()> {
@@ -175,7 +182,12 @@ impl Pyo3Backend {
                     self.file.display()
                 )
             })?;
-            self.instance = Some(instance.into());
+            let owned: Py<PyAny> = instance.into();
+            owned.bind(py).setattr("node_path", &self.node_path)?;
+            if let Some(host) = &self.host {
+                host.register(self.node_path.clone(), owned.clone_ref(py));
+            }
+            self.instance = Some(owned);
             Ok(())
         })
     }
@@ -347,6 +359,67 @@ class Boom(pite.Node2D):
         backend.load(&file, "Plain").unwrap();
         backend.call_ready().unwrap();
         backend.call_process(0.016).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const VICTIM: &str = r#"
+import pite
+
+class Victim(pite.Node2D):
+    def _ready(self):
+        self.hp = 3
+
+    def take_damage(self, amount):
+        self.hp = self.hp - amount
+"#;
+
+    const ATTACKER: &str = r#"
+import pite
+
+class Attacker(pite.Node2D):
+    def _process(self, delta):
+        if not getattr(self, "_hit", False):
+            self._hit = True
+            self.get_node("../Victim").take_damage(1)
+"#;
+
+    #[test]
+    fn get_node_direct_call_hits_sibling() {
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("getnode");
+        let victim_file = fixture(&dir, "victim.py", VICTIM);
+        let attacker_file = fixture(&dir, "attacker.py", ATTACKER);
+
+        let mut tree = NodeTree::new();
+        let mut root = NodeDesc::new(NodeId::from("root".to_string()), "Node");
+        root.name = "Root".to_string();
+        tree.insert(root).unwrap();
+        for (id, name) in [("a", "Attacker"), ("v", "Victim")] {
+            let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
+            d.name = name.to_string();
+            d.parent = Some(NodeId::from("root".to_string()));
+            tree.insert(d).unwrap();
+        }
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut victim = Pyo3Backend::new("v");
+        victim.set_host(host.clone());
+        victim.load(&victim_file, "Victim").unwrap();
+        victim.call_ready().unwrap();
+
+        let mut attacker = Pyo3Backend::new("a");
+        attacker.set_host(host.clone());
+        attacker.load(&attacker_file, "Attacker").unwrap();
+        attacker.call_process(0.016).unwrap();
+
+        Python::attach(|py| {
+            let inst = host.lookup_instance(py, "v").unwrap();
+            let hp: i64 = inst.bind(py).getattr("hp").unwrap().extract().unwrap();
+            assert_eq!(hp, 2);
+        });
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -1,7 +1,13 @@
 //! `pite-editor`: `Panel` trait plus panel registry.
-//! New panels register without editing dock layout code (M1c fills this in).
+//! New panels register without editing dock layout code.
+//! M1c ships the eframe shell: viewport, tree, inspector, assets, console,
+//! code pane — all on the same `NodeTree` the game runs.
+
+mod app;
 
 use anyhow::Result;
+
+pub use app::{launch, EditorApp};
 
 pub trait Panel {
     fn title(&self) -> &str;

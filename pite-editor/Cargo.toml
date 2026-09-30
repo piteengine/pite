@@ -9,4 +9,8 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+eframe = "0.32"
 pite-core.workspace = true
+pite-project.workspace = true
+pite-runtime.workspace = true
+tracing.workspace = true
