@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-light.svg" width="128" alt="Pite logo" />
+</p>
+
 # Pite
 
 A game engine inspired by Godot, written in Rust — scene tree, first-class GUI editor, Python scripting.
