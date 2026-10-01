@@ -9,6 +9,7 @@ pub fn run(
     out: Option<&str>,
     binary: Option<&str>,
     skip_python_check: bool,
+    no_bundle_python: bool,
 ) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let start = match path {
@@ -37,11 +38,18 @@ pub fn run(
             out_dir: out.map(PathBuf::from),
             binary: binary.map(PathBuf::from),
             skip_python_check,
+            bundle_python: !no_bundle_python,
         },
     )?;
     println!("exported to {}", report.out_dir.display());
     println!("binary: {}", report.binary.display());
     println!("files: {}", report.files.len() + 1);
+    match &report.python {
+        pite_export::PythonChoice::Bundled { zip } => {
+            println!("python: bundled ({})", zip.display());
+        }
+        pite_export::PythonChoice::System => println!("python: system CPython 3.12 required"),
+    }
     if platform == "windows" {
         println!("next: run {}\\run.bat", report.out_dir.display());
     } else {

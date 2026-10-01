@@ -54,6 +54,9 @@ enum Command {
         binary: Option<String>,
         #[arg(long, default_value_t = false)]
         skip_python_check: bool,
+        /// Keep the system-Python requirement instead of bundling a pinned one.
+        #[arg(long, default_value_t = false)]
+        no_bundle_python: bool,
     },
 }
 
@@ -68,8 +71,15 @@ fn main() -> Result<()> {
         Command::Check { path, strict, json } => cmd_check::run(path.as_deref(), strict, json),
         Command::Reimport { path } => cmd_reimport::run(path.as_deref()),
         Command::Edit { scene } => cmd_edit::run(scene.as_deref()),
-        Command::Export { platform, path, out, binary, skip_python_check } => {
-            cmd_export::run(&platform, path.as_deref(), out.as_deref(), binary.as_deref(), skip_python_check)
+        Command::Export { platform, path, out, binary, skip_python_check, no_bundle_python } => {
+            cmd_export::run(
+                &platform,
+                path.as_deref(),
+                out.as_deref(),
+                binary.as_deref(),
+                skip_python_check,
+                no_bundle_python,
+            )
         }
     }
 }

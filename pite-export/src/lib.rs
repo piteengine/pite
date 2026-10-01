@@ -3,6 +3,9 @@
 //! referenced game content into a runnable directory. Python is not
 //! bundled: the launcher fails loudly without system Python 3.12.
 
+pub mod python_bundle;
+pub mod sha256;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -10,12 +13,35 @@ use anyhow::{Context, Result};
 
 pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "windows"];
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ExportOptions {
     pub platform: String,
     pub out_dir: Option<PathBuf>,
     pub binary: Option<PathBuf>,
     pub skip_python_check: bool,
+    /// Bundle a pinned CPython so the export runs without system Python.
+    pub bundle_python: bool,
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            platform: String::new(),
+            out_dir: None,
+            binary: None,
+            skip_python_check: false,
+            bundle_python: true,
+        }
+    }
+}
+
+/// How the exported launcher finds its interpreter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PythonChoice {
+    /// A pinned CPython staged into `<out>/python`.
+    Bundled { zip: PathBuf },
+    /// Fall back to whatever Python 3.12 the machine has.
+    System,
 }
 
 #[derive(Debug)]
@@ -24,6 +50,7 @@ pub struct ExportReport {
     pub binary: PathBuf,
     pub files: Vec<PathBuf>,
     pub main_scene: String,
+    pub python: PythonChoice,
 }
 
 pub fn find_python() -> Option<PathBuf> {
@@ -71,13 +98,29 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         .binary_name
         .clone()
         .unwrap_or_else(|| manifest.project.name.clone());
-    if !opts.skip_python_check && find_python().is_none() {
-        anyhow::bail!(
-            "export needs system Python 3.12 on PATH (or PITE_PYTHON); \
-             the target machine must have it too. Pass --skip-python-check \
-             for cross-machine builds. Pite does not bundle Python yet."
-        );
-    }
+    let python = if opts.bundle_python {
+        let spec = python_bundle::pinned(&opts.platform).with_context(|| {
+            format!(
+                "no pinned Python build for {}; pass --no-bundle-python to require \
+                 system Python 3.12 instead",
+                opts.platform
+            )
+        })?;
+        let archive = python_bundle::ensure_archive(&spec)?;
+        PythonChoice::Bundled {
+            zip: archive.clone(),
+        }
+    } else {
+        if !opts.skip_python_check && find_python().is_none() {
+            anyhow::bail!(
+                "export needs system Python 3.12 on PATH (or PITE_PYTHON); \
+                 the target machine must have it too. Pass --skip-python-check \
+                 for cross-machine builds, or drop --no-bundle-python to ship a \
+                 pinned interpreter."
+            );
+        }
+        PythonChoice::System
+    };
     let binary_src = match &opts.binary {
         Some(p) => p.clone(),
         None => std::env::current_exe().context("cannot locate engine binary")?,
@@ -137,6 +180,28 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         std::fs::set_permissions(&bin_dest, std::fs::Permissions::from_mode(0o755))?;
     }
 
+    let staged = match &python {
+        PythonChoice::Bundled { zip } => {
+            let spec = python_bundle::pinned(&opts.platform).expect("checked above");
+            let staged = python_bundle::stage(&spec, zip, &out.join("python"))
+                .context("cannot stage the bundled Python")?;
+            if opts.platform == "windows" {
+                // Windows resolves DLLs from the exe's own directory before
+                // PATH, so the interpreter DLL sits next to the binary.
+                let dll = staged
+                    .lib
+                    .file_name()
+                    .expect("lib file has a name")
+                    .to_string_lossy()
+                    .into_owned();
+                std::fs::copy(&staged.lib, bin_dir.join(&dll))
+                    .context("cannot place the interpreter DLL next to the binary")?;
+            }
+            Some(staged)
+        }
+        PythonChoice::System => None,
+    };
+
     let main_rel = manifest
         .project
         .main_scene
@@ -144,63 +209,137 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         .map(str::to_string)
         .unwrap_or_else(|| manifest.project.main_scene.clone());
     if opts.platform == "windows" {
-        std::fs::write(out.join("run.bat"), windows_launcher(&game_name, &bin_name, &main_rel))?;
+        std::fs::write(
+            out.join("run.bat"),
+            windows_launcher(&game_name, &bin_name, &main_rel, &out, staged.as_ref()),
+        )?;
     } else {
         let sh = out.join("run.sh");
-        std::fs::write(&sh, unix_launcher(&game_name, &bin_name, &main_rel))?;
+        std::fs::write(&sh, unix_launcher(&game_name, &bin_name, &main_rel, &out, staged.as_ref()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755))?;
         }
     }
-    std::fs::write(out.join("README.txt"), readme(&game_name, &opts.platform))?;
+    std::fs::write(
+        out.join("README.txt"),
+        readme(&game_name, &opts.platform, &python),
+    )?;
 
+    let python = match staged {
+        Some(staged) => PythonChoice::Bundled { zip: staged.stdlib_zip },
+        None => PythonChoice::System,
+    };
     Ok(ExportReport {
         out_dir: out,
         binary: bin_dest,
         files,
         main_scene: manifest.project.main_scene.clone(),
+        python,
     })
 }
 
-fn unix_launcher(game: &str, bin: &str, main_rel: &str) -> String {
-    format!(
-        "#!/bin/sh\n\
-         set -e\n\
-         HERE=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n\
-         if [ -n \"$PITE_PYTHON\" ]; then PY=\"$PITE_PYTHON\"; else PY=\"python3.12\"; fi\n\
-         if ! command -v \"$PY\" >/dev/null 2>&1; then\n\
-         echo \"error: {game} needs system Python 3.12 (tried $PY).\" >&2\n\
-         echo \"Pite does not bundle Python yet; install CPython 3.12 or set PITE_PYTHON.\" >&2\n\
-         exit 1\n\
-         fi\n\
-         exec \"$HERE/bin/{bin}\" run --scene \"$HERE/game/{main_rel}\" --no-reload \"$@\"\n"
-    )
+/// Bundled mode needs no Python on PATH: the loader finds `libpython` through
+/// `LD_LIBRARY_PATH` (or a `$ORIGIN` RUNPATH when the binary was built with one)
+/// and the stdlib comes from the zip. Proved on Linux.
+fn unix_launcher(
+    game: &str,
+    bin: &str,
+    main_rel: &str,
+    out: &Path,
+    bundle: Option<&python_bundle::StagedBundle>,
+) -> String {
+    match bundle {
+        Some(bundle) => {
+            let lib_dir = bundle.lib.parent().unwrap_or(&bundle.root);
+            format!(
+                "#!/bin/sh\n\
+                 set -e\n\
+                 HERE=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n\
+                 LD_LIBRARY_PATH=\"$HERE/{lib_rel}\"${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\n\
+                 export LD_LIBRARY_PATH\n\
+                 PYTHONPATH=\"$HERE/{zip_rel}\"\n\
+                 export PYTHONPATH\n\
+                 exec \"$HERE/bin/{bin}\" run --scene \"$HERE/game/{main_rel}\" --no-reload \"$@\"\n",
+                lib_rel = rel_to(out, lib_dir),
+                zip_rel = rel_to(out, &bundle.stdlib_zip),
+            )
+        }
+        None => format!(
+            "#!/bin/sh\n\
+             set -e\n\
+             HERE=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n\
+             if [ -n \"$PITE_PYTHON\" ]; then PY=\"$PITE_PYTHON\"; else PY=\"python3.12\"; fi\n\
+             if ! command -v \"$PY\" >/dev/null 2>&1; then\n\
+             echo \"error: {game} needs system Python 3.12 (tried $PY).\" >&2\n\
+             echo \"This export has no bundled interpreter; install CPython 3.12 or set PITE_PYTHON.\" >&2\n\
+             exit 1\n\
+             fi\n\
+             exec \"$HERE/bin/{bin}\" run --scene \"$HERE/game/{main_rel}\" --no-reload \"$@\"\n"
+        ),
+    }
 }
 
-fn windows_launcher(game: &str, bin: &str, main_rel: &str) -> String {
-    format!(
-        "@echo off\r\n\
-         set HERE=%~dp0\r\n\
-         if defined PITE_PYTHON (set PY=%PITE_PYTHON%) else (set PY=python3.12)\r\n\
-         where %PY% >nul 2>nul\r\n\
-         if errorlevel 1 (\r\n\
-         echo error: {game} needs system Python 3.12 on PATH. 1>&2\r\n\
-         echo Pite does not bundle Python yet; install CPython 3.12 or set PITE_PYTHON. 1>&2\r\n\
-         exit /b 1\r\n\
-         )\r\n\
-         \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
-    )
+/// Windows resolves DLLs from the exe's own directory first, so the staged
+/// `python3.dll` is copied next to `bin/<game>.exe`; `PYTHONPATH` carries the
+/// stdlib zip. No Python install, no PATH juggling.
+fn windows_launcher(
+    game: &str,
+    bin: &str,
+    main_rel: &str,
+    out: &Path,
+    bundle: Option<&python_bundle::StagedBundle>,
+) -> String {
+    match bundle {
+        Some(bundle) => {
+            let zip_rel = rel_to(out, &bundle.stdlib_zip);
+            format!(
+                "@echo off\r\n\
+                 set HERE=%~dp0\r\n\
+                 set PYTHONPATH=\"%HERE%{zip_rel}\"\r\n\
+                 \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
+            )
+        }
+        None => format!(
+            "@echo off\r\n\
+             set HERE=%~dp0\r\n\
+             if defined PITE_PYTHON (set PY=%PITE_PYTHON%) else (set PY=python3.12)\r\n\
+             where %PY% >nul 2>nul\r\n\
+             if errorlevel 1 (\r\n\
+             echo error: {game} needs system Python 3.12 on PATH. 1>&2\r\n\
+             echo This export has no bundled interpreter; install CPython 3.12 or set PITE_PYTHON. 1>&2\r\n\
+             exit /b 1\r\n\
+             )\r\n\
+             \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
+        ),
+    }
 }
 
-fn readme(game: &str, platform: &str) -> String {
+/// Path of `target` relative to the export root, with `/` separators.
+fn rel_to(root: &Path, target: &Path) -> String {
+    target
+        .strip_prefix(root)
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| target.to_string_lossy().into_owned())
+}
+
+fn readme(game: &str, platform: &str, python: &PythonChoice) -> String {
+    let python_line = match python {
+        PythonChoice::Bundled { .. } => format!(
+            "Python: bundled CPython {} (pinned build {})
+",
+            python_bundle::PINNED_PYTHON,
+            python_bundle::PINNED_BUILD
+        ),
+        PythonChoice::System => "Requires system Python 3.12 on PATH (PITE_PYTHON overrides detection).\n"
+            .to_string(),
+    };
     format!(
         "{game} ({platform} export)\n\
          \n\
          Run: ./run.sh   (or run.bat on Windows)\n\
-         Requires system Python 3.12 on PATH (PITE_PYTHON overrides detection).\n\
-         Pite does not bundle Python yet.\n\
+         {python_line}\
          Exported runs never watch files: hot reload is a dev-only feature.\n"
     )
 }
@@ -391,6 +530,7 @@ def _once():
             out_dir: None,
             binary: Some(bin.to_path_buf()),
             skip_python_check: true,
+            bundle_python: false,
         }
     }
 
@@ -466,6 +606,115 @@ def _once():
             None => std::env::remove_var("PITE_PYTHON"),
         }
         std::fs::remove_dir_all(&report.out_dir).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn bundling_stages_runtime_and_stdlib_next_to_the_game() {
+        let Some(spec) = python_bundle::pinned("linux") else {
+            panic!("linux must have a pinned bundle");
+        };
+        let dir = std::env::temp_dir().join(format!("pite-stage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("python/lib/python3.12/site-packages")).unwrap();
+        std::fs::write(
+            dir.join("python/lib").join("libpython3.12.so.1.0"),
+            b"fake-so",
+        )
+        .unwrap();
+        std::fs::write(dir.join("python/lib/python3.12").join("os.py"), b"import sys\n").unwrap();
+        std::fs::write(
+            dir.join("python/lib/python3.12/site-packages").join("pip.py"),
+            b"raise SystemExit\n",
+        )
+        .unwrap();
+        let archive = dir.join("archive.tar.gz");
+        let tar = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&dir)
+            .arg("python")
+            .output();
+        if !tar.as_ref().is_ok_and(|o| o.status.success()) {
+            eprintln!("skipped: tar unavailable");
+            return;
+        }
+        let out = dir.join("out");
+        let staged = python_bundle::stage(&spec, &archive, &out).unwrap();
+        assert!(staged.lib.ends_with("libpython3.12.so.1.0"), "{staged:?}");
+        assert!(staged.lib.is_file());
+        assert!(staged.stdlib_zip.is_file());
+        let listing = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import zipfile,sys; print(sorted(zipfile.ZipFile(sys.argv[1]).namelist()))")
+            .arg(&staged.stdlib_zip)
+            .output()
+            .expect("python3 lists the zip");
+        let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
+        assert!(listing.contains("os.py"), "{listing}");
+        assert!(!listing.contains("site-packages"), "{listing}");
+        assert!(!out.join(".staging").exists(), "staging dir must be cleaned up");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Real download + export layout. Gated: it fetches a pinned 60 MB archive
+    /// the first time, then runs from the local toolchain cache.
+    #[test]
+    fn bundled_export_layout_has_runtime_and_stdlib() {
+        if std::env::var("PITE_BUNDLE_SMOKE").is_err() {
+            eprintln!("skipped: set PITE_BUNDLE_SMOKE=1 (downloads the pinned Python once)");
+            return;
+        }
+        let _guard = SERIAL.lock().unwrap();
+        let (dir, bin) = fixture("bundle");
+        let report = export_project(&dir, &ExportOptions {
+            platform: "linux".to_string(),
+            out_dir: None,
+            binary: Some(bin.clone()),
+            skip_python_check: false,
+            bundle_python: true,
+        })
+        .expect("bundled export must succeed");
+        match &report.python {
+            PythonChoice::Bundled { zip } => assert!(zip.is_file(), "{zip:?}"),
+            other => panic!("expected a bundled interpreter, got {other:?}"),
+        }
+        let out = &report.out_dir;
+        assert!(out.join("bin").join("fixt").is_file(), "engine binary missing");
+        assert!(
+            python_bundle::pinned("linux").is_some_and(|spec| {
+                out.join("python").join(&spec.lib).is_file()
+            }),
+            "bundled libpython missing under python/"
+        );
+        assert!(out.join("python").join("python312.zip").is_file(), "stdlib zip missing");
+        let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
+        assert!(sh.contains("LD_LIBRARY_PATH"), "{sh}");
+        assert!(sh.contains("PYTHONPATH"), "{sh}");
+        assert!(!sh.contains("needs system Python"), "bundled launcher must not gate");
+        let readme = std::fs::read_to_string(out.join("README.txt")).unwrap();
+        assert!(readme.contains("bundled CPython"), "{readme}");
+        std::fs::remove_dir_all(&report.out_dir).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn bundling_without_network_support_points_at_the_opt_out() {
+        let _guard = SERIAL.lock().unwrap();
+        let prev = std::env::var_os("PITE_TOOLCHAIN_DIR");
+        let dir = std::env::temp_dir().join(format!("pite-offline-{}", std::process::id()));
+        std::env::set_var("PITE_TOOLCHAIN_DIR", &dir);
+        let err = export_project(&dir, &ExportOptions {
+            platform: "ps5".to_string(),
+            ..opts(Path::new("unused"))
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("unsupported export platform"), "{err:#}");
+        match prev {
+            Some(v) => std::env::set_var("PITE_TOOLCHAIN_DIR", v),
+            None => std::env::remove_var("PITE_TOOLCHAIN_DIR"),
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

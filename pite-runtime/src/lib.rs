@@ -1145,6 +1145,47 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Child-process half of the bundled-Python probe. With
+    /// `PITE_BUNDLE_PROBE=1` this initializes Python purely from whatever the
+    /// environment provides (a bundled libpython + stdlib zip, no system
+    /// Python) and prints `BUNDLE_PROBE_OK` only if a script really ran.
+    #[test]
+    fn bundle_probe_child() {
+        if std::env::var("PITE_BUNDLE_PROBE").is_err() {
+            eprintln!("skipped: set PITE_BUNDLE_PROBE=1 in the child process");
+            return;
+        }
+        let dir = std::env::temp_dir().join("pite-bundle-probe-project");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"probe\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"probe\"\ntype = \"Label\"\nname = \"Probe\"\nparent = \"root\"\n\n[node.props]\ntext = \"before\"\n\n[node.script]\npath = \"res://scripts/probe.py\"\nclass = \"Probe\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("scripts").join("probe.py"),
+            "import pite\n\n\nclass Probe(pite.Label):\n    def _process(self, delta):\n        self.text = \"bundled\"\n",
+        )
+        .unwrap();
+        let mut session = GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
+        session.update(0.016);
+        let text = session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from("probe".to_string())) {
+                Some(n) => match n.props.get("text") {
+                    Some(PropValue::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                None => String::new(),
+            });
+        assert_eq!(text, "bundled", "script did not run under this interpreter");
+        println!("BUNDLE_PROBE_OK");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn dogfood_player_hit_reaches_enemy() {
         let _guard = SERIAL.lock().unwrap();

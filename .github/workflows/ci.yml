@@ -23,4 +23,6 @@ jobs:
       - run: cargo test --workspace
       - name: Live LSP smoke (real pyright over stdio)
         run: PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
+      - name: Python bundling smoke (pinned CPython download + export layout)
+        run: PITE_BUNDLE_SMOKE=1 cargo test -p pite-export --lib
       - run: cargo run -p pite-cli -- check
