@@ -38,8 +38,15 @@ pub struct BundleSpec {
     pub stdlib: &'static str,
     /// Stdlib zip name used by the interpreter.
     pub zip_name: &'static str,
+    /// Loader config file the interpreter reads from beside [`Self::lib`].
+    /// `None` where `PYTHONPATH` alone is enough to find the stdlib zip.
+    pub pth_name: Option<&'static str>,
 }
 
+/// The two `install_only` archives do not agree on layout: Linux nests the
+/// stdlib under `lib/python3.12/`, Windows puts it straight in `Lib/`. Windows
+/// also ships `python3.dll` next to `python312.dll`, but the first is a 56 KB
+/// forwarder onto the second, so only the versioned library can be staged.
 const LINUX: BundleSpec = BundleSpec {
     platform: "linux",
     file: "cpython-3.12.9+20250317-x86_64-unknown-linux-gnu-install_only.tar.gz",
@@ -47,15 +54,17 @@ const LINUX: BundleSpec = BundleSpec {
     lib: "lib/libpython3.12.so.1.0",
     stdlib: "lib/python3.12",
     zip_name: "python312.zip",
+    pth_name: None,
 };
 
 const WINDOWS: BundleSpec = BundleSpec {
     platform: "windows",
     file: "cpython-3.12.9+20250317-x86_64-pc-windows-msvc-install_only.tar.gz",
     sha256: "d15361fd202dd74ae9c3eece1abdab7655f1eba90bf6255cad1d7c53d463ed4d",
-    lib: "python3.dll",
-    stdlib: "lib/python3.12",
+    lib: "python312.dll",
+    stdlib: "Lib",
     zip_name: "python312.zip",
+    pth_name: Some("python312._pth"),
 };
 
 /// The pinned artifact for `platform`, or `None` when we do not ship one.
@@ -226,6 +235,11 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
 /// Directories never shipped: `pite` registers its module from Rust, so the
 /// interpreter needs the stdlib and nothing else.
 const EXCLUDED: &[&str] = &["site-packages", "test", "idlelib", "tkinter", "ensurepip", "__pycache__"];
+
+/// Versionless ABI forwarders. They dispatch *to* the versioned interpreter
+/// rather than being one, so a copy of these cannot satisfy the loader.
+#[cfg(test)]
+const FORWARDERS: &[&str] = &["python3.dll", "libpython3.so", "libpython3.dylib"];
 
 fn unpack(_spec: &BundleSpec, archive: &Path, work: &Path) -> Result<()> {
     let tar = if cfg!(windows) { "tar.exe" } else { "tar" };
@@ -422,6 +436,49 @@ mod tests {
         assert!(!listing.contains("site-packages"), "got: {listing}");
         assert!(!listing.contains("__pycache__"), "got: {listing}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The archive layout is an assumption `stage()` bails on halfway through a
+    /// user's export, and the Windows one was wrong: `install_only` puts the
+    /// stdlib at `Lib/` there, not `lib/python3.12/`. Read the real archive when
+    /// it is cached so a layout change fails here instead of in the wild.
+    #[test]
+    fn pinned_layouts_match_the_cached_real_archives() {
+        for platform in pinned_platforms() {
+            let spec = pinned(platform).expect("pinned");
+            let archive = archive_path(&spec);
+            if !archive.is_file() {
+                eprintln!(
+                    "skipped {platform}: nothing cached at {} (run an export once to populate it)",
+                    archive.display()
+                );
+                continue;
+            }
+            let out = std::process::Command::new("tar")
+                .arg("-tf")
+                .arg(&archive)
+                .output()
+                .expect("tar runs");
+            assert!(out.status.success(), "cannot list {}", archive.display());
+            let listing = String::from_utf8_lossy(&out.stdout);
+            let lib = format!("{ARCHIVE_ROOT}/{}", spec.lib);
+            let stdlib = format!("{ARCHIVE_ROOT}/{}", spec.stdlib);
+            let has = |needle: &str| {
+                listing
+                    .lines()
+                    .map(|l| l.trim_end_matches('/'))
+                    .any(|l| l == needle || l.starts_with(&format!("{needle}/")))
+            };
+            assert!(has(&lib), "{platform}: archive has no interpreter at {lib}");
+            assert!(has(&stdlib), "{platform}: archive has no stdlib at {stdlib}");
+            let stem = spec.lib.rsplit('/').next().unwrap_or(spec.lib);
+            assert!(
+                !FORWARDERS.contains(&stem),
+                "{platform}: {} is an ABI forwarder, not the interpreter \
+                 (it dispatches to the versioned library instead of being one)",
+                spec.lib
+            );
+        }
     }
 
     #[test]

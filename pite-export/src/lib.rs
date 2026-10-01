@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-export`: desktop export. Copies the engine binary plus only the
-//! referenced game content into a runnable directory. Python is not
-//! bundled: the launcher fails loudly without system Python 3.12.
+//! referenced game content into a runnable directory, together with a pinned
+//! CPython unless `--no-bundle-python` keeps the system-Python requirement.
 
 pub mod python_bundle;
 pub mod sha256;
@@ -85,6 +85,29 @@ fn is_python312(p: &Path) -> bool {
     text.contains("Python 3.12")
 }
 
+/// Owns the export directory for the length of an export. Every failure path is
+/// a `?`, so without this a run that dies partway — a wrong archive layout once
+/// left 136 MB of unpacked CPython behind — also wedges the next attempt,
+/// because the exists-guard refuses to overwrite what the failed run left.
+struct ExportDir {
+    path: PathBuf,
+    complete: bool,
+}
+
+impl ExportDir {
+    fn commit(&mut self) {
+        self.complete = true;
+    }
+}
+
+impl Drop for ExportDir {
+    fn drop(&mut self) {
+        if !self.complete {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport> {
     if !SUPPORTED_PLATFORMS.contains(&opts.platform.as_str()) {
         anyhow::bail!(
@@ -145,6 +168,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     if out.exists() {
         anyhow::bail!("{} exists; remove it or pass --out <dir>", out.display());
     }
+    let mut owned = ExportDir { path: out.clone(), complete: false };
     let bin_name = if opts.platform == "windows" {
         format!("{game_name}.exe")
     } else {
@@ -197,6 +221,11 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
                 std::fs::copy(&staged.lib, bin_dir.join(&dll))
                     .context("cannot place the interpreter DLL next to the binary")?;
             }
+            if let Some(pth) = spec.pth_name {
+                let pth_body = windows_pth(&bin_dir, &staged)?;
+                std::fs::write(bin_dir.join(pth), pth_body)
+                    .context("cannot write the interpreter loader config")?;
+            }
             Some(staged)
         }
         PythonChoice::System => None,
@@ -211,7 +240,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     if opts.platform == "windows" {
         std::fs::write(
             out.join("run.bat"),
-            windows_launcher(&game_name, &bin_name, &main_rel, &out, staged.as_ref()),
+            windows_launcher(&game_name, &bin_name, &main_rel, staged.as_ref()),
         )?;
     } else {
         let sh = out.join("run.sh");
@@ -231,6 +260,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         Some(staged) => PythonChoice::Bundled { zip: staged.stdlib_zip },
         None => PythonChoice::System,
     };
+    owned.commit();
     Ok(ExportReport {
         out_dir: out,
         binary: bin_dest,
@@ -281,26 +311,49 @@ fn unix_launcher(
     }
 }
 
+/// Body of the Windows loader config. The interpreter reads this from beside its
+/// own DLL and ignores `PYTHONPATH` entirely once it exists, so it is the only
+/// thing that points it at the stdlib zip. Entries resolve against the DLL's
+/// directory, and must stay relative: an absolute path would break the export as
+/// soon as the folder is moved or copied to another machine.
+fn windows_pth(bin_dir: &Path, bundle: &python_bundle::StagedBundle) -> Result<String> {
+    let python_dir = bundle
+        .root
+        .file_name()
+        .context("staged python directory has a name")?
+        .to_string_lossy();
+    let zip = bundle
+        .stdlib_zip
+        .file_name()
+        .context("staged stdlib zip has a name")?
+        .to_string_lossy();
+    let parent = bin_dir.parent().context("bin directory has a parent")?;
+    if bundle.root.parent() != Some(parent) {
+        anyhow::bail!(
+            "staged python directory {} is not a sibling of {}; the loader config \
+             cannot name a relative path to the stdlib",
+            bundle.root.display(),
+            bin_dir.display()
+        );
+    }
+    Ok(format!("..\\{python_dir}\\{zip}\r\n.\r\n"))
+}
+
 /// Windows resolves DLLs from the exe's own directory first, so the staged
-/// `python3.dll` is copied next to `bin/<game>.exe`; `PYTHONPATH` carries the
-/// stdlib zip. No Python install, no PATH juggling.
+/// interpreter sits next to `bin/<game>.exe`, and the `_pth` file beside it
+/// carries the stdlib zip. No Python install, no PATH juggling.
 fn windows_launcher(
     game: &str,
     bin: &str,
     main_rel: &str,
-    out: &Path,
     bundle: Option<&python_bundle::StagedBundle>,
 ) -> String {
     match bundle {
-        Some(bundle) => {
-            let zip_rel = rel_to(out, &bundle.stdlib_zip);
-            format!(
-                "@echo off\r\n\
-                 set HERE=%~dp0\r\n\
-                 set PYTHONPATH=\"%HERE%{zip_rel}\"\r\n\
-                 \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
-            )
-        }
+        Some(_) => format!(
+            "@echo off\r\n\
+             set HERE=%~dp0\r\n\
+             \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
+        ),
         None => format!(
             "@echo off\r\n\
              set HERE=%~dp0\r\n\
@@ -684,9 +737,10 @@ def _once():
         assert!(out.join("bin").join("fixt").is_file(), "engine binary missing");
         assert!(
             python_bundle::pinned("linux").is_some_and(|spec| {
-                out.join("python").join(&spec.lib).is_file()
+                let staged = spec.lib.rsplit('/').next().unwrap_or(spec.lib);
+                out.join("python/lib").join(staged).is_file()
             }),
-            "bundled libpython missing under python/"
+            "bundled libpython missing under python/lib"
         );
         assert!(out.join("python").join("python312.zip").is_file(), "stdlib zip missing");
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
@@ -729,6 +783,112 @@ def _once():
             pite_runtime::GameSession::open(&scene, true).expect("exported scene must open");
         assert_eq!(session.tree_len(), 4);
         assert_eq!(session.script_count(), 1);
+        std::fs::remove_dir_all(&report.out_dir).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A run that dies after creating its output must not leave that directory
+    /// behind: the next attempt refuses to overwrite it, so the failure becomes
+    /// sticky. Unreadable engine binary fails the copy step, which runs after
+    /// the game and bin directories already exist.
+    #[cfg(unix)]
+    #[test]
+    fn failed_export_leaves_no_directory_behind() {
+        use std::os::unix::fs::PermissionsExt;
+        let _guard = SERIAL.lock().unwrap();
+        let (dir, bin) = fixture("rollback");
+        let out = dir.join("rollback-out");
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&bin).is_ok() {
+            eprintln!("skipped: cannot make the binary unreadable as this user");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        }
+        let err = export_project(
+            &dir,
+            &ExportOptions { out_dir: Some(out.clone()), ..opts(&bin) },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("permission")
+                || err.to_string().to_lowercase().contains("denied"),
+            "expected the copy to fail on permissions, got: {err:#}"
+        );
+        assert!(!out.exists(), "failed export left {} behind", out.display());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The loader config is the only thing pointing the interpreter at the stdlib
+    /// once it exists, and its entries resolve against the DLL's directory. An
+    /// absolute path would work on the build machine and break the moment the
+    /// export is copied, so pin the exact shape.
+    #[test]
+    fn windows_loader_config_names_the_stdlib_relatively() {
+        let bundle = python_bundle::StagedBundle {
+            root: PathBuf::from("/game/python"),
+            lib: PathBuf::from("/game/python/lib/python312.dll"),
+            stdlib_zip: PathBuf::from("/game/python/python312.zip"),
+        };
+        let pth = windows_pth(Path::new("/game/bin"), &bundle).unwrap();
+        assert_eq!(pth, "..\\python\\python312.zip\r\n.\r\n");
+        assert!(!pth.contains("/game"), "loader config must stay relative: {pth:?}");
+    }
+
+    /// A staged `python/` that is not a sibling of `bin/` has no nameable
+    /// relative path: error rather than write an entry that cannot resolve.
+    #[test]
+    fn windows_loader_config_rejects_an_unreachable_stdlib() {
+        let bundle = python_bundle::StagedBundle {
+            root: PathBuf::from("/elsewhere/python"),
+            lib: PathBuf::from("/elsewhere/python/lib/python312.dll"),
+            stdlib_zip: PathBuf::from("/elsewhere/python/python312.zip"),
+        };
+        let err = windows_pth(Path::new("/game/bin"), &bundle)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not a sibling"), "{err}");
+    }
+
+    /// Windows export layout, end to end against the real pinned archive. Skips
+    /// when that archive is not cached, so CI stays offline.
+    #[test]
+    fn windows_export_ships_the_interpreter_beside_the_binary() {
+        let Some(spec) = python_bundle::pinned("windows") else {
+            panic!("windows must have a pinned bundle");
+        };
+        if !python_bundle::archive_path(&spec).is_file() {
+            eprintln!("skipped: windows archive not cached (export once to populate it)");
+            return;
+        }
+        let _guard = SERIAL.lock().unwrap();
+        let (dir, bin) = fixture("winbundle");
+        let report = export_project(
+            &dir,
+            &ExportOptions {
+                platform: "windows".to_string(),
+                out_dir: None,
+                binary: Some(bin),
+                skip_python_check: false,
+                bundle_python: true,
+            },
+        )
+        .expect("windows bundled export must succeed");
+        let out = &report.out_dir;
+        let dll = spec.lib.rsplit('/').next().unwrap_or(spec.lib);
+        assert!(
+            out.join("bin").join(dll).is_file(),
+            "interpreter must sit next to the exe, not in python/lib"
+        );
+        let pth = out.join("bin").join(spec.pth_name.expect("windows needs a loader config"));
+        let body = std::fs::read_to_string(&pth).unwrap();
+        assert!(
+            body.contains("python312.zip") && !body.contains(&out.display().to_string()),
+            "loader config must name the zip relatively: {body:?}"
+        );
+        let bat = std::fs::read_to_string(out.join("run.bat")).unwrap();
+        assert!(!bat.contains("PYTHONPATH"), "{bat}");
+        assert!(!bat.contains("needs system Python"), "bundled launcher must not gate");
+        assert!(!out.join("python/.staging").exists(), "staging dir must be cleaned up");
         std::fs::remove_dir_all(&report.out_dir).ok();
         std::fs::remove_dir_all(&dir).ok();
     }
