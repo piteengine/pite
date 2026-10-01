@@ -13,9 +13,6 @@ use crate::icons::{self, Icon};
 use crate::lsp::{self, LspClient, LspOutcome};
 use crate::ops;
 
-const VIEW_W: u32 = 640;
-const VIEW_H: u32 = 400;
-
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Viewport,
@@ -79,6 +76,9 @@ pub struct EditorApp {
     viewport_failed: bool,
     viewport_tex: Option<egui::TextureHandle>,
     viewport_dirty: bool,
+    /// Bound to the project's window size: the viewport must frame the scene the
+    /// way the game window does.
+    view_size: (u32, u32),
     grip_hover: Option<String>,
     tab: Tab,
 }
@@ -87,6 +87,16 @@ impl EditorApp {
     pub fn new(scene: &Path) -> Result<Self> {
         let session = GameSession::open(scene, false)?;
         let project_dir = pite_project::find_project_root(scene);
+        let view_size = project_dir
+            .as_deref()
+            .and_then(|dir| pite_project::load_manifest(dir).ok())
+            .map_or_else(
+                || {
+                    let d = pite_project::ProjectMeta::default();
+                    (d.window_width, d.window_height)
+                },
+                |m| (m.project.window_width, m.project.window_height),
+            );
         Ok(Self {
             session,
             scene_path: scene.to_path_buf(),
@@ -113,6 +123,7 @@ impl EditorApp {
             viewport: None,
             viewport_failed: false,
             viewport_tex: None,
+            view_size,
             viewport_dirty: true,
             grip_hover: None,
             tab: Tab::Viewport,
@@ -995,9 +1006,10 @@ impl EditorApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui) {
+        let (view_w, view_h) = self.view_size;
         let want_refresh = self.playing || self.viewport_dirty;
         if self.viewport.is_none() && !self.viewport_failed {
-            match OffscreenRenderer::new_offscreen(VIEW_W, VIEW_H) {
+            match OffscreenRenderer::new_offscreen(view_w, view_h) {
                 Ok(r) => {
                     self.viewport = Some(r);
                 }
@@ -1024,7 +1036,7 @@ impl EditorApp {
             }
         }
         if let Some(rgba) = fresh_rgba {
-            let image = egui::ColorImage::from_rgba_unmultiplied([VIEW_W as usize, VIEW_H as usize], &rgba);
+            let image = egui::ColorImage::from_rgba_unmultiplied([view_w as usize, view_h as usize], &rgba);
             match self.viewport_tex.as_mut() {
                 Some(handle) => handle.set(image, egui::TextureOptions::NEAREST),
                 None => {
@@ -1043,52 +1055,12 @@ impl EditorApp {
         }
         let textured = self.viewport.is_some() && self.viewport_tex.is_some();
         let width = ui.available_width().max(1.0);
-        let height = width * VIEW_H as f32 / VIEW_W as f32;
+        let height = width * view_h as f32 / view_w as f32;
         let (resp, painter) =
             ui.allocate_painter(egui::Vec2::new(width, height), egui::Sense::hover());
         if textured {
             if let Some(handle) = self.viewport_tex.as_ref() {
                 egui::Image::from_texture(handle).paint_at(ui, resp.rect);
-            }
-            let ((cam_x, cam_y), zoom) = self.session.camera_view();
-            let captions: Vec<(f64, f64, String)> = self.session.host().with_tree(|t| {
-                t.iter()
-                    .map(|n| {
-                        let pos = match n.props.get("position") {
-                            Some(PropValue::Vec2(x, y)) => (*x, *y),
-                            _ => (0.0, 0.0),
-                        };
-                        let text = match n.props.get("text") {
-                            Some(PropValue::Str(s)) => s.clone(),
-                            _ => String::new(),
-                        };
-                        let caption = if text.is_empty() {
-                            n.id.to_string()
-                        } else {
-                            text
-                        };
-                        (pos.0, pos.1, caption)
-                    })
-                    .collect()
-            });
-            for (x, y, caption) in captions {
-                let (sx, sy) = pite_render::world_to_screen(
-                    (x, y),
-                    (cam_x, cam_y),
-                    zoom,
-                    (VIEW_W, VIEW_H),
-                );
-                let p = egui::Pos2::new(
-                    resp.rect.min.x + sx / VIEW_W as f32 * resp.rect.width(),
-                    resp.rect.min.y + sy / VIEW_H as f32 * resp.rect.height(),
-                );
-                painter.text(
-                    p + egui::Vec2::new(10.0, -10.0),
-                    egui::Align2::LEFT_TOP,
-                    caption,
-                    egui::FontId::monospace(11.0),
-                    egui::Color32::from_rgb(201, 209, 216),
-                );
             }
         } else {
             let nodes: Vec<(String, String, (f64, f64), String, (f64, f64))> =
