@@ -111,16 +111,18 @@ fn quad_for(
     h_px: f32,
     size: (u32, u32),
     uv: [f32; 4],
-) -> [SpriteVertex; 4] {
-    let hw = w_px / size.0 as f32 / 2.0;
-    let hh = h_px / size.1 as f32 / 2.0;
+) -> [SpriteVertex; 6] {
+    let hw = w_px / size.0 as f32;
+    let hh = h_px / size.1 as f32;
     let (cx, cy) = center_ndc;
-    [
-        SpriteVertex { pos: [cx - hw, cy + hh], uv: [uv[0], uv[1]] },
-        SpriteVertex { pos: [cx + hw, cy + hh], uv: [uv[2], uv[1]] },
-        SpriteVertex { pos: [cx + hw, cy - hh], uv: [uv[2], uv[3]] },
-        SpriteVertex { pos: [cx - hw, cy - hh], uv: [uv[0], uv[3]] },
-    ]
+    let tl = SpriteVertex { pos: [cx - hw, cy + hh], uv: [uv[0], uv[1]] };
+    let tr = SpriteVertex { pos: [cx + hw, cy + hh], uv: [uv[2], uv[1]] };
+    let br = SpriteVertex { pos: [cx + hw, cy - hh], uv: [uv[2], uv[3]] };
+    let bl = SpriteVertex { pos: [cx - hw, cy - hh], uv: [uv[0], uv[3]] };
+    // The pipeline is TriangleList, so a quad is two whole triangles. Four
+    // vertices would draw one triangle, drop the other, and bridge into the
+    // next quad in the same batch.
+    [tl, tr, br, tl, br, bl]
 }
 
 const SPRITE_SHADER: &str = r#"
@@ -1004,9 +1006,12 @@ mod tests {
     #[test]
     fn quad_is_centered_and_textured() {
         let quad = quad_for((0.0, 0.0), 32.0, 32.0, (800, 600), FULL_UV);
-        assert_eq!(quad.len(), 4);
-        let xs: Vec<f32> = quad.iter().map(|v| v.pos[0]).collect();
-        assert!((xs[0] + 0.02).abs() < 1e-6 && (xs[1] - 0.02).abs() < 1e-6);
+        assert_eq!(quad.len(), 6);
+        let to_px = |ndc: f32, size: u32| (ndc + 1.0) / 2.0 * size as f32;
+        assert!((to_px(quad[0].pos[0], 800) - 384.0).abs() < 0.01);
+        assert!((to_px(quad[1].pos[0], 800) - 416.0).abs() < 0.01);
+        assert!((to_px(quad[0].pos[1], 600) - 316.0).abs() < 0.01);
+        assert!((to_px(quad[2].pos[1], 600) - 284.0).abs() < 0.01);
         assert_eq!(quad[0].uv, [0.0, 0.0]);
         assert_eq!(quad[2].uv, [1.0, 1.0]);
     }
@@ -1068,6 +1073,8 @@ mod tests {
         let quad = [
             SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
             SpriteVertex { pos: [1.0, 1.0], uv: [1.0, 0.0] },
+            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
+            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
             SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
             SpriteVertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
         ];
@@ -1173,6 +1180,36 @@ mod tests {
     }
 
     #[test]
+    fn offscreen_sprite_covers_its_whole_texture_rect() {
+        let Ok(mut r) = OffscreenRenderer::new_offscreen(200, 200) else {
+            eprintln!("SKIP: no GPU adapter on this machine");
+            return;
+        };
+        r.draw_sprite("../examples/minimal-2d/assets/player.png", 0.0, 0.0)
+            .expect("queue sprite");
+        let rgba = r.render_to_rgba().expect("offscreen readback");
+        let clear = (75u8, 75u8, 89u8);
+        let mut min = (200usize, 200usize);
+        let mut max = (0usize, 0usize);
+        for y in 0..200usize {
+            for x in 0..200usize {
+                let i = (y * 200 + x) * 4;
+                if (rgba[i], rgba[i + 1], rgba[i + 2]) != clear {
+                    min.0 = min.0.min(x);
+                    min.1 = min.1.min(y);
+                    max.0 = max.0.max(x);
+                    max.1 = max.1.max(y);
+                }
+            }
+        }
+        assert_eq!(
+            (min.0, min.1, max.0 - min.0 + 1, max.1 - min.1 + 1),
+            (84, 84, 32, 32),
+            "a 32x32 texture must fill 32x32 pixels, centered in a 200x200 target"
+        );
+    }
+
+    #[test]
     fn baked_text_renders_bright_pixels_offscreen() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let Some(adapter) = pollster::block_on(instance.request_adapter(
@@ -1211,6 +1248,8 @@ mod tests {
         let quad = [
             SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
             SpriteVertex { pos: [1.0, 1.0], uv: [1.0, 0.0] },
+            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
+            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
             SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
             SpriteVertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
         ];
@@ -1321,12 +1360,12 @@ mod atlas_draw_tests {
 
         assert_eq!(order, vec!["sheet.png".to_string()], "one sheet, one draw");
         let verts = groups.get("sheet.png").expect("group exists");
-        assert_eq!(verts.len(), 8, "two quads share the group");
+        assert_eq!(verts.len(), 12, "two quads share the group");
 
-        let player_uvs: Vec<[f32; 2]> = verts[..4].iter().map(|v| v.uv).collect();
+        let player_uvs: Vec<[f32; 2]> = verts[..6].iter().map(|v| v.uv).collect();
         assert_eq!(player_uvs[0], [0.0, 0.0]);
         assert_eq!(player_uvs[2], [0.5, 1.0]);
-        let enemy_uvs: Vec<[f32; 2]> = verts[4..].iter().map(|v| v.uv).collect();
+        let enemy_uvs: Vec<[f32; 2]> = verts[6..].iter().map(|v| v.uv).collect();
         assert_eq!(enemy_uvs[0], [0.5, 0.0]);
         assert_eq!(enemy_uvs[2], [1.0, 1.0]);
     }
@@ -1340,8 +1379,8 @@ mod atlas_draw_tests {
         let (groups, _) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
         let verts = &groups["sheet.png"];
         let width_ndc = verts[1].pos[0] - verts[0].pos[0];
-        // 32px frame in a 200px-wide view, doubled because pos spans both edges.
-        assert!((width_ndc - 32.0 / 200.0).abs() < 1e-6, "got {width_ndc}");
+        // 32px frame in a 200px-wide view, doubled because NDC spans both edges.
+        assert!((width_ndc - 2.0 * 32.0 / 200.0).abs() < 1e-6, "got {width_ndc}");
     }
 
     #[test]
