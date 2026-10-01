@@ -232,9 +232,23 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
     Ok(StagedBundle { root: dest.to_path_buf(), lib, stdlib_zip })
 }
 
-/// Directories never shipped: `pite` registers its module from Rust, so the
-/// interpreter needs the stdlib and nothing else.
-const EXCLUDED: &[&str] = &["site-packages", "test", "idlelib", "tkinter", "ensurepip", "__pycache__"];
+/// Directories never shipped. `pite` registers its module from Rust, so an
+/// exported game needs the stdlib and nothing else — no installer, no REPL
+/// tooling, no virtualenv support. `venv` is the bulky one (8 MB of the
+/// Windows stdlib) and is dead weight for an embedded interpreter.
+const EXCLUDED: &[&str] = &[
+    "site-packages",
+    "test",
+    "idlelib",
+    "tkinter",
+    "ensurepip",
+    "__pycache__",
+    "venv",
+    "lib2to3",
+    "pydoc_data",
+    "turtledemo",
+    "msilib",
+];
 
 /// Versionless ABI forwarders. They dispatch *to* the versioned interpreter
 /// rather than being one, so a copy of these cannot satisfy the loader.
