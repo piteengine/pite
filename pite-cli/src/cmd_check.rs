@@ -63,6 +63,14 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
     };
 
     if let Some(manifest) = &manifest {
+        let (manifest_errors, manifest_warnings) = pite_project::validate_manifest(manifest);
+        errors.extend(manifest_errors);
+        warnings.extend(manifest_warnings);
+        if let Some(rel) = manifest.project.icon.strip_prefix("res://") {
+            if !root.join(rel).is_file() {
+                warnings.push(format!("manifest: icon {:?} missing", manifest.project.icon));
+            }
+        }
         let registry = pite_assets::load_registry(&root).unwrap_or_default();
         let scanned = match pite_assets::scan_files(&root) {
             Ok(files) => files,
