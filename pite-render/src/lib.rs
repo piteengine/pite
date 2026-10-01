@@ -699,7 +699,7 @@ impl OffscreenRenderer {
             None,
         ))
         .context("cannot request GPU device")?;
-        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("pite offscreen target"),
@@ -1137,6 +1137,38 @@ mod tests {
         assert!(
             center[1] as i32 - center[0] as i32 > 60,
             "center pixel should be sprite-green, got {center:?}"
+        );
+    }
+
+    #[test]
+    fn offscreen_clear_is_srgb_encoded_to_match_the_window_surface() {
+        let Ok(mut r) = OffscreenRenderer::new_offscreen(8, 8) else {
+            eprintln!("SKIP: no GPU adapter on this machine");
+            return;
+        };
+        let rgba = r.render_to_rgba().expect("offscreen readback");
+        assert_eq!(
+            &rgba[0..3],
+            &[75, 75, 89],
+            "editor viewport must show the same background as the game window"
+        );
+    }
+
+    #[test]
+    fn offscreen_sprite_keeps_authored_srgb_colors() {
+        let Ok(mut r) = OffscreenRenderer::new_offscreen(64, 64) else {
+            eprintln!("SKIP: no GPU adapter on this machine");
+            return;
+        };
+        r.draw_sprite("../examples/minimal-2d/assets/player.png", 0.0, 0.0)
+            .expect("queue sprite");
+        let rgba = r.render_to_rgba().expect("offscreen readback");
+        let seen: std::collections::HashSet<[u8; 4]> =
+            rgba.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect();
+        assert!(
+            seen.contains(&[74, 222, 128, 255]),
+            "authored green must survive the round-trip, saw {:?}",
+            seen
         );
     }
 
