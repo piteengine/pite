@@ -2580,6 +2580,8 @@ dependencies = [
  "pite-core",
  "pite-project",
  "pite-runtime",
+ "pite-scene",
+ "toml",
  "tracing",
 ]
 

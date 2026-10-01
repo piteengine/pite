@@ -7,6 +7,8 @@ use eframe::egui;
 use pite_core::{NodeId, PropValue};
 use pite_runtime::GameSession;
 
+use crate::ops;
+
 pub fn launch(scene: &Path) -> Result<()> {
     let app = EditorApp::new(scene)?;
     let options = eframe::NativeOptions {
@@ -41,6 +43,9 @@ pub struct EditorApp {
     code_text: String,
     playing: bool,
     last_frame: Instant,
+    add_open: bool,
+    add_type: String,
+    add_name: String,
 }
 
 impl EditorApp {
@@ -58,6 +63,9 @@ impl EditorApp {
             code_text: String::new(),
             playing: false,
             last_frame: Instant::now(),
+            add_open: false,
+            add_type: "Node2D".to_string(),
+            add_name: "NewNode".to_string(),
         })
     }
 
@@ -86,10 +94,68 @@ impl EditorApp {
             Err(e) => self.log(format!("stop failed: {e:#}")),
         }
     }
+
+    fn save_scene(&mut self) {
+        let doc = self.session.host().with_tree(ops::build_doc);
+        match pite_scene::save_scene(&doc) {
+            Ok(text) => match ops::save_text(&self.scene_path, &text) {
+                Ok(()) => self.log(format!("saved scene {}", self.scene_path.display())),
+                Err(e) => self.log(format!("save scene failed: {e:#}")),
+            },
+            Err(e) => self.log(format!("save scene failed: {e:#}")),
+        }
+    }
+
+    fn delete_selected(&mut self) {
+        let Some(sel) = self.selected.clone() else {
+            self.log("delete: nothing selected.".to_string());
+            return;
+        };
+        let id = NodeId::from(sel);
+        match self.session.host().with_tree_mut(|t| ops::remove_node(t, &id)) {
+            Ok(()) => {
+                self.selected = None;
+                self.log(format!("deleted {id}."));
+            }
+            Err(e) => self.log(format!("delete failed: {e:#}")),
+        }
+    }
+
+    fn set_prop(&mut self, id: &NodeId, key: &str, value: PropValue) {
+        let result = self
+            .session
+            .host()
+            .with_tree_mut(|t| ops::set_prop(t, id, key, value));
+        if let Err(e) = result {
+            self.log(format!("set prop failed: {e:#}"));
+        }
+    }
+
+    fn current_file_errors(&self) -> Vec<String> {
+        let name = self
+            .code_file
+            .as_ref()
+            .and_then(|f| f.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        if name.is_empty() {
+            return Vec::new();
+        }
+        self.session
+            .errors()
+            .into_iter()
+            .filter(|e| e.contains(name))
+            .collect()
+    }
 }
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let save_shortcut =
+            ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+        if save_shortcut {
+            self.save_scene();
+        }
         if self.playing {
             let delta = self.last_frame.elapsed().as_secs_f64().min(0.1);
             self.last_frame = Instant::now();
@@ -109,13 +175,27 @@ impl eframe::App for EditorApp {
                 if ui.button("⏹ Stop").clicked() {
                     self.stop();
                 }
+                if ui.button("💾 Save scene").clicked() {
+                    self.save_scene();
+                }
                 ui.separator();
                 ui.label(self.scene_path.to_string_lossy().as_ref());
             });
         });
 
         egui::SidePanel::left("tree").default_width(220.0).show(ctx, |ui| {
-            ui.heading("Scene tree");
+            ui.horizontal(|ui| {
+                ui.heading("Scene tree");
+                if ui.small_button("+").clicked() {
+                    self.add_open = true;
+                }
+                if ui.small_button("−").clicked() {
+                    self.delete_selected();
+                }
+            });
+            if self.add_open {
+                self.show_add_child(ui);
+            }
             let root = self
                 .session
                 .host()
@@ -183,6 +263,14 @@ impl eframe::App for EditorApp {
                 }
             });
             egui::ScrollArea::vertical().show(ui, |ui| {
+                let marks = ops::gutter_marks(&self.current_file_errors());
+                for (line, msg) in &marks {
+                    let _ = ui.small_button(
+                        egui::RichText::new(format!("line {line}: {msg}"))
+                            .monospace()
+                            .color(egui::Color32::YELLOW),
+                    );
+                }
                 ui.add(
                     egui::TextEdit::multiline(&mut self.code_text)
                         .code_editor()
@@ -194,6 +282,46 @@ impl eframe::App for EditorApp {
 }
 
 impl EditorApp {
+    fn show_add_child(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        let types = ops::registered_types();
+        if !types.contains(&self.add_type) {
+            self.add_type = types.first().cloned().unwrap_or_default();
+        }
+        egui::ComboBox::from_label("Type")
+            .selected_text(&self.add_type)
+            .show_ui(ui, |ui| {
+                for t in &types {
+                    ui.selectable_value(&mut self.add_type, t.clone(), t);
+                }
+            });
+        ui.text_edit_singleline(&mut self.add_name);
+        ui.horizontal(|ui| {
+            if ui.button("Add").clicked() {
+                let type_name = self.add_type.clone();
+                let name = self.add_name.clone();
+                let parent = self.selected.clone().map(NodeId::from).or_else(|| {
+                    self.session.host().with_tree(|t| t.root().cloned())
+                });
+                match self
+                    .session
+                    .host()
+                    .with_tree_mut(|t| ops::add_node(t, parent, &type_name, &name))
+                {
+                    Ok(id) => {
+                        self.selected = Some(id.to_string());
+                        self.add_open = false;
+                        self.log(format!("added {id} ({type_name})."));
+                    }
+                    Err(e) => self.log(format!("add node failed: {e:#}")),
+                }
+            }
+            if ui.button("Cancel").clicked() {
+                self.add_open = false;
+            }
+        });
+    }
+
     fn show_node(&mut self, ui: &mut egui::Ui, id: &NodeId, depth: usize) {
         let (name, type_name, children) = self.session.host().with_tree(|t| {
             t.get(id).map(|n| {
@@ -206,21 +334,42 @@ impl EditorApp {
         }).unwrap_or_else(|| ("?".to_string(), "?".to_string(), vec![]));
         let selected = self.selected.as_ref() == Some(&id.to_string());
         let indent = "  ".repeat(depth.min(8));
-        if children.is_empty() {
-            if ui.selectable_label(selected, format!("{indent}{name} ({type_name})")).clicked() {
-                self.selected = Some(id.to_string());
+        let id_string = id.to_string();
+        let target = id.clone();
+        let (_, dropped) = ui.dnd_drop_zone::<String, _>(egui::Frame::default(), |ui| {
+            ui.dnd_drag_source(
+                egui::Id::new(("tree-node", id_string.clone())),
+                id_string.clone(),
+                |ui| {
+                    if children.is_empty() {
+                        if ui.selectable_label(selected, format!("{indent}{name} ({type_name})")).clicked() {
+                            self.selected = Some(id_string.clone());
+                        }
+                    } else {
+                        egui::CollapsingHeader::new(format!("{name} ({type_name})"))
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                if ui.selectable_label(selected, "select").clicked() {
+                                    self.selected = Some(id_string.clone());
+                                }
+                                for child in children {
+                                    self.show_node(ui, &child, depth + 1);
+                                }
+                            });
+                    }
+                },
+            );
+        });
+        if let Some(dragged) = dropped {
+            let dragged_id = NodeId::from(dragged.as_str());
+            if dragged_id != target {
+                match self.session.host().with_tree_mut(|t| {
+                    ops::move_node(t, &dragged_id, Some(target.clone()))
+                }) {
+                    Ok(()) => self.log(format!("moved {dragged_id} under {target}.")),
+                    Err(e) => self.log(format!("move failed: {e:#}")),
+                }
             }
-        } else {
-            egui::CollapsingHeader::new(format!("{name} ({type_name})"))
-                .default_open(true)
-                .show(ui, |ui| {
-                    if ui.selectable_label(selected, "select").clicked() {
-                        self.selected = Some(id.to_string());
-                    }
-                    for child in children {
-                        self.show_node(ui, &child, depth + 1);
-                    }
-                });
         }
     }
 
@@ -235,63 +384,66 @@ impl EditorApp {
             return;
         };
         ui.label(format!("{} ({})", node.name, node.type_name));
-        let mut pos = match node.props.get("position") {
-            Some(PropValue::Vec2(x, y)) => (*x, *y),
-            _ => (0.0, 0.0),
-        };
-        ui.horizontal(|ui| {
-            ui.label("position");
-            if ui.add(egui::DragValue::new(&mut pos.0).speed(1.0)).changed()
-                || ui.add(egui::DragValue::new(&mut pos.1).speed(1.0)).changed()
-            {
-                self.session.host().with_tree_mut(|t| {
-                    if let Some(n) = t.get_mut(&node_id) {
-                        n.props.insert("position".to_string(), PropValue::Vec2(pos.0, pos.1));
-                    }
-                });
-            }
-        });
-        let mut texture = match node.props.get("texture") {
-            Some(PropValue::Str(s)) => s.clone(),
-            _ => String::new(),
-        };
-        ui.horizontal(|ui| {
-            ui.label("texture");
-            if ui.text_edit_singleline(&mut texture).changed() {
-                self.session.host().with_tree_mut(|t| {
-                    if let Some(n) = t.get_mut(&node_id) {
-                        n.props.insert("texture".to_string(), PropValue::Str(texture.clone()));
-                    }
-                });
-            }
-        });
-        if let Some(PropValue::Vec2(sw, sh)) = node.props.get("size") {
-            let mut size = (*sw, *sh);
-            ui.horizontal(|ui| {
-                ui.label("size");
-                if ui.add(egui::DragValue::new(&mut size.0).speed(1.0)).changed()
-                    || ui.add(egui::DragValue::new(&mut size.1).speed(1.0)).changed()
-                {
-                    self.session.host().with_tree_mut(|t| {
-                        if let Some(n) = t.get_mut(&node_id) {
-                            n.props.insert("size".to_string(), PropValue::Vec2(size.0, size.1));
+        let mut keys: Vec<String> = node.props.0.keys().cloned().collect();
+        keys.sort();
+        for key in keys {
+            let value = node
+                .props
+                .get(&key)
+                .cloned()
+                .unwrap_or(PropValue::Str(String::new()));
+            match value {
+                PropValue::Num(f) => {
+                    let mut v = f;
+                    ui.horizontal(|ui| {
+                        ui.label(&key);
+                        if ui.add(egui::DragValue::new(&mut v).speed(0.1)).changed() {
+                            self.set_prop(&node_id, &key, PropValue::Num(v));
                         }
                     });
                 }
-            });
-        }
-        if let Some(PropValue::Str(current)) = node.props.get("text") {
-            let mut text = current.clone();
-            ui.horizontal(|ui| {
-                ui.label("text");
-                if ui.text_edit_singleline(&mut text).changed() {
-                    self.session.host().with_tree_mut(|t| {
-                        if let Some(n) = t.get_mut(&node_id) {
-                            n.props.insert("text".to_string(), PropValue::Str(text.clone()));
+                PropValue::Int(i) => {
+                    let mut v = i;
+                    ui.horizontal(|ui| {
+                        ui.label(&key);
+                        if ui.add(egui::DragValue::new(&mut v)).changed() {
+                            self.set_prop(&node_id, &key, PropValue::Int(v));
                         }
                     });
                 }
-            });
+                PropValue::Str(s) => {
+                    let mut v = s;
+                    ui.horizontal(|ui| {
+                        ui.label(&key);
+                        if ui.text_edit_singleline(&mut v).changed() {
+                            self.set_prop(&node_id, &key, PropValue::Str(v));
+                        }
+                    });
+                }
+                PropValue::Bool(b) => {
+                    let mut v = b;
+                    ui.horizontal(|ui| {
+                        ui.label(&key);
+                        if ui.checkbox(&mut v, "").changed() {
+                            self.set_prop(&node_id, &key, PropValue::Bool(v));
+                        }
+                    });
+                }
+                PropValue::Vec2(x, y) => {
+                    let mut v = (x, y);
+                    ui.horizontal(|ui| {
+                        ui.label(&key);
+                        if ui.add(egui::DragValue::new(&mut v.0).speed(1.0)).changed()
+                            || ui.add(egui::DragValue::new(&mut v.1).speed(1.0)).changed()
+                        {
+                            self.set_prop(&node_id, &key, PropValue::Vec2(v.0, v.1));
+                        }
+                    });
+                }
+                _ => {
+                    ui.label(format!("{key}: {value:?}"));
+                }
+            }
         }
         match &node.script {
             Some(script) => {

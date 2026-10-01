@@ -13,4 +13,6 @@ eframe = "0.32"
 pite-core.workspace = true
 pite-project.workspace = true
 pite-runtime.workspace = true
+pite-scene.workspace = true
+toml.workspace = true
 tracing.workspace = true
