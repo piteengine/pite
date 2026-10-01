@@ -13,6 +13,14 @@ cargo run -p pite-cli -- edit --scene examples/minimal-2d/scenes/main.pitescene
 
 `new` scaffolds a project, `run` plays a scene, `check` validates it, `edit` opens the editor.
 
+## Export
+
+```sh
+cargo run -p pite-cli -- export linux
+```
+
+`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the engine binary, a `run` launcher, and only the referenced game content (`game/`). Extra files ride along via `[export] include` in `pite.toml` (all export settings default; old projects export untouched). The target machine needs system Python 3.12 (`PITE_PYTHON` overrides detection); export fails loudly without it unless `--skip-python-check` (for cross-machine builds). Python is not bundled — out of scope. Exported runs never watch files (`--no-reload` is baked into the launcher).
+
 ## Workspace
 
 | Crate | Role |
@@ -26,6 +34,7 @@ cargo run -p pite-cli -- edit --scene examples/minimal-2d/scenes/main.pitescene
 | `pite-editor` | eframe/egui panels on the same tree |
 | `pite-assets` | `Importer` trait, uid registry |
 | `pite-project` | `pite.toml`, `res://` paths, templates |
+| `pite-export` | Desktop export (binary + resolved content) |
 
 Docs: [`docs/scene-format.md`](docs/scene-format.md), [`docs/scripting-api.md`](docs/scripting-api.md).
 

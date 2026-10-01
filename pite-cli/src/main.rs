@@ -1,5 +1,6 @@
 mod cmd_check;
 mod cmd_edit;
+mod cmd_export;
 mod cmd_new;
 mod cmd_run;
 
@@ -38,6 +39,17 @@ enum Command {
         #[arg(long)]
         scene: Option<String>,
     },
+    Export {
+        platform: String,
+        #[arg(long)]
+        path: Option<String>,
+        #[arg(long)]
+        out: Option<String>,
+        #[arg(long)]
+        binary: Option<String>,
+        #[arg(long, default_value_t = false)]
+        skip_python_check: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -50,5 +62,8 @@ fn main() -> Result<()> {
         Command::Run { scene, no_reload } => cmd_run::run(&scene, no_reload),
         Command::Check { path, strict, json } => cmd_check::run(path.as_deref(), strict, json),
         Command::Edit { scene } => cmd_edit::run(scene.as_deref()),
+        Command::Export { platform, path, out, binary, skip_python_check } => {
+            cmd_export::run(&platform, path.as_deref(), out.as_deref(), binary.as_deref(), skip_python_check)
+        }
     }
 }

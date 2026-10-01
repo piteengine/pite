@@ -2550,6 +2550,7 @@ dependencies = [
  "pite-audio",
  "pite-core",
  "pite-editor",
+ "pite-export",
  "pite-project",
  "pite-runtime",
  "pite-scene",
@@ -2577,6 +2578,17 @@ dependencies = [
  "pite-project",
  "pite-runtime",
  "tracing",
+]
+
+[[package]]
+name = "pite-export"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pite-project",
+ "pite-runtime",
+ "pite-scene",
+ "toml",
 ]
 
 [[package]]

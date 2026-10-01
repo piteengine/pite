@@ -62,6 +62,13 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
 
     if let Some(manifest) = &manifest {
         check_scene_ref(&root, &manifest.project.main_scene, &mut errors, &mut warnings);
+        for p in &manifest.export.platforms {
+            if !pite_export::SUPPORTED_PLATFORMS.contains(&p.as_str()) {
+                warnings.push(format!(
+                    "manifest: unknown export platform {p:?} (supported: linux, windows)"
+                ));
+            }
+        }
     }
 
     let failed = !errors.is_empty() || (strict && !warnings.is_empty());

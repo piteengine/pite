@@ -12,6 +12,8 @@ pub const MANIFEST_FILE: &str = "pite.toml";
 pub struct PiteManifest {
     #[serde(default)]
     pub project: ProjectMeta,
+    #[serde(default)]
+    pub export: ExportConfig,
     #[serde(flatten, default)]
     pub extra: HashMap<String, toml::Value>,
 }
@@ -50,6 +52,32 @@ fn default_main_scene() -> String {
 }
 fn default_python() -> String {
     "3.12".to_string()
+}
+
+fn default_platforms() -> Vec<String> {
+    vec!["linux".to_string()]
+}
+
+/// Export settings. Everything defaults; old projects without this
+/// table export with `platforms = ["linux"]` under the project name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportConfig {
+    #[serde(default = "default_platforms")]
+    pub platforms: Vec<String>,
+    #[serde(default)]
+    pub binary_name: Option<String>,
+    #[serde(default)]
+    pub include: Vec<String>,
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            platforms: default_platforms(),
+            binary_name: None,
+            include: Vec::new(),
+        }
+    }
 }
 
 pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
