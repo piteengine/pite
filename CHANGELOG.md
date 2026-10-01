@@ -1,6 +1,11 @@
 # Changelog
 
-## v0.1-m2 (pending tag)
+## Unreleased
+
+- Windows bundle fix (`a6fa4e8`): the bundled interpreter never produced a working Windows export. The pinned spec named the stdlib at `lib/python3.12`, but the Windows `install_only` archive keeps it in `Lib/`, so `stage()` bailed *after* copying the library — leaving 136 MB of unpacked CPython in the output directory, which the exists-guard then refused to overwrite. The staged library was also `python3.dll`, a 56 KB forwarder onto `python312.dll` rather than the interpreter. Windows does not bootstrap a stdlib zip from `PYTHONPATH` the way Linux does: it reads `python312._pth` from beside the DLL and ignores `PYTHONPATH` once that file exists, so the export now writes one. A failed export no longer leaves its directory behind. Verified by running `run.bat` on Windows — it previously died with "Could not find platform independent libraries" and now boots with no system Python installed. The layout tests read the real cached archives instead of a fixture that assumed the Linux layout, which is why this shipped; the opt-in bundle smoke test also asserted a path `stage()` never wrote to, so it had never passed.
+- Staged-stdlib slimming (`9154343`): drop `venv` (8 MB of the Windows stdlib), `lib2to3`, `pydoc_data`, `turtledemo`, `msilib`. Windows stdlib zip 19 MB → 9.0 MB (export 47 MB → 37 MB), Linux → 9.3 MB. Nothing Pite ships imports any of them; both zips keep every startup-critical module.
+
+## v0.1-m2
 
 Playable 2D run: real rendering, signals, text, audio, export, assets, editor, plus scene cache, manifest schema, and an LSP bridge. Counts are workspace `cargo test` greens at each landing commit.
 
