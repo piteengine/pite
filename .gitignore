@@ -4,3 +4,4 @@
 .codegraph/
 .omo/
 assets.pite.toml
+_cache/

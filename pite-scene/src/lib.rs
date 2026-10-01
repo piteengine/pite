@@ -10,6 +10,10 @@ use anyhow::{Context, Result};
 use pite_core::{NodeDesc, NodeId, NodeTree, Props, PropValue, ScriptRef};
 use serde::{Deserialize, Serialize};
 
+pub mod cache;
+
+pub use cache::{CacheStatus, CACHE_VERSION};
+
 /// Current scene format version. Bump = migrate or error loudly, never silent.
 pub const FORMAT_VERSION: u32 = 1;
 
@@ -81,6 +85,93 @@ pub fn load_scene(path: &Path) -> Result<SceneDoc> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read scene {}", path.display()))?;
     parse_scene_str(&text).with_context(|| format!("cannot parse scene {}", path.display()))
+}
+
+/// Load with the binary cache: a valid cache wins; a missing cache parses
+/// TOML and writes the cache; a corrupt or version-mismatched cache parses
+/// TOML, rewrites the cache, and reports the fallback loudly via the
+/// returned warning — never silently. TOML stays source of truth.
+pub fn load_cached(path: &Path) -> Result<(SceneDoc, CacheStatus, Option<String>)> {
+    let bytes =
+        std::fs::read(path).with_context(|| format!("cannot read scene {}", path.display()))?;
+    let source_hash = cache::fnv1a_u64(&bytes);
+    let source_hex = format!("{source_hash:016x}");
+    let cache_path = cache::cache_path_for(path, &source_hex);
+
+    let mut rebuilt_reason: Option<String> = None;
+    if cache_path.is_file() {
+        match std::fs::read(&cache_path) {
+            Ok(cached) => match cache::decode(&cached) {
+                Ok((doc, header))
+                    if header.source_hash == source_hash
+                        && header.source_len == bytes.len() as u64 =>
+                {
+                    cache::prune_stale(path, &source_hex);
+                    return Ok((doc, CacheStatus::Hit, None));
+                }
+                Ok(_) => {
+                    rebuilt_reason = Some(format!(
+                        "scene cache {} does not match {}",
+                        cache_path.display(),
+                        path.display()
+                    ));
+                }
+                Err(e) => {
+                    rebuilt_reason = Some(format!(
+                        "scene cache {} ignored ({e:#}); rebuilding from TOML",
+                        cache_path.display()
+                    ));
+                }
+            },
+            Err(e) => {
+                rebuilt_reason = Some(format!(
+                    "scene cache {} unreadable ({e:#}); rebuilding from TOML",
+                    cache_path.display()
+                ));
+            }
+        }
+    }
+
+    let text =
+        std::str::from_utf8(&bytes).with_context(|| format!("cannot parse scene {}", path.display()))?;
+    let doc =
+        parse_scene_str(text).with_context(|| format!("cannot parse scene {}", path.display()))?;
+
+    let payload = cache::encode(&doc, source_hash, bytes.len() as u64);
+    let mut warning = rebuilt_reason.clone();
+    if let Some(dir) = cache_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(dir)
+            .and_then(|()| std::fs::write(&cache_path, &payload))
+        {
+            let write_warn = format!(
+                "cannot write scene cache {} ({e:#})",
+                cache_path.display()
+            );
+            warning = Some(match warning {
+                Some(w) => format!("{w}; {write_warn}"),
+                None => write_warn,
+            });
+        } else {
+            cache::prune_stale(path, &source_hex);
+        }
+    }
+
+    let status = match rebuilt_reason {
+        Some(reason) => CacheStatus::Rebuilt(reason),
+        None => CacheStatus::Miss,
+    };
+    Ok((doc, status, warning))
+}
+
+/// Preferred entry point: [`load_cached`] with the fallback warning
+/// surfaced loudly on stderr. Corruption anywhere falls back to TOML,
+/// never silently.
+pub fn load_scene_cached(path: &Path) -> Result<SceneDoc> {
+    let (doc, _, warning) = load_cached(path)?;
+    if let Some(w) = warning {
+        eprintln!("warning: {w}");
+    }
+    Ok(doc)
 }
 
 pub fn save_scene(doc: &SceneDoc) -> Result<String> {
@@ -170,7 +261,7 @@ pub fn instantiate(
     prefix: &str,
     overrides: &HashMap<String, toml::Value>,
 ) -> Result<(Vec<NodeDesc>, String)> {
-    let doc = load_scene(scene_path)?;
+    let doc = load_scene_cached(scene_path)?;
     let mut descs = Vec::with_capacity(doc.node.len());
     for n in &doc.node {
         let mut props = Props::default();

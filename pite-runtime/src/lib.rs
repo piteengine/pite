@@ -293,7 +293,7 @@ impl GameSession {
     }
 
     fn rebuild(&mut self) -> Result<()> {
-        let doc = pite_scene::load_scene(&self.scene)
+        let doc = pite_scene::load_scene_cached(&self.scene)
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
         let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;
         self.host.with_tree_mut(|t| *t = tree);

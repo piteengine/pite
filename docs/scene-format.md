@@ -38,6 +38,16 @@ class = "Player"
   files and tells you where a renamed asset went (uid-tracked, see `assets.md`).
   Run `pite reimport` after renaming or editing assets outside the editor.
 
+## Cache
+
+TOML is the source of truth. The first load writes a binary snapshot next to
+the scene at `<scene_dir>/_cache/<stem>.<content-hash>.bin` (gitignored, never
+exported); later loads prefer it when valid. The filename hash invalidates on
+any source change (stale files are pruned), and a version stamp inside the file
+rebuilds on format bumps instead of misreading. A corrupt or mismatched cache
+falls back to TOML with a loud warning — never silently. `pite check` reports
+per-scene `hit` / `miss` / `rebuilt (reason)` status.
+
 ## Instantiation
 
 ```toml

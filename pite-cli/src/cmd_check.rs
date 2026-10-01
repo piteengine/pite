@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::Serialize;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize)]
 struct CheckReport {
@@ -11,6 +11,7 @@ struct CheckReport {
     ok: bool,
     errors: Vec<String>,
     warnings: Vec<String>,
+    cache: Vec<String>,
 }
 
 pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
@@ -28,6 +29,7 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
     };
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    let mut cache: Vec<String> = Vec::new();
 
     let root = pite_project::find_project_root(&start).or_else(|| {
         let dogfood = start.join("examples").join("minimal-2d");
@@ -83,6 +85,7 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
             &manifest.project.main_scene,
             &mut errors,
             &mut warnings,
+            &mut cache,
             &registry,
             &by_path,
             &by_hash,
@@ -103,12 +106,16 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
         ok: !failed,
         errors,
         warnings,
+        cache,
     };
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         for w in &report.warnings {
             eprintln!("warning: {w}");
+        }
+        for c in &report.cache {
+            println!("cache: {c}");
         }
         if report.ok {
             println!("check ok: {}", root.display());
@@ -129,6 +136,7 @@ fn check_scene_ref(
     scene_ref: &str,
     errors: &mut Vec<String>,
     warnings: &mut Vec<String>,
+    cache: &mut Vec<String>,
     uid_registry: &pite_assets::UidRegistry,
     by_path: &std::collections::HashMap<&str, &pite_assets::ScannedFile>,
     by_hash: &std::collections::HashMap<&str, &str>,
@@ -142,8 +150,14 @@ fn check_scene_ref(
     if !visited.insert(path.to_string_lossy().to_string()) {
         return;
     }
-    let doc = match pite_scene::load_scene(&path) {
-        Ok(doc) => doc,
+    let doc = match pite_scene::load_cached(&path) {
+        Ok((doc, status, warning)) => {
+            if let Some(w) = warning {
+                warnings.push(format!("scene {}: {w}", path.display()));
+            }
+            cache.push(format!("{} {}", status, path.display()));
+            doc
+        }
         Err(e) => {
             errors.push(format!("scene {}: {e:#}", path.display()));
             return;
@@ -283,8 +297,14 @@ fn check_scene_ref(
         } else {
             scene_dir.join(&inst.scene)
         };
-        let ref_doc = match pite_scene::load_scene(&ref_path) {
-            Ok(doc) => doc,
+        let ref_doc = match pite_scene::load_cached(&ref_path) {
+            Ok((doc, status, warning)) => {
+                if let Some(w) = warning {
+                    warnings.push(format!("scene {}: {w}", ref_path.display()));
+                }
+                cache.push(format!("{} {}", status, ref_path.display()));
+                doc
+            }
             Err(e) => {
                 errors.push(format!(
                     "scene {}: instance of {} cannot load: {e:#}",
@@ -320,7 +340,7 @@ fn check_scene_ref(
             scene_dir.join(&inst.scene).to_string_lossy().to_string()
         };
         check_scene_ref(
-            root, &nested_ref, errors, warnings, uid_registry, by_path, by_hash, visited,
+            root, &nested_ref, errors, warnings, cache, uid_registry, by_path, by_hash, visited,
         );
     }
 }
@@ -429,21 +449,23 @@ texture = "res://assets/gone.png"
         registry: &pite_assets::UidRegistry,
         by_path: &HashMap<&str, &pite_assets::ScannedFile>,
         by_hash: &HashMap<&str, &str>,
-    ) -> Vec<String> {
+    ) -> (Vec<String>, Vec<String>) {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
+        let mut cache = Vec::new();
         let mut visited = HashSet::new();
         check_scene_ref(
             root,
             "res://scenes/main.pitescene",
             &mut errors,
             &mut warnings,
+            &mut cache,
             registry,
             by_path,
             by_hash,
             &mut visited,
         );
-        errors
+        (errors, cache)
     }
 
     #[test]
@@ -452,7 +474,7 @@ texture = "res://assets/gone.png"
         let registry = pite_assets::UidRegistry::new();
         let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
         let by_hash: HashMap<&str, &str> = HashMap::new();
-        let errors = run_ref(&root, &registry, &by_path, &by_hash);
+        let (errors, _) = run_ref(&root, &registry, &by_path, &by_hash);
         assert!(
             errors
                 .iter()
@@ -470,10 +492,15 @@ texture = "res://assets/gone.png"
         let registry = pite_assets::UidRegistry::new();
         let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
         let by_hash: HashMap<&str, &str> = HashMap::new();
-        let errors = run_ref(&root, &registry, &by_path, &by_hash);
+        let (errors, cache) = run_ref(&root, &registry, &by_path, &by_hash);
         assert!(
             !errors.iter().any(|e| e.contains("asset")),
             "expected zero asset errors, got: {errors:?}"
+        );
+        assert_eq!(cache.len(), 1, "check must report cache status, got: {cache:?}");
+        assert!(
+            cache[0].starts_with("miss "),
+            "first run populates the cache, got: {cache:?}"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
