@@ -1,11 +1,11 @@
 use eframe::egui;
 
-const ACCENT: egui::Color32 = egui::Color32::from_rgb(74, 222, 128);
-const BG: egui::Color32 = egui::Color32::from_rgb(15, 17, 22);
-const PANEL: egui::Color32 = egui::Color32::from_rgb(22, 25, 33);
-const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(48, 54, 68);
-const TEXT: egui::Color32 = egui::Color32::from_rgb(226, 232, 240);
-const FAINT: egui::Color32 = egui::Color32::from_rgb(148, 163, 184);
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(13, 148, 136);
+pub(crate) const BG: egui::Color32 = egui::Color32::from_rgb(2, 23, 23);
+const PANEL: egui::Color32 = egui::Color32::from_rgb(2, 23, 23);
+const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(13, 148, 136);
+const TEXT: egui::Color32 = egui::Color32::from_rgb(240, 253, 250);
+const FAINT: egui::Color32 = egui::Color32::from_rgb(204, 251, 241);
 
 pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
@@ -82,13 +82,13 @@ fn visuals() -> egui::Visuals {
     visuals.panel_fill = PANEL;
     visuals.window_stroke = egui::Stroke::new(1.0_f32, PANEL_STROKE);
     visuals.hyperlink_color = ACCENT;
-    visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(74, 222, 128, 70);
+    visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(13, 148, 136, 70);
     visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.noninteractive = widget(PANEL);
-    visuals.widgets.inactive = widget(egui::Color32::from_rgb(30, 34, 45));
-    visuals.widgets.hovered = widget(egui::Color32::from_rgb(40, 46, 61));
-    visuals.widgets.active = widget(egui::Color32::from_rgb(46, 64, 52));
-    visuals.widgets.open = widget(egui::Color32::from_rgb(30, 34, 45));
+    visuals.widgets.inactive = widget(BG);
+    visuals.widgets.hovered = widget(egui::Color32::from_rgb(19, 78, 74));
+    visuals.widgets.active = widget(ACCENT);
+    visuals.widgets.open = widget(BG);
     visuals.window_corner_radius = 8.0.into();
     visuals.menu_corner_radius = 6.0.into();
     visuals

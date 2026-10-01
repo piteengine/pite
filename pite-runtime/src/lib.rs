@@ -423,10 +423,21 @@ struct App {
     render_errors: u32,
 }
 
+fn window_icon() -> Option<winit::window::Icon> {
+    const PNG: &[u8] = include_bytes!("../../assets/icon.png");
+    let img = image::load_from_memory_with_format(PNG, image::ImageFormat::Png).ok()?;
+    let rgba = img.to_rgba8();
+    let (width, height) = (rgba.width(), rgba.height());
+    winit::window::Icon::from_rgba(rgba.into_raw(), width, height).ok()
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let attrs = Window::default_attributes().with_title(self.title.clone());
+            let mut attrs = Window::default_attributes().with_title(self.title.clone());
+            if let Some(icon) = window_icon() {
+                attrs = attrs.with_window_icon(Some(icon));
+            }
             match event_loop.create_window(attrs) {
                 Ok(window) => {
                     let window = Arc::new(window);

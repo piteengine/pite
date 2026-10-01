@@ -2620,6 +2620,7 @@ name = "pite-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "image",
  "notify",
  "pite-audio",
  "pite-core",

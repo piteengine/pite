@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+image.workspace = true
 tracing.workspace = true
 winit.workspace = true
 notify = "8"

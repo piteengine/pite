@@ -10,7 +10,12 @@ use pite_runtime::GameSession;
 pub fn launch(scene: &Path) -> Result<()> {
     let app = EditorApp::new(scene)?;
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 800.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon.png"))
+                    .expect("assets/icon.png must be a valid PNG"),
+            ),
         ..Default::default()
     };
     eframe::run_native(
@@ -327,7 +332,7 @@ impl EditorApp {
         let (resp, painter) =
             ui.allocate_painter(egui::Vec2::new(ui.available_width(), 240.0), egui::Sense::hover());
         let center = resp.rect.center();
-        painter.rect_filled(resp.rect, 0.0, egui::Color32::from_gray(24));
+        painter.rect_filled(resp.rect, 0.0, crate::theme::BG);
         for (id, type_name, (x, y), text, (w, h)) in nodes {
             let p = center + egui::Vec2::new(x as f32, y as f32);
             let color = if type_name == "Sprite2D" {
