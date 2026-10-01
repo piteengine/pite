@@ -50,6 +50,10 @@ impl PyNode2D {
 struct PySprite2D {
     #[pyo3(get, set)]
     texture: String,
+    #[pyo3(get, set)]
+    atlas: String,
+    #[pyo3(get, set)]
+    frame: String,
 }
 
 #[pymethods]
@@ -60,6 +64,8 @@ impl PySprite2D {
             .add_subclass(PyNode2D { position: (0.0, 0.0) })
             .add_subclass(PySprite2D {
                 texture: String::new(),
+                atlas: String::new(),
+                frame: String::new(),
             })
     }
 }
@@ -128,6 +134,20 @@ impl PyButton {
     }
 }
 
+/// Frame names in a sprite-sheet atlas (`res://…atlas.json`).
+#[pyfunction]
+fn frames(atlas_ref: &str) -> PyResult<Vec<String>> {
+    let root = crate::project_dir().ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err(
+            "no project root known; pite.frames() needs res:// inside a project",
+        )
+    })?;
+    let atlas = pite_assets::load_sidecar(&root, atlas_ref).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("{e:#}"))
+    })?;
+    Ok(atlas.names().into_iter().map(str::to_string).collect())
+}
+
 #[pymodule]
 fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
@@ -143,6 +163,7 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mouse, m)?)?;
     m.add_function(wrap_pyfunction!(signal, m)?)?;
     m.add_class::<PySignalDecl>()?;
+    m.add_function(wrap_pyfunction!(frames, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::play, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::stop, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::set_volume, m)?)?;

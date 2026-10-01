@@ -119,6 +119,7 @@ impl GameSession {
         };
         pite_script::set_current_host(session.host.clone());
         pite_audio::set_project_dir(session.project_dir.clone());
+        pite_script::set_project_dir(session.project_dir.clone());
         session.rebuild()?;
         if !session.no_reload {
             session.start_watcher()?;
@@ -186,21 +187,50 @@ impl GameSession {
     pub fn draw_into(&mut self, r: &mut dyn Renderer2D) -> Result<()> {
         let (cam, zoom) = self.camera_view();
         r.set_camera(cam.0, cam.1, zoom);
-        let sprites: Vec<(String, (f64, f64))> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "Sprite2D")
-                .filter_map(|n| {
-                    let tex = match n.props.get("texture") {
-                        Some(PropValue::Str(s)) => s.clone(),
-                        _ => return None,
-                    };
-                    Some((tex, global_position(tree, &n.id)))
-                })
-                .collect()
-        });
-        for (tex, pos) in sprites {
-            let resolved = self.resolve_path(&tex);
-            r.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
+        let sprite_nodes: Vec<(String, String, Option<String>, Option<String>, (f64, f64))> =
+            self.host.with_tree(|tree| {
+                tree.iter()
+                    .filter(|n| n.type_name == "Sprite2D")
+                    .map(|n| {
+                        let prop = |key: &str| match n.props.get(key) {
+                            Some(PropValue::Str(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+                        (
+                            n.id.to_string(),
+                            prop("texture").unwrap_or_default(),
+                            prop("atlas"),
+                            prop("frame"),
+                            global_position(tree, &n.id),
+                        )
+                    })
+                    .collect()
+            });
+        for (id, texture, atlas, frame, pos) in sprite_nodes {
+            let has_texture = !texture.is_empty();
+            if has_texture && atlas.is_some() {
+                anyhow::bail!("node {id}: `texture` and `atlas` are mutually exclusive");
+            }
+            match (atlas, frame) {
+                (Some(atlas), Some(frame)) => {
+                    let sidecar = self.resolve_path(&atlas);
+                    let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
+                    r.draw_sprite_frame(
+                        &sheet.to_string_lossy(),
+                        Some(&frame),
+                        pos.0,
+                        pos.1,
+                    )?;
+                }
+                (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
+                (None, Some(_)) => anyhow::bail!("node {id}: `frame` requires an `atlas`"),
+                (None, None) => {
+                    if has_texture {
+                        let resolved = self.resolve_path(&texture);
+                        r.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
+                    }
+                }
+            }
         }
         let labels: Vec<(String, f32, [u8; 4], (f64, f64))> =
             self.host.with_tree(|tree| {
@@ -988,6 +1018,131 @@ mod tests {
                 },
                 None => f64::NAN,
             })
+    }
+
+    /// Records what the draw path actually queued.
+    #[derive(Default)]
+    struct RecordingRenderer {
+        calls: Vec<(String, Option<String>, (f64, f64))>,
+    }
+
+    impl Renderer2D for RecordingRenderer {
+        fn begin_frame(&mut self) -> Result<()> {
+            Ok(())
+        }
+
+        fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
+            self.calls.push((texture.to_string(), None, (x, y)));
+            Ok(())
+        }
+
+        fn draw_sprite_frame(
+            &mut self,
+            texture: &str,
+            frame: Option<&str>,
+            x: f64,
+            y: f64,
+        ) -> Result<()> {
+            self.calls
+                .push((texture.to_string(), frame.map(str::to_string), (x, y)));
+            Ok(())
+        }
+
+        fn draw_text(
+            &mut self,
+            _text: &str,
+            _x: f64,
+            _y: f64,
+            _size: f32,
+            _color: [u8; 4],
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        fn draw_rect(
+            &mut self,
+            _x: f64,
+            _y: f64,
+            _w: f64,
+            _h: f64,
+            _color: [u8; 4],
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        fn end_frame(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn dogfood_scene() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("examples")
+            .join("minimal-2d")
+            .join("scenes")
+            .join("main.pitescene")
+    }
+
+    #[test]
+    fn dogfood_sprites_draw_from_one_sheet() {
+        let _guard = SERIAL.lock().unwrap();
+        let mut session = GameSession::open(&dogfood_scene(), true).unwrap();
+        let mut recorder = RecordingRenderer::default();
+        session.draw_into(&mut recorder).unwrap();
+
+        let sheet = session
+            .resolve_path("res://assets/sheet.atlas.json")
+            .to_string_lossy()
+            .into_owned();
+        let sheet = PathBuf::from(&sheet)
+            .with_file_name("sheet.png")
+            .to_string_lossy()
+            .into_owned();
+        let frames: Vec<Option<&str>> = recorder
+            .calls
+            .iter()
+            .filter(|(tex, _, _)| tex == &sheet)
+            .map(|(_, frame, _)| frame.as_deref())
+            .collect();
+        assert!(
+            frames.contains(&Some("player")),
+            "player must draw from the sheet, got {:?}", recorder.calls
+        );
+        assert!(
+            frames.contains(&Some("enemy")),
+            "instanced enemy must draw from the sheet, got {:?}", recorder.calls
+        );
+        let sheets: std::collections::HashSet<&String> =
+            recorder.calls.iter().map(|(tex, _, _)| tex).collect();
+        assert_eq!(
+            sheets.len(),
+            1,
+            "all frames share one texture, so they batch into one draw"
+        );
+    }
+
+    #[test]
+    fn texture_and_atlas_together_fail_loudly() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-atlas-draw-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"both\"\ntype = \"Sprite2D\"\nname = \"Both\"\nparent = \"root\"\n\n[node.props]\ntexture = \"res://a.png\"\natlas = \"res://sheet.atlas.json\"\nframe = \"player\"\n",
+        )
+        .unwrap();
+        let mut session = GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
+        let mut recorder = RecordingRenderer::default();
+        let err = session
+            .draw_into(&mut recorder)
+            .expect_err("both texture and atlas must fail loudly");
+        assert!(
+            err.to_string().contains("mutually exclusive"),
+            "unexpected: {err:#}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

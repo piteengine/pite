@@ -13,7 +13,8 @@ name = "Player"
 parent = "root"
 
 [node.props]
-texture = "res://assets/player.png"
+atlas = "res://assets/sheet.atlas.json"
+frame = "player"
 
 [node.script]
 path = "res://scripts/player.py"

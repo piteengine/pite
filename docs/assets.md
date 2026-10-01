@@ -32,3 +32,40 @@ reported, not fatal to the rest. `check` itself never writes.
 
 `Importer` trait (`match_ext`, `import`) + `UidRegistry`, same seam as M1.
 `png` and `wav` are registered; new formats are new impls, no registry change.
+
+## Atlas (sprite sheets)
+
+One PNG plus a JSON sidecar describes a sprite sheet. The sidecar sits beside
+the sheet as `<sheet>.atlas.json`:
+
+```json
+{
+  "texture": "sheet.png",
+  "size": [64, 32],
+  "frames": {
+    "player": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "enemy": [32, 0, 32, 32]
+  }
+}
+```
+
+`size` is the sheet in pixels; a frame is `[x, y, w, h]` (object or array).
+Frames must fit the sheet, and a sheet with no frames is an error.
+
+A `Sprite2D` draws either a plain texture or one atlas frame:
+
+```toml
+[node.props]
+atlas = "res://assets/sheet.atlas.json"
+frame = "player"
+```
+
+- `texture` and `atlas` are mutually exclusive; setting both fails loudly
+  (`check` error, runtime refuses the frame).
+- `atlas` requires `frame`, and `frame` without `atlas` is an error.
+- Every frame of one sheet shares a single texture, so all of them are drawn
+  in one batched draw call.
+- `pite check` errors on a frame the atlas does not define (listing the names
+  it does have) and warns about frames nothing references.
+- From Python: `pite.frames("res://assets/sheet.atlas.json")` lists the names,
+  and `Sprite2D.atlas` / `Sprite2D.frame` are readable and writable.

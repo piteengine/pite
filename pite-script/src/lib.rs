@@ -17,6 +17,18 @@ pub use python::Pyo3Backend;
 
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];
 
+/// Project root used to resolve `res://` asset refs from Python.
+static PROJECT_DIR: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
+
+pub fn set_project_dir(dir: Option<std::path::PathBuf>) {
+    *PROJECT_DIR.lock().expect("project dir lock") = dir;
+}
+
+pub fn project_dir() -> Option<std::path::PathBuf> {
+    PROJECT_DIR.lock().expect("project dir lock").clone()
+}
+
 pub fn is_reserved(name: &str) -> bool {
     RESERVED_METHODS.contains(&name)
 }

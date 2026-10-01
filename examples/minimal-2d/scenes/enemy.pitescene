@@ -17,5 +17,6 @@ name = "Sprite"
 parent = "enemy"
 
 [node.props]
-texture = "res://assets/foe.png"
+atlas = "res://assets/sheet.atlas.json"
+frame = "enemy"
 position = [0.0, 0.0]

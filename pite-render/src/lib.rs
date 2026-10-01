@@ -5,11 +5,28 @@
 use anyhow::{Context, Result};
 use wgpu::util::DeviceExt;
 
+pub mod atlas;
 pub mod text;
+
+pub use atlas::{Atlas, AtlasFrame};
+
+const FULL_UV: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 pub trait Renderer2D {
     fn begin_frame(&mut self) -> Result<()>;
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()>;
+    /// Draw `texture`, optionally from one named atlas frame. The default
+    /// ignores the frame, so impls without atlas support stay correct.
+    fn draw_sprite_frame(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+    ) -> Result<()> {
+        let _ = frame;
+        self.draw_sprite(texture, x, y)
+    }
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
     fn end_frame(&mut self) -> Result<()>;
@@ -88,15 +105,21 @@ struct SpriteVertex {
     uv: [f32; 2],
 }
 
-fn quad_for(center_ndc: (f32, f32), w_px: f32, h_px: f32, size: (u32, u32)) -> [SpriteVertex; 4] {
+fn quad_for(
+    center_ndc: (f32, f32),
+    w_px: f32,
+    h_px: f32,
+    size: (u32, u32),
+    uv: [f32; 4],
+) -> [SpriteVertex; 4] {
     let hw = w_px / size.0 as f32 / 2.0;
     let hh = h_px / size.1 as f32 / 2.0;
     let (cx, cy) = center_ndc;
     [
-        SpriteVertex { pos: [cx - hw, cy + hh], uv: [0.0, 0.0] },
-        SpriteVertex { pos: [cx + hw, cy + hh], uv: [1.0, 0.0] },
-        SpriteVertex { pos: [cx + hw, cy - hh], uv: [1.0, 1.0] },
-        SpriteVertex { pos: [cx - hw, cy - hh], uv: [0.0, 1.0] },
+        SpriteVertex { pos: [cx - hw, cy + hh], uv: [uv[0], uv[1]] },
+        SpriteVertex { pos: [cx + hw, cy + hh], uv: [uv[2], uv[1]] },
+        SpriteVertex { pos: [cx + hw, cy - hh], uv: [uv[2], uv[3]] },
+        SpriteVertex { pos: [cx - hw, cy - hh], uv: [uv[0], uv[3]] },
     ]
 }
 
@@ -137,6 +160,21 @@ struct QueuedSprite {
     tex_key: String,
     world: (f64, f64),
     size_world: Option<(f64, f64)>,
+    /// Frame size in pixels; `None` means "the whole texture".
+    size_px: Option<(u32, u32)>,
+    uv: [f32; 4],
+}
+
+impl QueuedSprite {
+    fn plain(tex_key: String, world: (f64, f64)) -> Self {
+        Self {
+            tex_key,
+            world,
+            size_world: None,
+            size_px: None,
+            uv: FULL_UV,
+        }
+    }
 }
 
 fn create_sprite_pipeline(
@@ -287,13 +325,14 @@ fn build_groups(
     let mut order: Vec<String> = Vec::new();
     for sprite in sprites {
         let (tw, th) = sizes.get(&sprite.tex_key).copied().unwrap_or((8, 8));
-        let (w, h) = match sprite.size_world {
-            Some((w, h)) => ((w * zoom) as f32, (h * zoom) as f32),
-            None => (tw as f32, th as f32),
+        let (w, h) = match (sprite.size_world, sprite.size_px) {
+            (Some((w, h)), _) => ((w * zoom) as f32, (h * zoom) as f32),
+            (None, Some((w, h))) => (w as f32, h as f32),
+            (None, None) => (tw as f32, th as f32),
         };
         let screen = world_to_screen(sprite.world, cam, zoom, size);
         let ndc = screen_to_ndc(screen, size);
-        let quad = quad_for(ndc, w, h, size);
+        let quad = quad_for(ndc, w, h, size, sprite.uv);
         if !groups.contains_key(&sprite.tex_key) {
             order.push(sprite.tex_key.clone());
         }
@@ -303,6 +342,24 @@ fn build_groups(
             .extend_from_slice(&quad);
     }
     (groups, order)
+}
+
+/// Resolve a frame name to UV rect + pixel size, loading the sheet's sidecar
+/// on first use. Missing sidecar or frame is an error, never a silent
+/// full-texture fallback.
+fn frame_uv(
+    cache: &mut std::collections::HashMap<String, Atlas>,
+    texture: &str,
+    frame: &str,
+) -> Result<([f32; 4], (u32, u32))> {
+    if !cache.contains_key(texture) {
+        let sidecar = atlas::sidecar_for(std::path::Path::new(texture));
+        let loaded = atlas::load_atlas(&sidecar)?;
+        cache.insert(texture.to_string(), loaded);
+    }
+    let atlas = &cache[texture];
+    let found = atlas.frame(frame)?;
+    Ok((found.uv(atlas.size), (found.w, found.h)))
 }
 
 /// Encode one render pass drawing pre-built groups into `view`.
@@ -369,6 +426,7 @@ pub struct WgpuRenderer {
     baked_order: std::collections::VecDeque<String>,
     atlas: text::TextAtlas,
     queue_list: Vec<QueuedSprite>,
+    sprite_atlases: std::collections::HashMap<String, Atlas>,
     cam: (f64, f64),
     zoom: f64,
 }
@@ -428,6 +486,7 @@ impl WgpuRenderer {
             baked_order: std::collections::VecDeque::new(),
             atlas: text::TextAtlas::new()?,
             queue_list: Vec::new(),
+            sprite_atlases: std::collections::HashMap::new(),
             cam: (0.0, 0.0),
             zoom: 1.0,
         };
@@ -508,7 +567,7 @@ impl WgpuRenderer {
                 }
             }
         }
-        self.queue_list.push(QueuedSprite { tex_key: key, world, size_world: None });
+        self.queue_list.push(QueuedSprite::plain(key, world));
     }
 }
 
@@ -519,10 +578,24 @@ impl Renderer2D for WgpuRenderer {
     }
 
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
+        self.queue_list
+            .push(QueuedSprite::plain(texture.to_string(), (x, y)));
+        Ok(())
+    }
+
+    fn draw_sprite_frame(&mut self, texture: &str, frame: Option<&str>, x: f64, y: f64) -> Result<()> {
+        let Some(frame) = frame else {
+            self.queue_list
+                .push(QueuedSprite::plain(texture.to_string(), (x, y)));
+            return Ok(());
+        };
+        let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
         self.queue_list.push(QueuedSprite {
             tex_key: texture.to_string(),
             world: (x, y),
             size_world: None,
+            size_px: Some(size_px),
+            uv,
         });
         Ok(())
     }
@@ -544,9 +617,8 @@ impl Renderer2D for WgpuRenderer {
             text::lru_touch(&mut self.baked_order, &key, 64);
         }
         self.queue_list.push(QueuedSprite {
-            tex_key: key,
-            world: (x, y),
             size_world: Some((w.max(1.0), h.max(1.0))),
+            ..QueuedSprite::plain(key, (x, y))
         });
         Ok(())
     }
@@ -604,6 +676,7 @@ pub struct OffscreenRenderer {
     baked_order: std::collections::VecDeque<String>,
     atlas: text::TextAtlas,
     queue_list: Vec<QueuedSprite>,
+    sprite_atlases: std::collections::HashMap<String, Atlas>,
     cam: (f64, f64),
     zoom: f64,
 }
@@ -652,6 +725,7 @@ impl OffscreenRenderer {
             baked_order: std::collections::VecDeque::new(),
             atlas: text::TextAtlas::new()?,
             queue_list: Vec::new(),
+            sprite_atlases: std::collections::HashMap::new(),
             cam: (0.0, 0.0),
             zoom: 1.0,
         })
@@ -723,7 +797,7 @@ impl OffscreenRenderer {
                 }
             }
         }
-        self.queue_list.push(QueuedSprite { tex_key: key, world, size_world: None });
+        self.queue_list.push(QueuedSprite::plain(key, world));
     }
 
     fn render_queued_to_target(&mut self) -> wgpu::CommandBuffer {
@@ -851,10 +925,24 @@ impl Renderer2D for OffscreenRenderer {
     }
 
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
+        self.queue_list
+            .push(QueuedSprite::plain(texture.to_string(), (x, y)));
+        Ok(())
+    }
+
+    fn draw_sprite_frame(&mut self, texture: &str, frame: Option<&str>, x: f64, y: f64) -> Result<()> {
+        let Some(frame) = frame else {
+            self.queue_list
+                .push(QueuedSprite::plain(texture.to_string(), (x, y)));
+            return Ok(());
+        };
+        let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
         self.queue_list.push(QueuedSprite {
             tex_key: texture.to_string(),
             world: (x, y),
             size_world: None,
+            size_px: Some(size_px),
+            uv,
         });
         Ok(())
     }
@@ -876,9 +964,8 @@ impl Renderer2D for OffscreenRenderer {
             text::lru_touch(&mut self.baked_order, &key, 64);
         }
         self.queue_list.push(QueuedSprite {
-            tex_key: key,
-            world: (x, y),
             size_world: Some((w.max(1.0), h.max(1.0))),
+            ..QueuedSprite::plain(key, (x, y))
         });
         Ok(())
     }
@@ -916,7 +1003,7 @@ mod tests {
 
     #[test]
     fn quad_is_centered_and_textured() {
-        let quad = quad_for((0.0, 0.0), 32.0, 32.0, (800, 600));
+        let quad = quad_for((0.0, 0.0), 32.0, 32.0, (800, 600), FULL_UV);
         assert_eq!(quad.len(), 4);
         let xs: Vec<f32> = quad.iter().map(|v| v.pos[0]).collect();
         assert!((xs[0] + 0.02).abs() < 1e-6 && (xs[1] - 0.02).abs() < 1e-6);
@@ -1159,5 +1246,76 @@ mod tests {
         };
         readback.unmap();
         assert!(bright > 10, "expected bright glyph pixels, got {bright}");
+    }
+}
+
+#[cfg(test)]
+mod atlas_draw_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn sheet_frame(name: &str) -> (Atlas, AtlasFrame) {
+        let atlas = atlas::parse_atlas(
+            r#"{"texture":"sheet.png","size":[64,32],
+                "frames":{"player":{"x":0,"y":0,"w":32,"h":32},
+                          "enemy":{"x":32,"y":0,"w":32,"h":32}}}"#,
+        )
+        .unwrap();
+        let frame = atlas.frame(name).unwrap();
+        (atlas, frame)
+    }
+
+    fn queued(atlas: &Atlas, frame: AtlasFrame, world: (f64, f64)) -> QueuedSprite {
+        QueuedSprite {
+            tex_key: "sheet.png".to_string(),
+            world,
+            size_world: None,
+            size_px: Some((frame.w, frame.h)),
+            uv: frame.uv(atlas.size),
+        }
+    }
+
+    #[test]
+    fn atlas_frames_from_one_sheet_batch_into_one_group() {
+        let (atlas, player) = sheet_frame("player");
+        let (_, enemy) = sheet_frame("enemy");
+        let sprites = vec![
+            queued(&atlas, player, (0.0, 0.0)),
+            queued(&atlas, enemy, (40.0, 0.0)),
+        ];
+        let sizes: HashMap<String, (u32, u32)> =
+            HashMap::from([("sheet.png".to_string(), atlas.size)]);
+        let (groups, order) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+
+        assert_eq!(order, vec!["sheet.png".to_string()], "one sheet, one draw");
+        let verts = groups.get("sheet.png").expect("group exists");
+        assert_eq!(verts.len(), 8, "two quads share the group");
+
+        let player_uvs: Vec<[f32; 2]> = verts[..4].iter().map(|v| v.uv).collect();
+        assert_eq!(player_uvs[0], [0.0, 0.0]);
+        assert_eq!(player_uvs[2], [0.5, 1.0]);
+        let enemy_uvs: Vec<[f32; 2]> = verts[4..].iter().map(|v| v.uv).collect();
+        assert_eq!(enemy_uvs[0], [0.5, 0.0]);
+        assert_eq!(enemy_uvs[2], [1.0, 1.0]);
+    }
+
+    #[test]
+    fn frame_quad_uses_frame_size_not_sheet_size() {
+        let (atlas, player) = sheet_frame("player");
+        let sprites = vec![queued(&atlas, player, (0.0, 0.0))];
+        let sizes: HashMap<String, (u32, u32)> =
+            HashMap::from([("sheet.png".to_string(), atlas.size)]);
+        let (groups, _) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        let verts = &groups["sheet.png"];
+        let width_ndc = verts[1].pos[0] - verts[0].pos[0];
+        // 32px frame in a 200px-wide view, doubled because pos spans both edges.
+        assert!((width_ndc - 32.0 / 200.0).abs() < 1e-6, "got {width_ndc}");
+    }
+
+    #[test]
+    fn missing_sidecar_and_frame_are_loud() {
+        let mut cache: HashMap<String, Atlas> = HashMap::new();
+        let err = frame_uv(&mut cache, "/nowhere/sheet.png", "player").unwrap_err();
+        assert!(format!("{err:#}").contains("cannot read atlas"), "got {err:#}");
     }
 }

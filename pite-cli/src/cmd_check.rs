@@ -30,6 +30,7 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     let mut cache: Vec<String> = Vec::new();
+    let mut atlas_uses: Vec<pite_assets::AtlasUse> = Vec::new();
 
     let root = pite_project::find_project_root(&start).or_else(|| {
         let dogfood = start.join("examples").join("minimal-2d");
@@ -94,11 +95,15 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
             &mut errors,
             &mut warnings,
             &mut cache,
+            &mut atlas_uses,
             &registry,
             &by_path,
             &by_hash,
             &mut visited,
         );
+        let (atlas_errors, atlas_warnings) = pite_assets::atlas_report(&root, &atlas_uses);
+        errors.extend(atlas_errors);
+        warnings.extend(atlas_warnings);
         for p in &manifest.export.platforms {
             if !pite_export::SUPPORTED_PLATFORMS.contains(&p.as_str()) {
                 warnings.push(format!(
@@ -145,6 +150,7 @@ fn check_scene_ref(
     errors: &mut Vec<String>,
     warnings: &mut Vec<String>,
     cache: &mut Vec<String>,
+    atlas_uses: &mut Vec<pite_assets::AtlasUse>,
     uid_registry: &pite_assets::UidRegistry,
     by_path: &std::collections::HashMap<&str, &pite_assets::ScannedFile>,
     by_hash: &std::collections::HashMap<&str, &str>,
@@ -254,6 +260,29 @@ fn check_scene_ref(
                 }
             }
         }
+        if node.type_name == "Sprite2D" {
+            let prop_str = |key: &str| node.props.get(key).and_then(|v| v.as_str());
+            match pite_assets::resolve_sprite_source(
+                prop_str("texture"),
+                prop_str("atlas"),
+                prop_str("frame"),
+            ) {
+                Ok(pite_assets::SpriteSource::Atlas { atlas, frame }) => {
+                    atlas_uses.push(pite_assets::AtlasUse {
+                        scene: path.to_string_lossy().into_owned(),
+                        node: node.id.clone(),
+                        atlas,
+                        frame,
+                    });
+                }
+                Ok(_) => {}
+                Err(e) => errors.push(format!(
+                    "scene {}: node {:?} {e:#}",
+                    path.display(),
+                    node.id
+                )),
+            }
+        }
         for value in node.props.values() {
             let Some(s) = value.as_str() else {
                 continue;
@@ -348,7 +377,8 @@ fn check_scene_ref(
             scene_dir.join(&inst.scene).to_string_lossy().to_string()
         };
         check_scene_ref(
-            root, &nested_ref, errors, warnings, cache, uid_registry, by_path, by_hash, visited,
+            root, &nested_ref, errors, warnings, cache, atlas_uses, uid_registry, by_path,
+            by_hash, visited,
         );
     }
 }
@@ -461,6 +491,7 @@ texture = "res://assets/gone.png"
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
         let mut cache = Vec::new();
+        let mut atlas_uses = Vec::new();
         let mut visited = HashSet::new();
         check_scene_ref(
             root,
@@ -468,6 +499,7 @@ texture = "res://assets/gone.png"
             &mut errors,
             &mut warnings,
             &mut cache,
+            &mut atlas_uses,
             registry,
             by_path,
             by_hash,

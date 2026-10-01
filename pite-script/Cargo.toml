@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+pite-assets.workspace = true
 pite-audio.workspace = true
 pite-core.workspace = true
 pyo3 = { version = "0.26", features = ["auto-initialize"] }

@@ -5,6 +5,11 @@
 //! `res://` paths to opaque uids. Scans are content-aware: identical
 //! bytes keep the uid across renames, changed bytes flag reimport.
 
+pub mod atlas;
+
+pub use atlas::{atlas_report, load_sidecar, resolve_sprite_source, sheet_path};
+pub use atlas::{AtlasUse, SpriteSource};
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

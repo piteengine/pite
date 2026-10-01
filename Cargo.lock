@@ -2531,6 +2531,7 @@ name = "pite-assets"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "pite-render",
  "serde",
  "toml",
 ]
@@ -2617,6 +2618,8 @@ dependencies = [
  "image",
  "pite-core",
  "pollster",
+ "serde",
+ "serde_json",
  "tracing",
  "wgpu 23.0.1",
  "winit",
@@ -2655,6 +2658,7 @@ name = "pite-script"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "pite-assets",
  "pite-audio",
  "pite-core",
  "pyo3",
