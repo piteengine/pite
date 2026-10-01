@@ -52,7 +52,31 @@ pub fn path_to_uri(path: &Path) -> String {
     } else {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(path)
     };
-    format!("file://{}", abs.to_string_lossy())
+    uri_from_path_text(&abs.to_string_lossy())
+}
+
+/// Build a `file://` URI from an absolute path *string*, on any platform.
+/// Windows needs `file:///D:/dir/file.py` — forward slashes and a leading
+/// slash before the drive letter. Emitting `file://D:\dir\file.py` (naive
+/// concatenation) makes the server report the directory as nonexistent, so
+/// the conversion is explicit rather than string-pasted.
+pub fn uri_from_path_text(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let mut out = String::with_capacity(normalized.len() + 8);
+    out.push_str("file://");
+    if !normalized.starts_with('/') {
+        out.push('/');
+    }
+    for c in normalized.chars() {
+        match c {
+            ' ' => out.push_str("%20"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            '%' => out.push_str("%25"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Byte offset of a char offset (egui cursors count chars).
@@ -256,14 +280,26 @@ fn notification(method: &str, params: Value) -> Value {
 
 /// `initialize` carrying the project root. Settings travel separately via
 /// `didChangeConfiguration` (and `workspace/configuration` answers).
+///
+/// `workspaceFolders` is mandatory, not decorative: a server that only sees
+/// `rootUri` falls back to a synthetic `<default workspace root>`, finds no
+/// files there, and then never re-analyzes an edited document — which is
+/// exactly what pyright logs when the root is missing.
 pub fn initialize_request(id: i64, root_uri: Option<&str>) -> Value {
+    let folders: Value = root_uri
+        .map(|uri| serde_json::json!([{"uri": uri, "name": "pite"}]))
+        .unwrap_or_else(|| serde_json::json!([]));
     request(
         id,
         "initialize",
         serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
-            "capabilities": {"textDocument": {"publishDiagnostics": {}}},
+            "workspaceFolders": folders,
+            "capabilities": {
+                "workspace": {"configuration": true},
+                "textDocument": {"publishDiagnostics": {}},
+            },
         }),
     )
 }
@@ -1020,6 +1056,15 @@ mod tests {
         let req = completion_request(3, "file:///a.py", 4, 9);
         assert_eq!(req.get("id").unwrap(), 3);
         assert_eq!(req.pointer("/params/position/line").unwrap(), 4);
+        let init = initialize_request(1, Some("file:///proj"));
+        assert_eq!(init.pointer("/params/rootUri").unwrap(), "file:///proj");
+        assert_eq!(
+            init.pointer("/params/workspaceFolders/0/uri").unwrap(),
+            "file:///proj"
+        );
+        assert_eq!(init.pointer("/params/capabilities/workspace/configuration"), Some(&Value::Bool(true)));
+        let bare = initialize_request(1, None);
+        assert_eq!(bare.pointer("/params/workspaceFolders").unwrap(), &serde_json::json!([]));
         let cfg = did_change_configuration(Some(Path::new("/stubs")));
         assert_eq!(
             cfg.pointer("/params/settings/python/analysis/extraPaths/0").unwrap(),
@@ -1125,6 +1170,29 @@ mod tests {
     }
 
     #[test]
+    fn uris_are_well_formed_on_every_platform() {
+        assert_eq!(
+            uri_from_path_text("/home/dev/pite/scripts/a.py"),
+            "file:///home/dev/pite/scripts/a.py"
+        );
+        // Windows: backslashes and drive letter need normalizing, else the
+        // server reports the project directory as nonexistent.
+        assert_eq!(
+            uri_from_path_text(r"D:\Projects\Pite\pite\examples\minimal-2d"),
+            "file:///D:/Projects/Pite/pite/examples/minimal-2d"
+        );
+        assert_eq!(
+            uri_from_path_text("D:/Projects/Pite/pite/scripts/a.py"),
+            "file:///D:/Projects/Pite/pite/scripts/a.py"
+        );
+        assert_eq!(
+            uri_from_path_text("/home/dev/my game/a b.py"),
+            "file:///home/dev/my%20game/a%20b.py"
+        );
+        assert_eq!(path_to_uri(Path::new("/tmp/a.py")), "file:///tmp/a.py");
+    }
+
+    #[test]
     fn positions_and_word_starts() {
         let text = "ab\ncλd\n";
         assert_eq!(offset_to_position(text, 0), (0, 0));
@@ -1189,6 +1257,16 @@ mod tests {
         };
         let uri = path_to_uri(&script);
         client.did_open(&uri, &text).expect("didOpen sends");
+
+        // The server must adopt our project root: without `workspaceFolders`
+        // it logs a synthetic `<default workspace root>`, finds no files, and
+        // silently analyzes nothing.
+        while let Some(notice) = client.take_notice() {
+            assert!(
+                !notice.contains("<default workspace root>"),
+                "smoke: server ignored the project root: {notice}"
+            );
+        }
 
         // Completion inside `self.` — proves the open + completion round-trip.
         // `x, y = self.position` is line 11 (0-based); the dot sits at column 20.

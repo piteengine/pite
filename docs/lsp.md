@@ -17,6 +17,9 @@ than the pin warn in the console but still serve.
 ## What's provided
 
 - `didOpen` when a script opens, `didChange` on every edit.
+- The project root (the `pite.toml` directory) is sent as the workspace
+  folder, so the server analyzes real files instead of reporting
+  `No source files found`.
 - Completion via `Ctrl+Space` (click a candidate to insert it).
 - Hover via `Ctrl+H` (logged to the console).
 - Signature help automatically after typing `(` (shown above the code pane).
