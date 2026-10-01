@@ -5,6 +5,7 @@
 
 mod app;
 mod icons;
+pub mod lsp;
 pub mod ops;
 pub mod theme;
 

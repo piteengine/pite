@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -9,6 +10,7 @@ use pite_render::{OffscreenRenderer, Renderer2D};
 use pite_runtime::GameSession;
 
 use crate::icons::{self, Icon};
+use crate::lsp::{self, LspClient, LspOutcome};
 use crate::ops;
 
 const VIEW_W: u32 = 640;
@@ -59,6 +61,13 @@ pub struct EditorApp {
     seen_errors: HashSet<String>,
     code_file: Option<PathBuf>,
     code_text: String,
+    lsp: Option<LspClient>,
+    lsp_starter: Option<Receiver<LspOutcome>>,
+    lsp_status: String,
+    lsp_hint: String,
+    lsp_completions: Vec<lsp::CompletionItem>,
+    lsp_completion_open: bool,
+    lsp_completion_offset: usize,
     playing: bool,
     last_frame: Instant,
     add_open: bool,
@@ -87,6 +96,13 @@ impl EditorApp {
             seen_errors: HashSet::new(),
             code_file: None,
             code_text: String::new(),
+            lsp: None,
+            lsp_starter: None,
+            lsp_status: "lsp: off".to_string(),
+            lsp_hint: String::new(),
+            lsp_completions: Vec::new(),
+            lsp_completion_open: false,
+            lsp_completion_offset: 0,
             playing: false,
             last_frame: Instant::now(),
             add_open: false,
@@ -711,17 +727,246 @@ impl EditorApp {
     }
 
     fn show_code(&mut self, ui: &mut egui::Ui) {
-        for (line, msg) in &ops::gutter_marks(&self.current_file_errors()) {
+        self.poll_lsp();
+        let diag_count = self.lsp.as_ref().map(|c| c.diagnostic_count()).unwrap_or(0);
+        ui.horizontal(|ui| {
+            ui.label(&self.lsp_status);
+            if diag_count > 0 {
+                ui.label(format!("diagnostics: {diag_count}"));
+            }
+            if !self.lsp_hint.is_empty() {
+                ui.monospace(&self.lsp_hint);
+            }
+        });
+        let mut marks = ops::gutter_marks(&self.current_file_errors());
+        marks.extend(self.lsp_marks());
+        marks.sort();
+        for (line, msg) in &marks {
             let _ = ui.small_button(
                 egui::RichText::new(format!("line {line}: {msg}"))
                     .monospace()
                     .color(egui::Color32::YELLOW),
             );
         }
-        ui.add_sized(
+        let resp = ui.add_sized(
             ui.available_size(),
             egui::TextEdit::multiline(&mut self.code_text).code_editor(),
         );
+        let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
+        if resp.changed() {
+            self.lsp_completion_open = false;
+            let paren_at = cursor_byte.filter(|&off| {
+                self.code_text[..off].chars().next_back() == Some('(')
+            });
+            self.code_changed(paren_at);
+        }
+        if resp.has_focus() {
+            let pressed = |key| ui.ctx().input(|i| i.modifiers.command && i.key_pressed(key));
+            if pressed(egui::Key::Space) {
+                self.request_completion_at(cursor_byte);
+            } else if pressed(egui::Key::H) {
+                self.request_hover_at(cursor_byte);
+            }
+        }
+        self.show_completion_popup(ui);
+    }
+
+    fn code_uri(&self) -> Option<String> {
+        self.code_file.as_ref().map(|p| lsp::path_to_uri(p.as_path()))
+    }
+
+    fn code_cursor_byte(text: &str, ctx: &egui::Context, id: &egui::Id) -> Option<usize> {
+        let state = egui::widgets::text_edit::TextEditState::load(ctx, *id)?;
+        let range = state.cursor.char_range()?;
+        Some(lsp::byte_offset_of_char(text, range.primary.index))
+    }
+
+    fn ensure_lsp(&mut self) {
+        if self.lsp.is_some() || self.lsp_starter.is_some() {
+            return;
+        }
+        let Some(script) = self.code_file.clone() else {
+            return;
+        };
+        self.lsp_status = "lsp: starting…".to_string();
+        self.lsp_starter = Some(lsp::spawn_lsp(self.project_dir.clone(), &script));
+    }
+
+    fn poll_lsp(&mut self) {
+        if let Some(rx) = &self.lsp_starter {
+            if let Ok(outcome) = rx.try_recv() {
+                self.lsp_starter = None;
+                match outcome {
+                    LspOutcome::Ready { mut client, warning } => {
+                        if let Some(w) = warning {
+                            self.log(w);
+                        }
+                        self.lsp_status = match &client.server_version {
+                            Some(v) => format!("lsp: ready ({v})"),
+                            None => "lsp: ready".to_string(),
+                        };
+                        if let Some(uri) = self.code_uri() {
+                            let text = self.code_text.clone();
+                            if let Err(e) = client.did_open(&uri, &text) {
+                                self.log(format!("lsp: {e:#}"));
+                            }
+                        }
+                        self.lsp = Some(client);
+                    }
+                    LspOutcome::Failed(msg) => {
+                        self.log(msg);
+                        self.lsp_status = "lsp: off (see console)".to_string();
+                    }
+                }
+            }
+        }
+        let mut completions: Vec<lsp::CompletionItem> = Vec::new();
+        let mut hovers: Vec<String> = Vec::new();
+        let mut signatures: Vec<String> = Vec::new();
+        let mut notices: Vec<String> = Vec::new();
+        let mut dead: Option<String> = None;
+        if let Some(client) = self.lsp.as_mut() {
+            if let Some(msg) = client.poll() {
+                dead = Some(msg);
+            }
+            while let Some((_, items)) = client.take_completion() {
+                if !items.is_empty() {
+                    completions = items;
+                }
+            }
+            while let Some((_, text)) = client.take_hover() {
+                if !text.is_empty() {
+                    hovers.push(text);
+                }
+            }
+            while let Some((_, sigs)) = client.take_signature() {
+                signatures.extend(sigs);
+            }
+            while let Some(notice) = client.take_notice() {
+                notices.push(notice);
+            }
+        }
+        for notice in notices {
+            self.log(format!("lsp: {notice}"));
+        }
+        if !completions.is_empty() {
+            self.lsp_completions = completions;
+            self.lsp_completion_open = true;
+        }
+        for hover in hovers {
+            self.log(format!("hover: {hover}"));
+        }
+        if !signatures.is_empty() {
+            self.lsp_hint = signatures.join(" | ");
+        }
+        if let Some(msg) = dead {
+            self.log(msg);
+            self.lsp = None;
+            self.lsp_status = "lsp: off (see console)".to_string();
+        }
+    }
+
+    fn lsp_marks(&self) -> Vec<(usize, String)> {
+        let Some(uri) = self.code_uri() else {
+            return Vec::new();
+        };
+        let Some(client) = self.lsp.as_ref() else {
+            return Vec::new();
+        };
+        client
+            .diagnostics_for_uri(&uri)
+            .iter()
+            .map(|d| {
+                let first = d.message.lines().next().unwrap_or("").to_string();
+                (d.line as usize + 1, format!("[lsp] {first}"))
+            })
+            .collect()
+    }
+
+    fn code_changed(&mut self, paren_at: Option<usize>) {
+        let Some(uri) = self.code_uri() else {
+            return;
+        };
+        let text = self.code_text.clone();
+        let sig_pos = paren_at.map(|off| lsp::offset_to_position(&text, off));
+        let Some(client) = self.lsp.as_mut() else {
+            return;
+        };
+        if let Err(e) = client.did_change(&uri, &text) {
+            self.log(format!("lsp: {e:#}"));
+            return;
+        }
+        if let Some((line, ch)) = sig_pos {
+            if let Err(e) = client.request_signature(&uri, line, ch) {
+                self.log(format!("lsp: {e:#}"));
+            }
+        }
+    }
+
+    fn request_completion_at(&mut self, cursor_byte: Option<usize>) {
+        let (Some(off), Some(uri)) = (cursor_byte, self.code_uri()) else {
+            return;
+        };
+        let (line, ch) = lsp::offset_to_position(&self.code_text, off);
+        match self.lsp.as_mut() {
+            Some(client) => match client.request_completion(&uri, line, ch) {
+                Ok(_) => self.lsp_completion_offset = off,
+                Err(e) => self.log(format!("lsp: {e:#}")),
+            },
+            None => self.log("lsp: no server (see console for the prerequisite).".to_string()),
+        }
+    }
+
+    fn request_hover_at(&mut self, cursor_byte: Option<usize>) {
+        let (Some(off), Some(uri)) = (cursor_byte, self.code_uri()) else {
+            return;
+        };
+        let (line, ch) = lsp::offset_to_position(&self.code_text, off);
+        match self.lsp.as_mut() {
+            Some(client) => {
+                if let Err(e) = client.request_hover(&uri, line, ch) {
+                    self.log(format!("lsp: {e:#}"));
+                }
+            }
+            None => self.log("lsp: no server (see console for the prerequisite).".to_string()),
+        }
+    }
+
+    fn show_completion_popup(&mut self, ui: &mut egui::Ui) {
+        if !self.lsp_completion_open || self.lsp_completions.is_empty() {
+            return;
+        }
+        let anchor = ui.min_rect().left_top() + egui::vec2(40.0, 40.0);
+        let mut pick: Option<String> = None;
+        egui::Window::new("LSP completions")
+            .fixed_pos(anchor)
+            .collapsible(false)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.set_max_height(220.0);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for item in &self.lsp_completions[..self.lsp_completions.len().min(20)] {
+                        let label = if item.detail.is_empty() {
+                            item.label.clone()
+                        } else {
+                            format!("{} — {}", item.label, item.detail)
+                        };
+                        if ui.small_button(&label).clicked() {
+                            pick = Some(item.label.clone());
+                        }
+                    }
+                });
+                if ui.small_button("Close").clicked() {
+                    self.lsp_completion_open = false;
+                }
+            });
+        if let Some(label) = pick {
+            self.lsp_completion_open = false;
+            let off = self.lsp_completion_offset.min(self.code_text.len());
+            let start = lsp::word_start_before(&self.code_text, off);
+            self.code_text.replace_range(start..off, &label);
+            self.code_changed(None);
+        }
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui) {
@@ -925,6 +1170,14 @@ impl EditorApp {
                     self.code_file = Some(file.to_path_buf());
                     self.code_text = text;
                     self.tab = Tab::Code;
+                    self.ensure_lsp();
+                    let uri = self.code_uri();
+                    let text = self.code_text.clone();
+                    if let (Some(client), Some(uri)) = (self.lsp.as_mut(), uri) {
+                        if let Err(e) = client.did_open(&uri, &text) {
+                            self.log(format!("lsp: {e:#}"));
+                        }
+                    }
                 }
                 Err(e) => self.log(format!("cannot open {}: {e:#}", file.display())),
             }
