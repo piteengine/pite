@@ -5,9 +5,13 @@ use std::time::Instant;
 use anyhow::Result;
 use eframe::egui;
 use pite_core::{NodeId, PropValue};
+use pite_render::{OffscreenRenderer, Renderer2D};
 use pite_runtime::GameSession;
 
 use crate::ops;
+
+const VIEW_W: u32 = 640;
+const VIEW_H: u32 = 400;
 
 pub fn launch(scene: &Path) -> Result<()> {
     let app = EditorApp::new(scene)?;
@@ -46,6 +50,12 @@ pub struct EditorApp {
     add_open: bool,
     add_type: String,
     add_name: String,
+    open_nodes: HashSet<String>,
+    open_seen: HashSet<String>,
+    viewport: Option<OffscreenRenderer>,
+    viewport_failed: bool,
+    viewport_tex: Option<egui::TextureHandle>,
+    viewport_dirty: bool,
 }
 
 impl EditorApp {
@@ -66,6 +76,12 @@ impl EditorApp {
             add_open: false,
             add_type: "Node2D".to_string(),
             add_name: "NewNode".to_string(),
+            open_nodes: HashSet::new(),
+            open_seen: HashSet::new(),
+            viewport: None,
+            viewport_failed: false,
+            viewport_tex: None,
+            viewport_dirty: true,
         })
     }
 
@@ -89,6 +105,7 @@ impl EditorApp {
             Ok(session) => {
                 self.session = session;
                 self.playing = false;
+                self.viewport_dirty = true;
                 self.log("stopped, scene reset.");
             }
             Err(e) => self.log(format!("stop failed: {e:#}")),
@@ -99,7 +116,10 @@ impl EditorApp {
         let doc = self.session.host().with_tree(ops::build_doc);
         match pite_scene::save_scene(&doc) {
             Ok(text) => match ops::save_text(&self.scene_path, &text) {
-                Ok(()) => self.log(format!("saved scene {}", self.scene_path.display())),
+                Ok(()) => {
+                    self.viewport_dirty = true;
+                    self.log(format!("saved scene {}", self.scene_path.display()));
+                }
                 Err(e) => self.log(format!("save scene failed: {e:#}")),
             },
             Err(e) => self.log(format!("save scene failed: {e:#}")),
@@ -115,9 +135,73 @@ impl EditorApp {
         match self.session.host().with_tree_mut(|t| ops::remove_node(t, &id)) {
             Ok(()) => {
                 self.selected = None;
+                self.viewport_dirty = true;
                 self.log(format!("deleted {id}."));
             }
             Err(e) => self.log(format!("delete failed: {e:#}")),
+        }
+    }
+
+    fn move_selected_out(&mut self) {
+        let Some(sel) = self.selected.clone() else {
+            self.log("move out: nothing selected.".to_string());
+            return;
+        };
+        let id = NodeId::from(sel);
+        let target = self.session.host().with_tree(|t| {
+            let node = t.get(&id)?;
+            let parent = node.parent.clone()?;
+            let grandparent = t.get(&parent)?.parent.clone();
+            if grandparent.is_none() {
+                return None;
+            }
+            Some(grandparent)
+        });
+        match target {
+            None => self.log("move out: already at top.".to_string()),
+            Some(grandparent) => {
+                match self.session.host().with_tree_mut(|t| {
+                    ops::move_node(t, &id, grandparent.clone())
+                }) {
+                    Ok(()) => {
+                        self.viewport_dirty = true;
+                        self.log(format!("moved {id} out."));
+                    }
+                    Err(e) => self.log(format!("move failed: {e:#}")),
+                }
+            }
+        }
+    }
+
+    fn move_selected_in(&mut self) {
+        let Some(sel) = self.selected.clone() else {
+            self.log("move in: nothing selected.".to_string());
+            return;
+        };
+        let id = NodeId::from(sel);
+        let target = self.session.host().with_tree(|t| {
+            let node = t.get(&id)?;
+            let parent = node.parent.clone()?;
+            let siblings = t.children_of(&parent);
+            let pos = siblings.iter().position(|s| s == &id)?;
+            if pos == 0 {
+                return None;
+            }
+            Some(Some(siblings[pos - 1].clone()))
+        });
+        match target {
+            None => self.log("move in: no previous sibling.".to_string()),
+            Some(new_parent) => {
+                match self.session.host().with_tree_mut(|t| {
+                    ops::move_node(t, &id, new_parent.clone())
+                }) {
+                    Ok(()) => {
+                        self.viewport_dirty = true;
+                        self.log(format!("moved {id} in."));
+                    }
+                    Err(e) => self.log(format!("move failed: {e:#}")),
+                }
+            }
         }
     }
 
@@ -126,9 +210,19 @@ impl EditorApp {
             .session
             .host()
             .with_tree_mut(|t| ops::set_prop(t, id, key, value));
-        if let Err(e) = result {
-            self.log(format!("set prop failed: {e:#}"));
+        match result {
+            Ok(()) => self.viewport_dirty = true,
+            Err(e) => self.log(format!("set prop failed: {e:#}")),
         }
+    }
+
+    fn is_open(&mut self, id: &str) -> bool {
+        if !self.open_seen.contains(id) {
+            self.open_seen.insert(id.to_string());
+            self.open_nodes.insert(id.to_string());
+            return true;
+        }
+        self.open_nodes.contains(id)
     }
 
     fn current_file_errors(&self) -> Vec<String> {
@@ -165,17 +259,31 @@ impl eframe::App for EditorApp {
             ctx.request_repaint();
         }
 
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Save scene  Ctrl+S").clicked() {
+                        self.save_scene();
+                        ui.close();
+                    }
+                    if ui.button("Quit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
+        });
+
         egui::TopBottomPanel::top("transport").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let label = if self.playing { "⏸ Pause" } else { "▶ Play" };
-                if ui.button(label).clicked() {
+                let label = if self.playing { "Pause" } else { "Play" };
+                if ui.button(label).on_hover_text("Run or pause the scene").clicked() {
                     self.playing = !self.playing;
                     self.last_frame = Instant::now();
                 }
-                if ui.button("⏹ Stop").clicked() {
+                if ui.button("Stop").on_hover_text("Stop and reset the scene").clicked() {
                     self.stop();
                 }
-                if ui.button("💾 Save scene").clicked() {
+                if ui.button("Save scene").on_hover_text("Save scene (Ctrl+S)").clicked() {
                     self.save_scene();
                 }
                 ui.separator();
@@ -183,14 +291,20 @@ impl eframe::App for EditorApp {
             });
         });
 
-        egui::SidePanel::left("tree").default_width(220.0).show(ctx, |ui| {
+        egui::SidePanel::left("tree").default_width(220.0).resizable(true).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Scene tree");
-                if ui.small_button("+").clicked() {
+                if ui.button("Add").on_hover_text("Add a child node under the selection").clicked() {
                     self.add_open = true;
                 }
-                if ui.small_button("−").clicked() {
+                if ui.button("Del").on_hover_text("Delete the selected node").clicked() {
                     self.delete_selected();
+                }
+                if ui.button("Out").on_hover_text("Move the selection to its grandparent").clicked() {
+                    self.move_selected_out();
+                }
+                if ui.button("In").on_hover_text("Move the selection under its previous sibling").clicked() {
+                    self.move_selected_in();
                 }
             });
             if self.add_open {
@@ -205,7 +319,7 @@ impl eframe::App for EditorApp {
             }
         });
 
-        egui::SidePanel::right("inspector").default_width(280.0).show(ctx, |ui| {
+        egui::SidePanel::right("inspector").default_width(280.0).resizable(true).show(ctx, |ui| {
             ui.heading("Inspector");
             match self.selected.clone() {
                 Some(id) => self.show_inspector(ui, &id),
@@ -215,16 +329,16 @@ impl eframe::App for EditorApp {
             }
         });
 
-        egui::TopBottomPanel::bottom("console").show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("console").resizable(true).show(ctx, |ui| {
             ui.heading("Console");
-            egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(200.0).stick_to_bottom(true).show(ui, |ui| {
                 for line in &self.console {
                     ui.monospace(line);
                 }
             });
         });
 
-        egui::SidePanel::left("assets").default_width(220.0).show(ctx, |ui| {
+        egui::SidePanel::left("assets").default_width(220.0).resizable(true).show(ctx, |ui| {
             ui.heading("Assets");
             let files = self.asset_files();
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -311,6 +425,7 @@ impl EditorApp {
                     Ok(id) => {
                         self.selected = Some(id.to_string());
                         self.add_open = false;
+                        self.viewport_dirty = true;
                         self.log(format!("added {id} ({type_name})."));
                     }
                     Err(e) => self.log(format!("add node failed: {e:#}")),
@@ -323,6 +438,7 @@ impl EditorApp {
     }
 
     fn show_node(&mut self, ui: &mut egui::Ui, id: &NodeId, depth: usize) {
+        let _ = depth;
         let (name, type_name, children) = self.session.host().with_tree(|t| {
             t.get(id).map(|n| {
                 (
@@ -333,43 +449,34 @@ impl EditorApp {
             })
         }).unwrap_or_else(|| ("?".to_string(), "?".to_string(), vec![]));
         let selected = self.selected.as_ref() == Some(&id.to_string());
-        let indent = "  ".repeat(depth.min(8));
-        let id_string = id.to_string();
-        let target = id.clone();
-        let (_, dropped) = ui.dnd_drop_zone::<String, _>(egui::Frame::default(), |ui| {
-            ui.dnd_drag_source(
-                egui::Id::new(("tree-node", id_string.clone())),
-                id_string.clone(),
-                |ui| {
-                    if children.is_empty() {
-                        if ui.selectable_label(selected, format!("{indent}{name} ({type_name})")).clicked() {
-                            self.selected = Some(id_string.clone());
-                        }
-                    } else {
-                        egui::CollapsingHeader::new(format!("{name} ({type_name})"))
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                if ui.selectable_label(selected, "select").clicked() {
-                                    self.selected = Some(id_string.clone());
-                                }
-                                for child in children {
-                                    self.show_node(ui, &child, depth + 1);
-                                }
-                            });
-                    }
-                },
-            );
-        });
-        if let Some(dragged) = dropped {
-            let dragged_id = NodeId::from(dragged.as_str());
-            if dragged_id != target {
-                match self.session.host().with_tree_mut(|t| {
-                    ops::move_node(t, &dragged_id, Some(target.clone()))
-                }) {
-                    Ok(()) => self.log(format!("moved {dragged_id} under {target}.")),
-                    Err(e) => self.log(format!("move failed: {e:#}")),
+        let id_str = id.to_string();
+        if children.is_empty() {
+            if ui.selectable_label(selected, format!("{name} ({type_name})")).clicked() {
+                self.selected = Some(id_str);
+            }
+            return;
+        }
+        let open = self.is_open(&id_str);
+        ui.horizontal(|ui| {
+            let toggle = if open { "[-]" } else { "[+]" };
+            if ui.button(toggle).on_hover_text("Expand or collapse children").clicked() {
+                if open {
+                    self.open_nodes.remove(&id_str);
+                } else {
+                    self.open_nodes.insert(id_str.clone());
                 }
             }
+            if ui.selectable_label(selected, format!("{name} ({type_name})")).clicked() {
+                self.selected = Some(id.to_string());
+            }
+        });
+        if open {
+            let indent_id = id.to_string();
+            ui.indent(indent_id, |ui| {
+                for child in children {
+                    self.show_node(ui, &child, depth + 1);
+                }
+            });
         }
     }
 
@@ -440,9 +547,6 @@ impl EditorApp {
                         }
                     });
                 }
-                _ => {
-                    ui.label(format!("{key}: {value:?}"));
-                }
             }
         }
         match &node.script {
@@ -461,8 +565,63 @@ impl EditorApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui) {
-        let nodes: Vec<(String, String, (f64, f64), String, (f64, f64))> =
-            self.session.host().with_tree(|t| {
+        let want_refresh = self.playing || self.viewport_dirty;
+        if self.viewport.is_none() && !self.viewport_failed {
+            match OffscreenRenderer::new_offscreen(VIEW_W, VIEW_H) {
+                Ok(r) => {
+                    self.viewport = Some(r);
+                }
+                Err(e) => {
+                    self.viewport_failed = true;
+                    self.console.push(format!(
+                        "viewport GPU unavailable, using fallback: {e:#}"
+                    ));
+                }
+            }
+        }
+        let mut fresh_rgba: Option<Vec<u8>> = None;
+        let mut render_err: Option<String> = None;
+        if let Some(renderer) = self.viewport.as_mut() {
+            if want_refresh {
+                let draw = renderer.begin_frame().and_then(|()| {
+                    self.session.draw_into(renderer)?;
+                    renderer.render_to_rgba()
+                });
+                match draw {
+                    Ok(rgba) => fresh_rgba = Some(rgba),
+                    Err(e) => render_err = Some(format!("viewport render failed: {e:#}")),
+                }
+            }
+        }
+        if let Some(rgba) = fresh_rgba {
+            let image = egui::ColorImage::from_rgba_unmultiplied([VIEW_W as usize, VIEW_H as usize], &rgba);
+            match self.viewport_tex.as_mut() {
+                Some(handle) => handle.set(image, egui::TextureOptions::NEAREST),
+                None => {
+                    let handle = ui.ctx().load_texture(
+                        "pite-viewport",
+                        image,
+                        egui::TextureOptions::NEAREST,
+                    );
+                    self.viewport_tex = Some(handle);
+                }
+            }
+            self.viewport_dirty = false;
+        }
+        if let Some(err) = render_err {
+            self.log(err);
+        }
+        let textured = self.viewport.is_some() && self.viewport_tex.is_some();
+        let width = ui.available_width().max(1.0);
+        let height = width * VIEW_H as f32 / VIEW_W as f32;
+        let (resp, painter) =
+            ui.allocate_painter(egui::Vec2::new(width, height), egui::Sense::hover());
+        if textured {
+            if let Some(handle) = self.viewport_tex.as_ref() {
+                egui::Image::from_texture(handle).paint_at(ui, resp.rect);
+            }
+            let ((cam_x, cam_y), zoom) = self.session.camera_view();
+            let captions: Vec<(f64, f64, String)> = self.session.host().with_tree(|t| {
                 t.iter()
                     .map(|n| {
                         let pos = match n.props.get("position") {
@@ -473,45 +632,85 @@ impl EditorApp {
                             Some(PropValue::Str(s)) => s.clone(),
                             _ => String::new(),
                         };
-                        let size = match n.props.get("size") {
-                            Some(PropValue::Vec2(w, h)) => (*w, *h),
-                            _ => (0.0, 0.0),
+                        let caption = if text.is_empty() {
+                            n.id.to_string()
+                        } else {
+                            text
                         };
-                        (n.id.to_string(), n.type_name.clone(), pos, text, size)
+                        (pos.0, pos.1, caption)
                     })
                     .collect()
             });
-        let (resp, painter) =
-            ui.allocate_painter(egui::Vec2::new(ui.available_width(), 240.0), egui::Sense::hover());
-        let center = resp.rect.center();
-        painter.rect_filled(resp.rect, 0.0, crate::theme::BG);
-        for (id, type_name, (x, y), text, (w, h)) in nodes {
-            let p = center + egui::Vec2::new(x as f32, y as f32);
-            let color = if type_name == "Sprite2D" {
-                egui::Color32::LIGHT_GREEN
-            } else {
-                egui::Color32::LIGHT_BLUE
-            };
-            painter.circle_filled(p, 6.0, color);
-            if type_name == "Button" && w > 0.0 && h > 0.0 {
-                painter.rect_stroke(
-                    egui::Rect::from_center_size(
-                        p,
-                        egui::Vec2::new(w as f32, h as f32),
-                    ),
-                    4.0,
-                    egui::Stroke::new(1.0, egui::Color32::LIGHT_GREEN),
-                    egui::StrokeKind::Middle,
+            for (x, y, caption) in captions {
+                let (sx, sy) = pite_render::world_to_screen(
+                    (x, y),
+                    (cam_x, cam_y),
+                    zoom,
+                    (VIEW_W, VIEW_H),
+                );
+                let p = egui::Pos2::new(
+                    resp.rect.min.x + sx / VIEW_W as f32 * resp.rect.width(),
+                    resp.rect.min.y + sy / VIEW_H as f32 * resp.rect.height(),
+                );
+                painter.text(
+                    p + egui::Vec2::new(10.0, -10.0),
+                    egui::Align2::LEFT_TOP,
+                    caption,
+                    egui::FontId::monospace(11.0),
+                    egui::Color32::from_rgb(201, 209, 216),
                 );
             }
-            let caption = if text.is_empty() { id } else { text };
-            painter.text(
-                p + egui::Vec2::new(10.0, -10.0),
-                egui::Align2::LEFT_TOP,
-                caption,
-                egui::FontId::monospace(11.0),
-                egui::Color32::WHITE,
-            );
+        } else {
+            let nodes: Vec<(String, String, (f64, f64), String, (f64, f64))> =
+                self.session.host().with_tree(|t| {
+                    t.iter()
+                        .map(|n| {
+                            let pos = match n.props.get("position") {
+                                Some(PropValue::Vec2(x, y)) => (*x, *y),
+                                _ => (0.0, 0.0),
+                            };
+                            let text = match n.props.get("text") {
+                                Some(PropValue::Str(s)) => s.clone(),
+                                _ => String::new(),
+                            };
+                            let size = match n.props.get("size") {
+                                Some(PropValue::Vec2(w, h)) => (*w, *h),
+                                _ => (0.0, 0.0),
+                            };
+                            (n.id.to_string(), n.type_name.clone(), pos, text, size)
+                        })
+                        .collect()
+                });
+            let center = resp.rect.center();
+            painter.rect_filled(resp.rect, 0.0, crate::theme::BG);
+            for (id, type_name, (x, y), text, (w, h)) in nodes {
+                let p = center + egui::Vec2::new(x as f32, y as f32);
+                let color = if type_name == "Sprite2D" {
+                    egui::Color32::from_rgb(111, 179, 167)
+                } else {
+                    egui::Color32::from_rgb(124, 155, 184)
+                };
+                painter.circle_filled(p, 6.0, color);
+                if type_name == "Button" && w > 0.0 && h > 0.0 {
+                    painter.rect_stroke(
+                        egui::Rect::from_center_size(
+                            p,
+                            egui::Vec2::new(w as f32, h as f32),
+                        ),
+                        4.0,
+                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(111, 179, 167)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
+                let caption = if text.is_empty() { id } else { text };
+                painter.text(
+                    p + egui::Vec2::new(10.0, -10.0),
+                    egui::Align2::LEFT_TOP,
+                    caption,
+                    egui::FontId::monospace(11.0),
+                    egui::Color32::from_rgb(201, 209, 216),
+                );
+            }
         }
         let selected = self.selected.clone().unwrap_or_default();
         ui.label(format!(
@@ -574,6 +773,7 @@ impl EditorApp {
                     self.session = session;
                     self.scene_path = file.to_path_buf();
                     self.selected = None;
+                    self.viewport_dirty = true;
                     self.log(format!("opened {}", file.display()));
                 }
                 Err(e) => self.log(format!("open failed: {e:#}")),

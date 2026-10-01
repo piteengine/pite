@@ -183,6 +183,86 @@ impl GameSession {
         })
     }
 
+    pub fn draw_into(&mut self, r: &mut dyn Renderer2D) -> Result<()> {
+        let (cam, zoom) = self.camera_view();
+        r.set_camera(cam.0, cam.1, zoom);
+        let sprites: Vec<(String, (f64, f64))> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Sprite2D")
+                .filter_map(|n| {
+                    let tex = match n.props.get("texture") {
+                        Some(PropValue::Str(s)) => s.clone(),
+                        _ => return None,
+                    };
+                    Some((tex, global_position(tree, &n.id)))
+                })
+                .collect()
+        });
+        for (tex, pos) in sprites {
+            let resolved = self.resolve_path(&tex);
+            r.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
+        }
+        let labels: Vec<(String, f32, [u8; 4], (f64, f64))> =
+            self.host.with_tree(|tree| {
+                tree.iter()
+                    .filter(|n| n.type_name == "Label")
+                    .filter_map(|n| {
+                        let text = match n.props.get("text") {
+                            Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                            _ => return None,
+                        };
+                        let size = match n.props.get("font_size") {
+                            Some(PropValue::Num(s)) => *s as f32,
+                            Some(PropValue::Int(s)) => *s as f32,
+                            _ => 16.0,
+                        };
+                        let color = match n.props.get("color") {
+                            Some(PropValue::Str(s)) => {
+                                pite_render::text::parse_color(s)
+                            }
+                            _ => [255, 255, 255, 255],
+                        };
+                        Some((text, size, color, global_position(tree, &n.id)))
+                    })
+                    .collect()
+            });
+        for (text, size, color, pos) in labels {
+            r.draw_text(&text, pos.0, pos.1, size, color)?;
+        }
+        let buttons: Vec<(String, f32, [u8; 4], (f64, f64), (f64, f64))> =
+            self.host.with_tree(|tree| {
+                tree.iter()
+                    .filter(|n| n.type_name == "Button")
+                    .map(|n| {
+                        let text = match n.props.get("text") {
+                            Some(PropValue::Str(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+                        let size = match n.props.get("font_size") {
+                            Some(PropValue::Num(s)) => *s as f32,
+                            Some(PropValue::Int(s)) => *s as f32,
+                            _ => 16.0,
+                        };
+                        let color = match n.props.get("color") {
+                            Some(PropValue::Str(s)) => {
+                                pite_render::text::parse_color(s)
+                            }
+                            _ => [51, 65, 85, 255],
+                        };
+                        let (w, h) = button_size(n);
+                        (text, size, color, global_position(tree, &n.id), (w, h))
+                    })
+                    .collect()
+            });
+        for (text, size, color, pos, (w, h)) in buttons {
+            r.draw_rect(pos.0, pos.1, w, h, color)?;
+            if !text.is_empty() {
+                r.draw_text(&text, pos.0, pos.1, size, [255, 255, 255, 255])?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn button_at(&self, screen: (f64, f64)) -> Option<String> {
         let ((cx, cy), zoom) = self.camera_view();
         let (world_x, world_y) = pite_render::screen_to_world(
@@ -519,94 +599,7 @@ impl App {
         };
         let result = (|| -> Result<()> {
             renderer.begin_frame()?;
-            let (cam, zoom) = self.session.host().with_tree(|tree| {
-                tree.iter()
-                    .find(|n| n.type_name == "Camera2D")
-                    .map(|cam| {
-                        let pos = global_position(tree, &cam.id);
-                        let zoom = match cam.props.get("zoom") {
-                            Some(PropValue::Num(z)) => *z,
-                            _ => 1.0,
-                        };
-                        (pos, zoom)
-                    })
-                    .unwrap_or(((0.0, 0.0), 1.0))
-            });
-            renderer.set_camera(cam.0, cam.1, zoom);
-            let sprites: Vec<(String, (f64, f64))> = self.session.host().with_tree(|tree| {
-                tree.iter()
-                    .filter(|n| n.type_name == "Sprite2D")
-                    .filter_map(|n| {
-                        let tex = match n.props.get("texture") {
-                            Some(PropValue::Str(s)) => s.clone(),
-                            _ => return None,
-                        };
-                        Some((tex, global_position(tree, &n.id)))
-                    })
-                    .collect()
-            });
-            for (tex, pos) in sprites {
-                let resolved = self.session.resolve_path(&tex);
-                renderer.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
-            }
-            let labels: Vec<(String, f32, [u8; 4], (f64, f64))> =
-                self.session.host().with_tree(|tree| {
-                    tree.iter()
-                        .filter(|n| n.type_name == "Label")
-                        .filter_map(|n| {
-                            let text = match n.props.get("text") {
-                                Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
-                                _ => return None,
-                            };
-                            let size = match n.props.get("font_size") {
-                                Some(PropValue::Num(s)) => *s as f32,
-                                Some(PropValue::Int(s)) => *s as f32,
-                                _ => 16.0,
-                            };
-                            let color = match n.props.get("color") {
-                                Some(PropValue::Str(s)) => {
-                                    pite_render::text::parse_color(s)
-                                }
-                                _ => [255, 255, 255, 255],
-                            };
-                            Some((text, size, color, global_position(tree, &n.id)))
-                        })
-                        .collect()
-                });
-            for (text, size, color, pos) in labels {
-                renderer.draw_text(&text, pos.0, pos.1, size, color)?;
-            }
-            let buttons: Vec<(String, f32, [u8; 4], (f64, f64), (f64, f64))> =
-                self.session.host().with_tree(|tree| {
-                    tree.iter()
-                        .filter(|n| n.type_name == "Button")
-                        .map(|n| {
-                            let text = match n.props.get("text") {
-                                Some(PropValue::Str(s)) => s.clone(),
-                                _ => String::new(),
-                            };
-                            let size = match n.props.get("font_size") {
-                                Some(PropValue::Num(s)) => *s as f32,
-                                Some(PropValue::Int(s)) => *s as f32,
-                                _ => 16.0,
-                            };
-                            let color = match n.props.get("color") {
-                                Some(PropValue::Str(s)) => {
-                                    pite_render::text::parse_color(s)
-                                }
-                                _ => [51, 65, 85, 255],
-                            };
-                            let (w, h) = button_size(n);
-                            (text, size, color, global_position(tree, &n.id), (w, h))
-                        })
-                        .collect()
-                });
-            for (text, size, color, pos, (w, h)) in buttons {
-                renderer.draw_rect(pos.0, pos.1, w, h, color)?;
-                if !text.is_empty() {
-                    renderer.draw_text(&text, pos.0, pos.1, size, [255, 255, 255, 255])?;
-                }
-            }
+            self.session.draw_into(renderer)?;
             renderer.end_frame()?;
             Ok(())
         })();

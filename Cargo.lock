@@ -2579,6 +2579,7 @@ dependencies = [
  "eframe",
  "pite-core",
  "pite-project",
+ "pite-render",
  "pite-runtime",
  "pite-scene",
  "toml",

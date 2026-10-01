@@ -66,22 +66,35 @@ recolors cleanly via the `fill` attribute, which is how all variants are derived
 
 ## 4. Editor mapping (`pite-editor/src/theme.rs`)
 
-The editor is dark-theme-only today. Constants map 1:1 onto the tokens above:
+The editor is dark-theme-only today. Surfaces are neutral near-black; the teal
+`ACCENT` is a signal color only (selection stroke, hyperlinks, active widget
+stroke — never full fills):
 
-| Constant | Value | Token |
-|----------|-------|-------|
-| `ACCENT` | `#0D9488` (13, 148, 136) | Dark `accent` — hyperlinks, selection stroke |
-| `BG` | `#021717` (2, 23, 23) | Derived near-black teal (Background at ~50%). Window, code-box (`extreme_bg_color` feeds `TextEdit`), viewport backdrop, and panels — the whole editor is this one color |
-| `PANEL` | `#021717` (2, 23, 23) | Same as `BG`: panels sit flat, code-editor color everywhere; `PANEL_STROKE` carries the structure |
-| `PANEL_STROKE` | `#0D9488` (13, 148, 136) | Dark `accent` — widget strokes |
-| `TEXT` | `#F0FDFA` (240, 253, 250) | Dark `text` |
-| `FAINT` | `#CCFBF1` (204, 251, 241) | `Pale` — weak/secondary text |
+| Constant | Value | Used for |
+|----------|-------|----------|
+| `ACCENT` | `#0D9488` (13, 148, 136) | Selection stroke, hyperlinks, active widget stroke |
+| `BG` | `#0B0E11` (11, 14, 17) | Window, code-box (`extreme_bg_color` feeds `TextEdit`), viewport fallback backdrop |
+| `PANEL` | `#14181D` (20, 24, 29) | Panels — a subtle lift above `BG` so structure reads without color |
+| `PANEL_STROKE` | `#2A3138` (42, 49, 56) | Neutral gray widget/panel strokes |
+| `TEXT` | `#E6E9EC` (230, 233, 236) | Primary text |
+| `FAINT` | `#9AA3AD` (154, 163, 173) | Weak/secondary text |
 
-Selection fill is `ACCENT` at alpha 70 (`from_rgba_premultiplied(13, 148, 136, 70)`).
-Widget state fills: inactive/open sit on `BG`, hovered lifts to `Dark`
-`#134E4A`, active is `ACCENT` — the only brightness steps on an otherwise
-uniform near-black surface. The viewport painter (`app.rs`) also fills with
-`theme::BG` instead of its old neutral `from_gray(24)`.
+Selection fill is `ACCENT` at alpha 50 (`from_rgba_premultiplied(13, 148, 136, 50)`).
+Widget state fills: noninteractive `PANEL`, inactive/open `#171C22` (23, 28, 34),
+hovered `#1F262E` (31, 38, 46), active `#1E3A35` (30, 58, 53, a dark teal tint).
+Corner radii stay 8 (window) / 6 (widgets, menu). The viewport fallback painter
+(`app.rs`, GPU-unavailable path only) fills with `theme::BG` and draws muted
+overlays: `#6FB3A7` (111, 179, 167) sprites, `#7C9BB8` (124, 155, 184) other
+nodes, `#C9D1D8` (201, 209, 216) captions.
+
+Rationale: accent-as-signal, surfaces carry structure. The previous theme washed
+every panel and widget stroke in full-strength teal, so nothing could stand out
+and long sessions felt loud. Neutrals now do the quiet work — `BG`/`PANEL`
+separation plus a gray stroke delineate panels, and brightness steps in the
+widget fills communicate hover/press. Teal appears only where the user must look:
+what is selected, what is a link, what is actively pressed. The viewport
+follows the same rule: the textured game frame is the content, and its overlay
+glyphs drop from neon to muted slate so captions annotate instead of shouting.
 
 ## 5. Typography
 

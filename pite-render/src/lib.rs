@@ -13,6 +13,7 @@ pub trait Renderer2D {
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
     fn end_frame(&mut self) -> Result<()>;
+    fn set_camera(&mut self, _x: f64, _y: f64, _zoom: f64) {}
 }
 
 #[derive(Debug, Default)]
@@ -268,6 +269,93 @@ fn upload(
     tex
 }
 
+/// Shared vertex-build half of `end_frame`: group queued sprites by texture
+/// key, preserving first-seen order. Sizes are resolved by the caller (which
+/// owns the texture cache) so both the surface and offscreen paths share it.
+fn build_groups(
+    sprites: Vec<QueuedSprite>,
+    sizes: &std::collections::HashMap<String, (u32, u32)>,
+    cam: (f64, f64),
+    zoom: f64,
+    size: (u32, u32),
+) -> (
+    std::collections::HashMap<String, Vec<SpriteVertex>>,
+    Vec<String>,
+) {
+    let mut groups: std::collections::HashMap<String, Vec<SpriteVertex>> =
+        std::collections::HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for sprite in sprites {
+        let (tw, th) = sizes.get(&sprite.tex_key).copied().unwrap_or((8, 8));
+        let (w, h) = match sprite.size_world {
+            Some((w, h)) => ((w * zoom) as f32, (h * zoom) as f32),
+            None => (tw as f32, th as f32),
+        };
+        let screen = world_to_screen(sprite.world, cam, zoom, size);
+        let ndc = screen_to_ndc(screen, size);
+        let quad = quad_for(ndc, w, h, size);
+        if !groups.contains_key(&sprite.tex_key) {
+            order.push(sprite.tex_key.clone());
+        }
+        groups
+            .entry(sprite.tex_key)
+            .or_default()
+            .extend_from_slice(&quad);
+    }
+    (groups, order)
+}
+
+/// Encode one render pass drawing pre-built groups into `view`.
+fn encode_groups(
+    device: &wgpu::Device,
+    pipeline: &wgpu::RenderPipeline,
+    textures: &std::collections::HashMap<String, GpuTexture>,
+    groups: &std::collections::HashMap<String, Vec<SpriteVertex>>,
+    order: &[String],
+    view: &wgpu::TextureView,
+) -> wgpu::CommandBuffer {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("pite pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.07,
+                        g: 0.07,
+                        b: 0.10,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(pipeline);
+        for key in order {
+            let Some(verts) = groups.get(key) else {
+                continue;
+            };
+            let Some(tex) = textures.get(key) else {
+                continue;
+            };
+            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("pite verts"),
+                contents: bytemuck::cast_slice(verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            pass.set_bind_group(0, &tex.bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..verts.len() as u32, 0..1);
+        }
+    }
+    encoder.finish()
+}
+
 pub struct WgpuRenderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -470,24 +558,16 @@ impl Renderer2D for WgpuRenderer {
 
     fn end_frame(&mut self) -> Result<()> {
         let size = (self.config.width, self.config.height);
-        let mut groups: std::collections::HashMap<String, Vec<SpriteVertex>> =
-            std::collections::HashMap::new();
-        let mut order: Vec<String> = Vec::new();
         let sprites = std::mem::take(&mut self.queue_list);
-        for sprite in sprites {
-            let tex = self.texture_for(&sprite.tex_key);
-            let (w, h) = match sprite.size_world {
-                Some((w, h)) => ((w * self.zoom) as f32, (h * self.zoom) as f32),
-                None => (tex.w as f32, tex.h as f32),
-            };
-            let screen = world_to_screen(sprite.world, self.cam, self.zoom, size);
-            let ndc = screen_to_ndc(screen, size);
-            let quad = quad_for(ndc, w, h, size);
-            if !groups.contains_key(&sprite.tex_key) {
-                order.push(sprite.tex_key.clone());
-            }
-            groups.entry(sprite.tex_key).or_default().extend_from_slice(&quad);
+        for sprite in &sprites {
+            self.texture_for(&sprite.tex_key);
         }
+        let sizes: std::collections::HashMap<String, (u32, u32)> = self
+            .textures
+            .iter()
+            .map(|(k, t)| (k.clone(), (t.w, t.h)))
+            .collect();
+        let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -498,10 +578,190 @@ impl Renderer2D for WgpuRenderer {
             Err(e) => anyhow::bail!("surface failed: {e}"),
         };
         let view = frame.texture.create_view(&Default::default());
+        let cmd = encode_groups(&self.device, &self.pipeline, &self.textures, &groups, &order, &view);
+        self.queue.submit(std::iter::once(cmd));
+        frame.present();
+        Ok(())
+    }
+
+    fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
+        self.cam = (x, y);
+        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+    }
+}
+
+pub struct OffscreenRenderer {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    target: wgpu::Texture,
+    width: u32,
+    height: u32,
+    pipeline: wgpu::RenderPipeline,
+    sampler: wgpu::Sampler,
+    tex_layout: wgpu::BindGroupLayout,
+    textures: std::collections::HashMap<String, GpuTexture>,
+    baked: std::collections::HashMap<String, text::BakedText>,
+    baked_order: std::collections::VecDeque<String>,
+    atlas: text::TextAtlas,
+    queue_list: Vec<QueuedSprite>,
+    cam: (f64, f64),
+    zoom: f64,
+}
+
+impl OffscreenRenderer {
+    pub fn new_offscreen(width: u32, height: u32) -> Result<Self> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let adapter = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            },
+        ))
+        .context("no suitable GPU adapter")?;
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor::default(),
+            None,
+        ))
+        .context("cannot request GPU device")?;
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("pite offscreen target"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        Ok(Self {
+            device,
+            queue,
+            target,
+            width,
+            height,
+            pipeline,
+            sampler,
+            tex_layout,
+            textures: std::collections::HashMap::new(),
+            baked: std::collections::HashMap::new(),
+            baked_order: std::collections::VecDeque::new(),
+            atlas: text::TextAtlas::new()?,
+            queue_list: Vec::new(),
+            cam: (0.0, 0.0),
+            zoom: 1.0,
+        })
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    pub fn set_camera_size(&mut self, x: f64, y: f64, zoom: f64) {
+        self.cam = (x, y);
+        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+    }
+
+    fn load_texture(&self, key: &str) -> GpuTexture {
+        match image::open(key).map(|img| img.to_rgba8()).ok() {
+            Some(rgba) => {
+                let (w, h) = (rgba.width(), rgba.height());
+                let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                let view = texture.create_view(&Default::default());
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture { texture, view, bind_group, w, h }
+            }
+            None => {
+                tracing::warn!(texture = key, "cannot load texture, using fallback");
+                let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
+                let view = texture.create_view(&Default::default());
+                let bind_group =
+                    bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture { texture, view, bind_group, w: 8, h: 8 }
+            }
+        }
+    }
+
+    fn texture_for(&mut self, key: &str) -> &GpuTexture {
+        if !self.textures.contains_key(key) {
+            let baked = self
+                .baked
+                .get(key)
+                .map(|b| (b.rgba.clone(), b.w, b.h));
+            let entry = match baked {
+                Some((rgba, w, h)) => {
+                    let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                    let view = texture.create_view(&Default::default());
+                    let bind_group =
+                        bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                    GpuTexture { texture, view, bind_group, w, h }
+                }
+                None => self.load_texture(key),
+            };
+            self.textures.insert(key.to_string(), entry);
+        }
+        &self.textures[key]
+    }
+
+    fn draw_text_queued(&mut self, text: &str, world: (f64, f64), size: f32, color: [u8; 4]) {
+        if text.is_empty() {
+            return;
+        }
+        let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
+        let key = text::glyph_cache_key(text, px, color);
+        if !self.baked.contains_key(&key) {
+            self.baked.insert(key.clone(), self.atlas.bake(text, px as f32, color));
+            text::lru_touch(&mut self.baked_order, &key, 64);
+            while self.baked_order.len() > 64 {
+                if let Some(old) = self.baked_order.pop_front() {
+                    self.baked.remove(&old);
+                    self.textures.remove(&old);
+                }
+            }
+        }
+        self.queue_list.push(QueuedSprite { tex_key: key, world, size_world: None });
+    }
+
+    fn render_queued_to_target(&mut self) -> wgpu::CommandBuffer {
+        let size = (self.width, self.height);
+        let sprites = std::mem::take(&mut self.queue_list);
+        for sprite in &sprites {
+            self.texture_for(&sprite.tex_key);
+        }
+        let sizes: std::collections::HashMap<String, (u32, u32)> = self
+            .textures
+            .iter()
+            .map(|(k, t)| (k.clone(), (t.w, t.h)))
+            .collect();
+        let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        let view = self.target.create_view(&Default::default());
+        encode_groups(&self.device, &self.pipeline, &self.textures, &groups, &order, &view)
+    }
+
+    pub fn render_to_rgba(&mut self) -> Result<Vec<u8>> {
+        let (w, h) = (self.width, self.height);
+        let padded_bytes_per_row: u32 = ((w * 4 + 255) / 256) * 256;
+        let buffer_size: u64 = padded_bytes_per_row as u64 * h as u64;
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        let size = (w, h);
+        let sprites = std::mem::take(&mut self.queue_list);
+        for sprite in &sprites {
+            self.texture_for(&sprite.tex_key);
+        }
+        let sizes: std::collections::HashMap<String, (u32, u32)> = self
+            .textures
+            .iter()
+            .map(|(k, t)| (k.clone(), (t.w, t.h)))
+            .collect();
+        let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        let view = self.target.create_view(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("pite pass"),
+                label: Some("pite offscreen pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -520,22 +780,122 @@ impl Renderer2D for WgpuRenderer {
                 occlusion_query_set: None,
             });
             pass.set_pipeline(&self.pipeline);
-            for key in order {
-                let verts = &groups[&key];
+            for key in &order {
+                let Some(verts) = groups.get(key) else {
+                    continue;
+                };
+                let Some(tex) = self.textures.get(key) else {
+                    continue;
+                };
                 let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("pite verts"),
+                    label: Some("pite offscreen verts"),
                     contents: bytemuck::cast_slice(verts),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
-                let tex = &self.textures[&key];
                 pass.set_bind_group(0, &tex.bind_group, &[]);
                 pass.set_vertex_buffer(0, buf.slice(..));
                 pass.draw(0..verts.len() as u32, 0..1);
             }
         }
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pite offscreen readback"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &self.target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(h),
+                },
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
         self.queue.submit(std::iter::once(encoder.finish()));
-        frame.present();
+        let (tx, rx) = std::sync::mpsc::channel();
+        readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .map_err(|_| anyhow::anyhow!("offscreen readback channel closed"))??;
+        let out = {
+            let view = readback.slice(..).get_mapped_range();
+            let row_len = w as usize * 4;
+            let pitch = padded_bytes_per_row as usize;
+            let mut out = vec![0u8; row_len * h as usize];
+            for y in 0..h as usize {
+                out[y * row_len..(y + 1) * row_len]
+                    .copy_from_slice(&view[y * pitch..y * pitch + row_len]);
+            }
+            out
+        };
+        readback.unmap();
+        Ok(out)
+    }
+}
+
+impl Renderer2D for OffscreenRenderer {
+    fn begin_frame(&mut self) -> Result<()> {
+        self.queue_list.clear();
         Ok(())
+    }
+
+    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
+        self.queue_list.push(QueuedSprite {
+            tex_key: texture.to_string(),
+            world: (x, y),
+            size_world: None,
+        });
+        Ok(())
+    }
+
+    fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
+        let key = format!(
+            "rect\0{}\0{}\0{}\0{}",
+            color[0], color[1], color[2], color[3]
+        );
+        if !self.baked.contains_key(&key) {
+            self.baked.insert(
+                key.clone(),
+                text::BakedText {
+                    rgba: vec![color[0], color[1], color[2], color[3]],
+                    w: 1,
+                    h: 1,
+                },
+            );
+            text::lru_touch(&mut self.baked_order, &key, 64);
+        }
+        self.queue_list.push(QueuedSprite {
+            tex_key: key,
+            world: (x, y),
+            size_world: Some((w.max(1.0), h.max(1.0))),
+        });
+        Ok(())
+    }
+
+    fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
+        self.draw_text_queued(text, (x, y), size, color);
+        Ok(())
+    }
+
+    fn end_frame(&mut self) -> Result<()> {
+        let cmd = self.render_queued_to_target();
+        self.queue.submit(std::iter::once(cmd));
+        Ok(())
+    }
+
+    fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
+        self.set_camera_size(x, y, zoom);
     }
 }
 

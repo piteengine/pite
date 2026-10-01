@@ -1,11 +1,14 @@
 use eframe::egui;
 
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(13, 148, 136);
-pub(crate) const BG: egui::Color32 = egui::Color32::from_rgb(2, 23, 23);
-const PANEL: egui::Color32 = egui::Color32::from_rgb(2, 23, 23);
-const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(13, 148, 136);
-const TEXT: egui::Color32 = egui::Color32::from_rgb(240, 253, 250);
-const FAINT: egui::Color32 = egui::Color32::from_rgb(204, 251, 241);
+pub(crate) const BG: egui::Color32 = egui::Color32::from_rgb(11, 14, 17);
+const PANEL: egui::Color32 = egui::Color32::from_rgb(20, 24, 29);
+const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(42, 49, 56);
+const TEXT: egui::Color32 = egui::Color32::from_rgb(230, 233, 236);
+const FAINT: egui::Color32 = egui::Color32::from_rgb(154, 163, 173);
+const INACTIVE: egui::Color32 = egui::Color32::from_rgb(23, 28, 34);
+const HOVERED: egui::Color32 = egui::Color32::from_rgb(31, 38, 46);
+const ACTIVE: egui::Color32 = egui::Color32::from_rgb(30, 58, 53);
 
 pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
@@ -82,13 +85,14 @@ fn visuals() -> egui::Visuals {
     visuals.panel_fill = PANEL;
     visuals.window_stroke = egui::Stroke::new(1.0_f32, PANEL_STROKE);
     visuals.hyperlink_color = ACCENT;
-    visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(13, 148, 136, 70);
+    visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(13, 148, 136, 50);
     visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.noninteractive = widget(PANEL);
-    visuals.widgets.inactive = widget(BG);
-    visuals.widgets.hovered = widget(egui::Color32::from_rgb(19, 78, 74));
-    visuals.widgets.active = widget(ACCENT);
-    visuals.widgets.open = widget(BG);
+    visuals.widgets.inactive = widget(INACTIVE);
+    visuals.widgets.hovered = widget(HOVERED);
+    visuals.widgets.active = widget(ACTIVE);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.open = widget(INACTIVE);
     visuals.window_corner_radius = 8.0.into();
     visuals.menu_corner_radius = 6.0.into();
     visuals

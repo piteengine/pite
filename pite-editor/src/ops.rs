@@ -126,7 +126,6 @@ fn prop_to_toml(value: &PropValue) -> toml::Value {
             toml::Value::Float(*x),
             toml::Value::Float(*y),
         ]),
-        _ => toml::Value::String(format!("{value:?}")),
     }
 }
 
