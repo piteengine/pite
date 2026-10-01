@@ -2,6 +2,7 @@
 //! future backends (or a mock for tests) plug in without touching runtime.
 
 mod host;
+mod audio;
 mod input;
 mod python;
 

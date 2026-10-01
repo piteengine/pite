@@ -20,6 +20,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 pite-runtime.workspace = true
 pite-editor.workspace = true
+pite-audio.workspace = true
 pite-core.workspace = true
 pite-scene.workspace = true
 pite-project.workspace = true

@@ -143,6 +143,10 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mouse, m)?)?;
     m.add_function(wrap_pyfunction!(signal, m)?)?;
     m.add_class::<PySignalDecl>()?;
+    m.add_function(wrap_pyfunction!(crate::audio::play, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::audio::stop, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::audio::set_volume, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::audio::is_playing, m)?)?;
     Ok(())
 }
 

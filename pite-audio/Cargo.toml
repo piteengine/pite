@@ -1,0 +1,12 @@
+[package]
+name = "pite-audio"
+description = "AudioBackend trait plus bundled WAV playback engine for Pite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hound.workspace = true

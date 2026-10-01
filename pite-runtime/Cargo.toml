@@ -12,6 +12,7 @@ anyhow.workspace = true
 tracing.workspace = true
 winit.workspace = true
 notify = "8"
+pite-audio.workspace = true
 pite-core.workspace = true
 pite-scene.workspace = true
 pite-render.workspace = true

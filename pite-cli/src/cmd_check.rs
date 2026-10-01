@@ -170,6 +170,26 @@ fn check_scene_ref(
                         ));
                     }
                 }
+                for asset in played_assets(&text) {
+                    let asset_path = if let Some(rel) = asset.strip_prefix("res://") {
+                        root.join(rel)
+                    } else {
+                        root.join(&asset)
+                    };
+                    if !asset_path.is_file() {
+                        errors.push(format!(
+                            "scene {}: node {:?} plays missing audio {asset:?}",
+                            path.display(),
+                            node.id
+                        ));
+                    } else if let Err(e) = pite_audio::decode_wav(&asset_path) {
+                        errors.push(format!(
+                            "scene {}: node {:?} audio {asset:?} undecodable: {e:#}",
+                            path.display(),
+                            node.id
+                        ));
+                    }
+                }
             }
         }
     }
@@ -247,4 +267,30 @@ fn used_signals(text: &str) -> Vec<&str> {
         }
     }
     used
+}
+
+fn played_assets(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        for marker in ["play(\"", "play('"] {
+            let mut rest = line;
+            while let Some(pos) = rest.find(marker) {
+                let before = &rest[..pos];
+                if before.ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                    rest = &rest[pos + marker.len()..];
+                    continue;
+                }
+                let quote = marker.as_bytes()[marker.len() - 1] as char;
+                rest = &rest[pos + marker.len()..];
+                if let Some(end) = rest.find(quote) {
+                    out.push(&rest[..end]);
+                    rest = &rest[end + 1..];
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    out
 }

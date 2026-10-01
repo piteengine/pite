@@ -79,6 +79,19 @@ if pite.pressed("Space"):
 - `held(key)` is true while down (continuous movement); `pressed(key)` fires on the single frame it goes down (single steps); `released(key)` on the frame it comes up. `mouse()` returns the cursor `(x, y)` in pixels.
 - Key names: `A`–`Z`, `0`–`9`, `ArrowLeft/Right/Up/Down`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Shift`, `Control`, `Alt`, plus `MouseLeft/MouseRight/MouseMiddle`. Input is pumped on the main thread and visible inside `_process`.
 
+## Audio
+
+```python
+voice = pite.play("res://sfx/hit.wav", volume=0.8)
+pite.set_volume(voice, 0.5)
+if not pite.is_playing(voice):
+    pass
+pite.stop(voice)
+```
+
+- `play(path, volume=1.0)` decodes the file and returns a voice id; only 16-bit `.wav` in M2. A missing or undecodable file raises loudly — the game keeps running. `stop(id)` on an unknown id is a silent no-op, as is `set_volume` (clamped to `0.0`–`1.0`); `is_playing` on unknown ids is `False`.
+- `pite check` validates every `play("…")` literal in project scripts: the file must exist and decode.
+
 ## Errors and reload
 
 - A script exception is reported with node path, file, and line; the node keeps its last good state and the game keeps running. Repeat offenders are parked after the first error (see the console).

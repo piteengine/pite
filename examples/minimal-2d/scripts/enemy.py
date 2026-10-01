@@ -11,3 +11,4 @@ class Enemy(pite.Node2D):
         x, y = self.position
         self.position = (x - 5.0 * damage, y)
         self.get_node("../HpLabel").text = f"HP: {self.hp}"
+        pite.play("res://sfx/hit.wav")

@@ -118,6 +118,7 @@ impl GameSession {
             armed: HashSet::new(),
         };
         pite_script::set_current_host(session.host.clone());
+        pite_audio::set_project_dir(session.project_dir.clone());
         session.rebuild()?;
         if !session.no_reload {
             session.start_watcher()?;
@@ -352,6 +353,7 @@ impl GameSession {
 
     pub fn update(&mut self, delta: f64) {
         self.poll_buttons();
+        pite_audio::poll_audio();
         for slot in &mut self.slots {
             if slot.errored {
                 continue;

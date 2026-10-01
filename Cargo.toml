@@ -10,6 +10,7 @@ members = [
     "pite-runtime",
     "pite-scene",
     "pite-script",
+    "pite-audio",
 ]
 exclude = ["examples", "python"]
 
@@ -31,11 +32,13 @@ pite-render = { path = "pite-render", version = "0.1.0" }
 pite-runtime = { path = "pite-runtime", version = "0.1.0" }
 pite-scene = { path = "pite-scene", version = "0.1.0" }
 pite-script = { path = "pite-script", version = "0.1.0" }
+pite-audio = { path = "pite-audio", version = "0.1.0" }
 
 # external
 anyhow = "1"
 bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
+hound = "3.5"
 image = { version = "0.25", default-features = false, features = ["png"] }
 pollster = "0.3"
 raw-window-handle = "0.6"
