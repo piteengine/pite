@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use pite_render::atlas::{sheet_for_sidecar, SIDECAR_EXT};
 
 pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "windows"];
 
@@ -435,9 +436,13 @@ fn collect_referenced(
             for value in node.props.values() {
                 if let toml::Value::String(s) = value {
                     if s.starts_with("res://") {
-                        files.insert(resolve_ref(root, Some(&scene_dir), s).with_context(|| {
+                        let asset = resolve_ref(root, Some(&scene_dir), s).with_context(|| {
                             format!("export cannot resolve asset {s:?}")
-                        })?);
+                        })?;
+                        if let Some(sheet) = atlas_sheet(&asset) {
+                            files.insert(sheet);
+                        }
+                        files.insert(asset);
                     }
                 }
             }
@@ -468,6 +473,17 @@ fn resolve_ref(root: &Path, scene_dir: Option<&Path>, r: &str) -> Option<PathBuf
         return Some(p);
     }
     scene_dir.map(|d| d.join(p))
+}
+
+/// An atlas sidecar is only half an asset: without its sheet the runtime draws
+/// its magenta fallback. Resolved through the same helper `pite_runtime` uses,
+/// so an export can never ship a different file than the game looks for.
+fn atlas_sheet(atlas: &Path) -> Option<PathBuf> {
+    atlas
+        .file_name()?
+        .to_str()?
+        .ends_with(SIDECAR_EXT)
+        .then(|| sheet_for_sidecar(atlas))
 }
 
 fn played_assets(text: &str) -> Vec<&str> {
@@ -509,6 +525,16 @@ root = "root"
 id = "root"
 type = "Node2D"
 name = "Main"
+
+[[node]]
+id = "hero"
+type = "Sprite2D"
+name = "Hero"
+parent = "root"
+
+[node.props]
+atlas = "res://assets/sheet.atlas.json"
+frame = "player"
 
 [[node]]
 id = "spr"
@@ -558,6 +584,13 @@ def _once():
     display("res://sfx/nope.wav")
 "#;
 
+    const ATLAS: &str = r#"{
+  "texture": "sheet.png",
+  "size": [64, 32],
+  "frames": { "player": { "x": 0, "y": 0, "w": 32, "h": 32 } }
+}
+"#;
+
     fn fixture(tag: &str) -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir().join(format!("pite-exp-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("scenes")).unwrap();
@@ -571,6 +604,9 @@ def _once():
         std::fs::write(dir.join("assets").join("a.png"), "A").unwrap();
         std::fs::write(dir.join("assets").join("b.png"), "B").unwrap();
         std::fs::write(dir.join("assets").join("unused.png"), "U").unwrap();
+        std::fs::write(dir.join("assets").join("sheet.atlas.json"), ATLAS).unwrap();
+        std::fs::write(dir.join("assets").join("sheet.png"), "S").unwrap();
+        std::fs::write(dir.join("assets").join("orphan.png"), "O").unwrap();
         std::fs::write(dir.join("sfx").join("hit.wav"), "W").unwrap();
         let fake_bin = dir.join("fakebin");
         std::fs::write(&fake_bin, "FAKEBIN").unwrap();
@@ -603,11 +639,14 @@ def _once():
             "scripts/m.py",
             "assets/a.png",
             "assets/b.png",
+            "assets/sheet.atlas.json",
+            "assets/sheet.png",
             "sfx/hit.wav",
         ] {
             assert!(game_has(out, rel), "missing {rel}");
         }
         assert!(!game_has(out, "assets/unused.png"));
+        assert!(!game_has(out, "assets/orphan.png"));
         assert!(out.join("bin").join("fixt").is_file());
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
         assert!(sh.contains("--no-reload"));
@@ -781,7 +820,7 @@ def _once():
         assert_eq!(manifest.project.name, "fixt");
         let session =
             pite_runtime::GameSession::open(&scene, true).expect("exported scene must open");
-        assert_eq!(session.tree_len(), 4);
+        assert_eq!(session.tree_len(), 5);
         assert_eq!(session.script_count(), 1);
         std::fs::remove_dir_all(&report.out_dir).ok();
         std::fs::remove_dir_all(&dir).ok();
