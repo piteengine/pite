@@ -25,26 +25,44 @@ cargo run -p pite-cli -- export linux
 
 `export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the engine binary, a `run` launcher, and only the referenced game content (`game/`). Extra files ride along via `[export] include` in `pite.toml` (all export settings default; old projects export untouched). The target machine needs system Python 3.12 (`PITE_PYTHON` overrides detection); export fails loudly without it unless `--skip-python-check` (for cross-machine builds). Python is not bundled — out of scope. Exported runs never watch files (`--no-reload` is baked into the launcher).
 
+## Status
+
+`v0.1-m2` (tag pending): a playable 2D loop, not a scaffold. Textured sprites
+render through `Camera2D` with key-driven movement and parent-carried
+transforms; typed signals (`pite.signal(int)`) connect nodes; `Label` and
+`Button` draw and click; `pite.play("…")` runs WAVs; scenes hot-reload while you
+type. Around that: a binary scene cache (`_cache/`, content-hash keyed, version
+stamped), an asset pipeline with uid tracking (`pite reimport`), a locked
+`pite.toml` schema, and an external Python language server in the code pane.
+See [`CHANGELOG.md`](CHANGELOG.md) for the slice-by-slice record and
+`../pite-brain/LOG.md` for the build order.
+
 ## Workspace
 
 | Crate | Role |
 |---|---|
-| `pite-cli` | `pite` binary: new / run / check / edit |
+| `pite-cli` | `pite` binary: new / run / check / reimport / edit / export |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
 | `pite-render` | `Renderer2D` trait (wgpu seam) |
 | `pite-script` | Embedded Python (`pite` module) |
-| `pite-scene` | TOML scenes, instantiation, validation |
-| `pite-editor` | eframe/egui panels on the same tree |
+| `pite-scene` | TOML scenes, instantiation, validation, binary cache |
+| `pite-editor` | eframe/egui panels on the same tree, LSP client |
 | `pite-assets` | `Importer` trait, uid registry |
+| `pite-audio` | WAV decode + playback state machine |
 | `pite-project` | `pite.toml`, `res://` paths, templates |
 | `pite-export` | Desktop export (binary + resolved content) |
 
-Docs: [`docs/scene-format.md`](docs/scene-format.md), [`docs/scripting-api.md`](docs/scripting-api.md), [`docs/assets.md`](docs/assets.md), [`docs/editor.md`](docs/editor.md), [`docs/manifest.md`](docs/manifest.md), [`docs/lsp.md`](docs/lsp.md).
+## Docs
 
-## Status
-
-`v0.1-m1`: 2D scaffold — empty scenes load, one Python script drives one node, scripts and scenes hot-reload, minimal editor edits the live tree. See [`CHANGELOG.md`](CHANGELOG.md).
+| Doc | Covers |
+|---|---|
+| [`docs/scene-format.md`](docs/scene-format.md) | `.pitescene` TOML, instantiation, the scene cache |
+| [`docs/scripting-api.md`](docs/scripting-api.md) | Python API: nodes, signals, input, audio, text |
+| [`docs/assets.md`](docs/assets.md) | `res://` refs, uid manifest, `pite reimport` |
+| [`docs/editor.md`](docs/editor.md) | Panels, viewport, save, tree ops |
+| [`docs/manifest.md`](docs/manifest.md) | `pite.toml` fields, defaults, `check` rules |
+| [`docs/lsp.md`](docs/lsp.md) | Pinned pyright server, completion/hover/diagnostics |
 
 ## License
 

@@ -128,20 +128,38 @@ fn pin_triple() -> (u64, u64, u64) {
     )
 }
 
+fn version_output(cmd: &str) -> Option<String> {
+    let out = Command::new(cmd).arg("--version").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// `pyright-langserver` speaks only stdio, so ask its `pyright` sibling.
+fn sibling_version(cmd: &str) -> Option<String> {
+    if Path::new(cmd).file_name().and_then(|s| s.to_str()) != Some(SERVER_CMD) {
+        return None;
+    }
+    let sibling = match Path::new(cmd).parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => {
+            parent.join("pyright").to_string_lossy().into_owned()
+        }
+        _ => "pyright".to_string(),
+    };
+    version_output(&sibling)
+}
+
 /// Best-effort version probe: `(version, warning)`. Never fails; a missing
 /// binary surfaces later at spawn with the loud message.
 pub fn probe_server_version(cmd: &str) -> (Option<String>, Option<String>) {
-    let out = match Command::new(cmd).arg("--version").output() {
-        Ok(out) => out,
-        Err(_) => return (None, None),
-    };
-    if !out.status.success() {
+    let text = version_output(cmd).or_else(|| sibling_version(cmd));
+    let Some(text) = text else {
         return (
             None,
             Some(format!("LSP: `{cmd} --version` failed; proceeding without a version check.")),
         );
-    }
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    };
     match parse_version(&text) {
         Some(have) => {
             let label = format!("{}.{}.{}", have.0, have.1, have.2);
@@ -289,10 +307,10 @@ pub fn did_open_notification(uri: &str, text: &str) -> Value {
     )
 }
 
-pub fn did_change_notification(uri: &str, text: &str) -> Value {
+pub fn did_change_notification(uri: &str, version: i32, text: &str) -> Value {
     notification(
         "textDocument/didChange",
-        serde_json::json!({"textDocument": {"uri": uri, "version": 1},
+        serde_json::json!({"textDocument": {"uri": uri, "version": version},
             "contentChanges": [{"text": text}]}),
     )
 }
@@ -504,6 +522,7 @@ pub struct Bridge {
     next_id: i64,
     pending: HashMap<i64, PendingKind>,
     responses: HashMap<i64, Value>,
+    versions: HashMap<String, i32>,
     completions: VecDeque<(i64, Vec<CompletionItem>)>,
     hovers: VecDeque<(i64, String)>,
     signatures: VecDeque<(i64, Vec<String>)>,
@@ -517,6 +536,7 @@ impl Bridge {
             next_id: 1,
             pending: HashMap::new(),
             responses: HashMap::new(),
+            versions: HashMap::new(),
             completions: VecDeque::new(),
             hovers: VecDeque::new(),
             signatures: VecDeque::new(),
@@ -548,11 +568,14 @@ impl Bridge {
     }
 
     pub fn did_open(&mut self, tx: &mut dyn RpcTransport, uri: &str, text: &str) -> Result<()> {
+        self.versions.insert(uri.to_string(), 1);
         tx.send(&did_open_notification(uri, text))
     }
 
     pub fn did_change(&mut self, tx: &mut dyn RpcTransport, uri: &str, text: &str) -> Result<()> {
-        tx.send(&did_change_notification(uri, text))
+        let version = self.versions.entry(uri.to_string()).or_insert(0);
+        *version += 1;
+        tx.send(&did_change_notification(uri, *version, text))
     }
 
     pub fn request_completion(
@@ -988,11 +1011,12 @@ mod tests {
     fn builders_carry_params() {
         let open = did_open_notification("file:///a.py", "import pite\n");
         assert_eq!(open.pointer("/params/textDocument/uri").unwrap(), "file:///a.py");
-        let change = did_change_notification("file:///a.py", "x = 1\n");
+        let change = did_change_notification("file:///a.py", 7, "x = 1\n");
         assert_eq!(
             change.pointer("/params/contentChanges/0/text").unwrap(),
             "x = 1\n"
         );
+        assert_eq!(change.pointer("/params/textDocument/version").unwrap(), 7);
         let req = completion_request(3, "file:///a.py", 4, 9);
         assert_eq!(req.get("id").unwrap(), 3);
         assert_eq!(req.pointer("/params/position/line").unwrap(), 4);
@@ -1019,6 +1043,13 @@ mod tests {
         bridge.did_change(&mut tx, uri, "import pite\n").unwrap();
         assert!(bridge.poll(&mut tx, None));
         assert!(bridge.diagnostics.get(uri).cloned().unwrap_or_default().is_empty());
+        let versions: Vec<i64> = tx
+            .outbox
+            .iter()
+            .filter(|m| m.get("method").and_then(Value::as_str) == Some("textDocument/didChange"))
+            .filter_map(|m| m.pointer("/params/textDocument/version").and_then(Value::as_i64))
+            .collect();
+        assert_eq!(versions, vec![2]);
 
         let id = bridge.request_completion(&mut tx, uri, 1, 2).unwrap();
         assert!(bridge.poll(&mut tx, None));
@@ -1127,5 +1158,81 @@ mod tests {
         writer.write_all(&bytes).unwrap();
         let mut reader = FramingReader::new(BufReader::new(b));
         assert_eq!(reader.read_message().unwrap(), body);
+    }
+
+    /// Live-server smoke: real pyright over stdio on the dogfood script
+    /// (open → completion, change → session still serving). Runs only with
+    /// `PITE_LSP_SMOKE=1` (CI sets it after installing the pin); otherwise
+    /// it skips so plain `cargo test` needs no server.
+    #[test]
+    fn live_pyright_smoke_open_completion_change() {
+        if std::env::var("PITE_LSP_SMOKE").is_err() {
+            eprintln!("skipped: set PITE_LSP_SMOKE=1 for the live pyright smoke");
+            return;
+        }
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("examples")
+            .join("minimal-2d");
+        let script = root.join("scripts").join("player.py");
+        let text = std::fs::read_to_string(&script).expect("dogfood script exists");
+        let rx = spawn_lsp(Some(root), &script);
+        let mut client = match rx.recv_timeout(Duration::from_secs(180)).expect("starter answers") {
+            LspOutcome::Ready { client, warning } => {
+                if let Some(w) = warning {
+                    eprintln!("smoke warning: {w}");
+                }
+                assert_eq!(client.server_version.as_deref(), Some(PINNED_PYRIGHT));
+                client
+            }
+            LspOutcome::Failed(msg) => panic!("smoke server failed: {msg}"),
+        };
+        let uri = path_to_uri(&script);
+        client.did_open(&uri, &text).expect("didOpen sends");
+
+        // Completion inside `self.` — proves the open + completion round-trip.
+        // `x, y = self.position` is line 11 (0-based); the dot sits at column 20.
+        let found = smoke_await_completion(&mut client, &uri, 11, 20);
+        assert!(!found.is_empty(), "smoke: completion came back empty");
+        assert!(
+            found.iter().any(|i| i.label == "position"),
+            "smoke: expected `position`, got {:?}",
+            found.iter().map(|i| &i.label).collect::<Vec<_>>()
+        );
+
+        // Change, then prove the session still serves: `didChange` syncs the
+        // server buffer only; the dogfood file on disk is never touched.
+        let broken = format!("{text}\nundefined_smoke_name_xyz\n");
+        client.did_change(&uri, &broken).expect("didChange sends");
+        let after = smoke_await_completion(&mut client, &uri, 11, 20);
+        assert!(
+            after.iter().any(|i| i.label == "position"),
+            "smoke: completion broke after didChange, got {:?}",
+            after.iter().map(|i| &i.label).collect::<Vec<_>>()
+        );
+    }
+
+    /// Poll until the server answers a completion request, failing loudly if
+    /// it dies or the request goes unanswered. Returns the labels' items.
+    fn smoke_await_completion(
+        client: &mut LspClient,
+        uri: &str,
+        line: u32,
+        character: u32,
+    ) -> Vec<CompletionItem> {
+        client.request_completion(uri, line, character).expect("completion sends");
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            if let Some(msg) = client.poll() {
+                panic!("smoke: server died ({msg})");
+            }
+            if let Some((_, items)) = client.take_completion() {
+                return items;
+            }
+            if Instant::now() > deadline {
+                panic!("smoke: no completion arrived");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 }

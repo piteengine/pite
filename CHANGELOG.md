@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.1-m2 (pending tag)
+
+Playable 2D run: real rendering, signals, text, audio, export, assets, editor, plus scene cache, manifest schema, and an LSP bridge. Counts are workspace `cargo test` greens at each landing commit.
+
+- M2a playable (`a027137`): textured sprites through Camera2D (pixel-proven), key-driven input, parent-carried transforms, 26 green.
+- M2b signals (`068aa52`): typed `pite.signal(T)` descriptors + Rust `SignalRegistry`, drop-disconnect, Space→recoil dogfood, 28 green.
+- Editor theme (`739c828`): single `theme.rs`, dark + green accent, OFL fonts; brand assets + `DESIGN.md` alongside. Behavior untouched, 29 green.
+- M2c text (`e608871`): `Label` via `ab_glyph` on the sprite pipeline (no wgpu upgrade), two-way script text sync, HP label on the hit signal, 38 green.
+- Button (`e85743b`): rect on the sprite pipeline, armed press-inside/release-inside clicks, `pressed` signal, HitButton dogfood, 43 green.
+- Audio (`7838a4f`): `pite-audio` + `WavBackend` state machine, `pite.play/stop` API, `check` literal scan, hit-sound dogfood, 47 green. Follow-up: real device sink (`cpal`/`rodio`) on hardware.
+- Export (`76380b4`): runnable dir with referenced-files-only + Python gate at export and launch, manifest round-trip, 52 green. Follow-up: Python bundling (ship without dev Python).
+- Asset pipeline (`e0d00a9`): scan + uid manifest + `check` dangling/moved errors + `pite reimport`, png+wav importers, 62 green. Follow-ups: atlases, runtime hot-reimport, orphan warnings.
+- Editor level-up (`9795117` + `9ad233d` + `437f348`): save scene, tree add/remove/drag-reparent, generic inspector, error gutter, `docs/editor.md`; textured viewport through the shared draw path; Godot-like layout, vector icons, context menu, sibling-order ops.
+- Binary scene cache (`5e8600b`): TOML stays source of truth, `_cache/` content-hash binaries, version stamps, loud fallback, `check` hit/miss/rebuilt (`--json` schema v2), 77 green.
+- Manifest schema (`f5fc2bf`): locked `pite.toml` field set (author/icon placeholders, 800×600 window), all defaulted, unknown keys preserved + reported, `docs/manifest.md`, 81 green.
+- LSP bridge (`1bce5b7`): external pyright over stdio (pinned `1.1.411`), background handshake, `pite.pyi` on `extraPaths`, completion/hover/signature/diagnostics in the code pane, `docs/lsp.md`, 92 green. No DAP, no bundled binary.
+- Release pass: CI installs the pinned pyright and runs a live LSP smoke (spawn → open → completion → change) against the dogfood script, exports the embedded-Python env explicitly, README/docs index describe the shipped engine.
+- Parked (not hidden): DAP, camera follow/smoothing/deadzone + bounds, multi-class Python files, 3D/physics/networking (out of scope per spec).
+
 ## v0.1-m1
 
 First bootable milestone: 2D scaffold with scripting and a minimal editor.
