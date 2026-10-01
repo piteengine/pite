@@ -3,3 +3,4 @@
 **/*.rs.bk
 .codegraph/
 .omo/
+assets.pite.toml

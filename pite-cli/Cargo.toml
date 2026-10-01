@@ -26,3 +26,4 @@ pite-core.workspace = true
 pite-scene.workspace = true
 pite-project.workspace = true
 pite-script.workspace = true
+pite-assets.workspace = true

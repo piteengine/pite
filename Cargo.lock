@@ -2531,6 +2531,8 @@ name = "pite-assets"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -2547,6 +2549,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "pite-assets",
  "pite-audio",
  "pite-core",
  "pite-editor",

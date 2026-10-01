@@ -2,6 +2,7 @@ mod cmd_check;
 mod cmd_edit;
 mod cmd_export;
 mod cmd_new;
+mod cmd_reimport;
 mod cmd_run;
 
 use anyhow::Result;
@@ -35,6 +36,10 @@ enum Command {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    Reimport {
+        #[arg(long)]
+        path: Option<String>,
+    },
     Edit {
         #[arg(long)]
         scene: Option<String>,
@@ -61,6 +66,7 @@ fn main() -> Result<()> {
         Command::New { name, template } => cmd_new::run(&name, &template),
         Command::Run { scene, no_reload } => cmd_run::run(&scene, no_reload),
         Command::Check { path, strict, json } => cmd_check::run(path.as_deref(), strict, json),
+        Command::Reimport { path } => cmd_reimport::run(path.as_deref()),
         Command::Edit { scene } => cmd_edit::run(scene.as_deref()),
         Command::Export { platform, path, out, binary, skip_python_check } => {
             cmd_export::run(&platform, path.as_deref(), out.as_deref(), binary.as_deref(), skip_python_check)

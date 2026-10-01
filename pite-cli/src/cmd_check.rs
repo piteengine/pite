@@ -61,7 +61,33 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
     };
 
     if let Some(manifest) = &manifest {
-        check_scene_ref(&root, &manifest.project.main_scene, &mut errors, &mut warnings);
+        let registry = pite_assets::load_registry(&root).unwrap_or_default();
+        let scanned = match pite_assets::scan_files(&root) {
+            Ok(files) => files,
+            Err(e) => {
+                warnings.push(format!("assets: scan failed: {e:#}"));
+                Vec::new()
+            }
+        };
+        let by_path: std::collections::HashMap<&str, &pite_assets::ScannedFile> = scanned
+            .iter()
+            .map(|f| (f.res_path.as_str(), f))
+            .collect();
+        let by_hash: std::collections::HashMap<&str, &str> = scanned
+            .iter()
+            .map(|f| (f.hash.as_str(), f.res_path.as_str()))
+            .collect();
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        check_scene_ref(
+            &root,
+            &manifest.project.main_scene,
+            &mut errors,
+            &mut warnings,
+            &registry,
+            &by_path,
+            &by_hash,
+            &mut visited,
+        );
         for p in &manifest.export.platforms {
             if !pite_export::SUPPORTED_PLATFORMS.contains(&p.as_str()) {
                 warnings.push(format!(
@@ -103,12 +129,19 @@ fn check_scene_ref(
     scene_ref: &str,
     errors: &mut Vec<String>,
     warnings: &mut Vec<String>,
+    uid_registry: &pite_assets::UidRegistry,
+    by_path: &std::collections::HashMap<&str, &pite_assets::ScannedFile>,
+    by_hash: &std::collections::HashMap<&str, &str>,
+    visited: &mut std::collections::HashSet<String>,
 ) {
     let path = if let Some(rel) = scene_ref.strip_prefix("res://") {
         root.join(rel)
     } else {
         root.join(scene_ref)
     };
+    if !visited.insert(path.to_string_lossy().to_string()) {
+        return;
+    }
     let doc = match pite_scene::load_scene(&path) {
         Ok(doc) => doc,
         Err(e) => {
@@ -199,6 +232,50 @@ fn check_scene_ref(
                 }
             }
         }
+        for value in node.props.values() {
+            let Some(s) = value.as_str() else {
+                continue;
+            };
+            if !s.starts_with("res://") {
+                continue;
+            }
+            let asset_path = if let Some(rel) = s.strip_prefix("res://") {
+                root.join(rel)
+            } else {
+                let p = PathBuf::from(s);
+                if p.is_absolute() {
+                    p
+                } else {
+                    scene_dir.join(p)
+                }
+            };
+            if !asset_path.is_file() {
+                let moved_to: Option<&str> = uid_registry
+                    .iter()
+                    .find(|e| e.path == *s)
+                    .and_then(|e| {
+                        if e.hash.is_empty() {
+                            None
+                        } else {
+                            by_hash.get(e.hash.as_str()).copied()
+                        }
+                    })
+                    .filter(|new| *new != s);
+                if let Some(new) = moved_to {
+                    errors.push(format!(
+                        "scene {}: node {:?} references moved asset {s:?} (now at {new:?}); run 'pite reimport'",
+                        path.display(),
+                        node.id
+                    ));
+                } else {
+                    errors.push(format!(
+                        "scene {}: node {:?} references missing asset {s:?}",
+                        path.display(),
+                        node.id
+                    ));
+                }
+            }
+        }
     }
     for inst in &doc.instance {
         let ref_path = if let Some(rel) = inst.scene.strip_prefix("res://") {
@@ -237,6 +314,14 @@ fn check_scene_ref(
                 )),
             }
         }
+        let nested_ref = if inst.scene.starts_with("res://") {
+            inst.scene.clone()
+        } else {
+            scene_dir.join(&inst.scene).to_string_lossy().to_string()
+        };
+        check_scene_ref(
+            root, &nested_ref, errors, warnings, uid_registry, by_path, by_hash, visited,
+        );
     }
 }
 
@@ -300,4 +385,96 @@ fn played_assets(text: &str) -> Vec<&str> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    const FIXTURE_SCENE: &str = r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "sprite"
+type = "Sprite2D"
+name = "Sprite"
+parent = "root"
+
+[node.props]
+texture = "res://assets/gone.png"
+"#;
+
+    fn fixture_root(n: u32) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("pite-check-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).expect("create scenes dir");
+        std::fs::create_dir_all(dir.join("assets")).expect("create assets dir");
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            FIXTURE_SCENE,
+        )
+        .expect("write fixture scene");
+        dir
+    }
+
+    fn run_ref(
+        root: &Path,
+        registry: &pite_assets::UidRegistry,
+        by_path: &HashMap<&str, &pite_assets::ScannedFile>,
+        by_hash: &HashMap<&str, &str>,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut visited = HashSet::new();
+        check_scene_ref(
+            root,
+            "res://scenes/main.pitescene",
+            &mut errors,
+            &mut warnings,
+            registry,
+            by_path,
+            by_hash,
+            &mut visited,
+        );
+        errors
+    }
+
+    #[test]
+    fn missing_asset_is_error() {
+        let root = fixture_root(1);
+        let registry = pite_assets::UidRegistry::new();
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+        let errors = run_ref(&root, &registry, &by_path, &by_hash);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("references missing asset")),
+            "expected a missing-asset error, got: {errors:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn present_asset_is_clean() {
+        let root = fixture_root(2);
+        std::fs::write(root.join("assets").join("gone.png"), b"fake-png-bytes")
+            .expect("write fixture asset");
+        let registry = pite_assets::UidRegistry::new();
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+        let errors = run_ref(&root, &registry, &by_path, &by_hash);
+        assert!(
+            !errors.iter().any(|e| e.contains("asset")),
+            "expected zero asset errors, got: {errors:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

@@ -180,6 +180,14 @@ class Player(pite.Node2D):
         self.position = (x, y)
 "#;
 
+/// Valid 1x1 RGBA PNG backing the `res://assets/player.png` reference in
+/// [`TEMPLATE_SCENE`], so fresh scaffolds pass `pite check`.
+const TEMPLATE_PLAYER_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
+    0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 255, 127, 0,
+    9, 251, 3, 253, 42, 134, 227, 138, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
 pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf> {
     if template != "minimal-2d" {
         anyhow::bail!("unknown template {template:?} (only \"minimal-2d\" exists in M0)");
@@ -201,5 +209,6 @@ pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf
     )?;
     std::fs::write(dir.join("scenes").join("main.pitescene"), TEMPLATE_SCENE)?;
     std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
+    std::fs::write(dir.join("assets").join("player.png"), TEMPLATE_PLAYER_PNG)?;
     Ok(dir)
 }

@@ -40,7 +40,7 @@ cargo run -p pite-cli -- export linux
 | `pite-project` | `pite.toml`, `res://` paths, templates |
 | `pite-export` | Desktop export (binary + resolved content) |
 
-Docs: [`docs/scene-format.md`](docs/scene-format.md), [`docs/scripting-api.md`](docs/scripting-api.md).
+Docs: [`docs/scene-format.md`](docs/scene-format.md), [`docs/scripting-api.md`](docs/scripting-api.md), [`docs/assets.md`](docs/assets.md).
 
 ## Status
 

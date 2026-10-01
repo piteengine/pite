@@ -34,6 +34,9 @@ class = "Player"
 - `props` is open: scalars map to typed values, a 2-number array maps to `Vec2`, anything else is kept as text. **Unknown props warn and survive a save** (forward compat).
 - `script` is optional. A missing script file is a `check` warning and loads as a placeholder node — never a load failure.
 - All paths are project-relative (`res://…`); absolute paths are forbidden.
+- Every `res://` string in `props` is an asset ref: `pite check` errors on missing
+  files and tells you where a renamed asset went (uid-tracked, see `assets.md`).
+  Run `pite reimport` after renaming or editing assets outside the editor.
 
 ## Instantiation
 

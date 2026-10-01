@@ -17,5 +17,5 @@ name = "Sprite"
 parent = "enemy"
 
 [node.props]
-texture = "res://assets/enemy.png"
+texture = "res://assets/foe.png"
 position = [0.0, 0.0]
