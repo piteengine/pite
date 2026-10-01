@@ -370,7 +370,7 @@ fn get_node(cur: &mut Cursor<'_>) -> Result<SceneNode> {
     let name = cur.str()?;
     let parent = cur.opt_str()?;
     let prop_len = cur.u32()? as usize;
-    let mut props = std::collections::HashMap::with_capacity(prop_len.min(64));
+    let mut props = std::collections::BTreeMap::new();
     for _ in 0..prop_len {
         let k = cur.str()?;
         let v = get_toml_value(cur)?;
@@ -385,7 +385,7 @@ fn get_instance(cur: &mut Cursor<'_>) -> Result<SceneInstance> {
     let parent = cur.opt_str()?;
     let prefix = cur.str()?;
     let len = cur.u32()? as usize;
-    let mut overrides = std::collections::HashMap::with_capacity(len.min(64));
+    let mut overrides = std::collections::BTreeMap::new();
     for _ in 0..len {
         let k = cur.str()?;
         let v = get_toml_value(cur)?;

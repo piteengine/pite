@@ -152,8 +152,33 @@ impl EditorApp {
     }
 
     fn save_scene(&mut self) {
-        let doc = self.session.host().with_tree(ops::build_doc);
-        match pite_scene::save_scene(&doc) {
+        let source = match std::fs::metadata(&self.scene_path) {
+            Ok(_) => match pite_scene::load_scene(&self.scene_path) {
+                Ok(doc) => Some(doc),
+                Err(e) => {
+                    self.log(format!(
+                        "save aborted: cannot read existing scene {}: {e:#}",
+                        self.scene_path.display()
+                    ));
+                    return;
+                }
+            },
+            Err(_) => None,
+        };
+        let scene_dir = self
+            .scene_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let refs = ops::InstanceRefs {
+            scene_dir: &scene_dir,
+            project_dir: self.project_dir.as_deref(),
+        };
+        let built =
+            self.session
+                .host()
+                .with_tree(|tree| ops::build_doc(tree, source.as_ref(), Some(refs)));
+        match built.and_then(|doc| pite_scene::save_scene(&doc).map_err(anyhow::Error::from)) {
             Ok(text) => match ops::save_text(&self.scene_path, &text) {
                 Ok(()) => {
                     self.viewport_dirty = true;

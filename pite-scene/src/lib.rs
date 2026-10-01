@@ -3,7 +3,7 @@
 //! Depends on `pite-core` only. TOML is canonical; binary is a later
 //! export cache, not a source format.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -24,7 +24,7 @@ pub struct SceneDoc {
     pub root: String,
     #[serde(default)]
     pub node: Vec<SceneNode>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub instance: Vec<SceneInstance>,
 }
 
@@ -36,8 +36,8 @@ pub struct SceneNode {
     pub type_name: String,
     pub name: String,
     pub parent: Option<String>,
-    #[serde(default)]
-    pub props: HashMap<String, toml::Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, toml::Value>,
     pub script: Option<SceneScript>,
 }
 
@@ -57,8 +57,8 @@ pub struct SceneInstance {
     pub parent: Option<String>,
     #[serde(default)]
     pub prefix: String,
-    #[serde(default)]
-    pub overrides: HashMap<String, toml::Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub overrides: BTreeMap<String, toml::Value>,
 }
 
 /// Format migration hook (§12). New fields are additive; breaking
@@ -259,7 +259,7 @@ pub fn to_node_tree(doc: &SceneDoc) -> Result<NodeTree> {
 pub fn instantiate(
     scene_path: &Path,
     prefix: &str,
-    overrides: &HashMap<String, toml::Value>,
+    overrides: &BTreeMap<String, toml::Value>,
 ) -> Result<(Vec<NodeDesc>, String)> {
     let doc = load_scene_cached(scene_path)?;
     let mut descs = Vec::with_capacity(doc.node.len());
@@ -433,7 +433,7 @@ parent = "enemy"
 position = [0.0, 0.0]
 "#,
         );
-        let mut overrides = HashMap::new();
+        let mut overrides = BTreeMap::new();
         overrides.insert(
             "sprite.position".to_string(),
             toml::Value::Array(vec![
@@ -462,7 +462,7 @@ position = [0.0, 0.0]
             "tiny.pitescene",
             "format_version = 1\nroot = \"solo\"\n\n[[node]]\nid = \"solo\"\ntype = \"Node\"\nname = \"Solo\"\n",
         );
-        let mut overrides = HashMap::new();
+        let mut overrides = BTreeMap::new();
         overrides.insert("ghost.x".to_string(), toml::Value::Integer(1));
         let err = instantiate(&ref_path, "", &overrides).unwrap_err();
         assert!(err.to_string().contains("override target"));

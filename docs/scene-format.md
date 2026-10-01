@@ -62,6 +62,8 @@ prefix = "e1_"
 
 Loading clones the referenced subtree under `parent` (`parent` defaults to the host root), remaps every id as `prefix + id` (collisions fail loudly), and applies overrides keyed `"node_id.prop"` (unknown targets fail loudly).
 
+Saving preserves `[[instance]]` entries rather than inlining the subtree, and records prop edits inside an instance as overrides — see [`editor.md`](editor.md#save-scene). Prop keys are written in sorted order, so saves are byte-stable.
+
 ## Rendering
 
 - `Sprite2D` draws its `texture` (a `res://` png path) centered on the node's global position at native pixel size. A missing texture renders magenta and warns once.

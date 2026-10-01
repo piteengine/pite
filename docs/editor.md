@@ -33,6 +33,14 @@ buttons. Below the `Viewport` / `Code` tabs a path bar shows the open scene or
 the open script with its own Save button; the Code tab itself is just the
 gutter plus a borderless editor filling the panel like the viewport.
 
+The scene file on disk stays authoritative: save reads it first and re-attaches
+its `[[instance]]` entries instead of flattening them into plain nodes. Prop
+edits inside an instantiated subtree are written back as `overrides`, and edits
+the format cannot express (rename, retype, reparent, add or delete inside a
+subtree, removing an inherited prop) are refused with a console error rather
+than silently dropped. Props serialize in sorted order, so a save → load → save
+cycle is byte-identical and diffs stay readable.
+
 ## Tree ops
 
 Header `Add` opens an inline add-child form: a ComboBox over the registered

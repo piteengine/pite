@@ -17,6 +17,7 @@ Playable 2D run: real rendering, signals, text, audio, export, assets, editor, p
 - Manifest schema (`f5fc2bf`): locked `pite.toml` field set (author/icon placeholders, 800×600 window), all defaulted, unknown keys preserved + reported, `docs/manifest.md`, 81 green.
 - LSP bridge (`1bce5b7`): external pyright over stdio (pinned `1.1.411`), background handshake, `pite.pyi` on `extraPaths`, completion/hover/signature/diagnostics in the code pane, `docs/lsp.md`, 92 green. No DAP, no bundled binary. Follow-up: the handshake now sends `workspaceFolders` (plus the `workspace/configuration` capability), so the server adopts the project root instead of analyzing nothing, and document/root URIs are built as proper `file:///D:/…` paths so Windows stops reporting the project directory as nonexistent.
 - Release pass: CI installs the pinned pyright and runs a live LSP smoke (spawn → open → completion → change) against the dogfood script, exports the embedded-Python env explicitly, README/docs index describe the shipped engine.
+- Fix: editor scene save no longer flattens `[[instance]]` entries into plain nodes — the on-disk scene stays authoritative, instance entries are re-attached, prop edits inside a subtree become overrides, and unrepresentable structural edits are refused loudly. Scene props/overrides are ordered, making saves byte-stable.
 - Parked (not hidden): DAP, camera follow/smoothing/deadzone + bounds, multi-class Python files, 3D/physics/networking (out of scope per spec).
 
 ## v0.1-m1
