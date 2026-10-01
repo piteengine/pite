@@ -12,6 +12,7 @@ pub enum Icon {
     Stop,
     Save,
     Add,
+    Script,
 }
 
 /// A 26x22 click target with a painted glyph. Returns the response so callers
@@ -34,7 +35,7 @@ pub fn icon_button(ui: &mut egui::Ui, icon: Icon, tooltip: &str) -> egui::Respon
     resp
 }
 
-fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Color32) {
+pub fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Color32) {
     let c = rect.center();
     match icon {
         Icon::Play => {
@@ -88,15 +89,25 @@ fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Color32)
             );
         }
         Icon::Add => {
-            let s = egui::Stroke::new(1.8_f32, fg);
-            p.line_segment(
-                [egui::Pos2::new(c.x - 5.0, c.y), egui::Pos2::new(c.x + 5.0, c.y)],
-                s,
-            );
-            p.line_segment(
-                [egui::Pos2::new(c.x, c.y - 5.0), egui::Pos2::new(c.x, c.y + 5.0)],
-                s,
-            );
+            const BAR: f32 = 1.9;
+            const ARM: f32 = 5.5;
+            p.rect_filled(egui::Rect::from_center_size(c, egui::vec2(ARM * 2.0, BAR)), 0.0, fg);
+            p.rect_filled(egui::Rect::from_center_size(c, egui::vec2(BAR, ARM * 2.0)), 0.0, fg);
+        }
+        Icon::Script => {
+            let page = egui::Rect::from_center_size(c, egui::vec2(8.0, 10.5));
+            p.rect_stroke(page, 1.2, egui::Stroke::new(1.2_f32, fg), egui::StrokeKind::Middle);
+            let inset = page.width() * 0.26;
+            for row in [-0.8_f32, 0.8] {
+                let y = c.y + row * page.height() * 0.2 + 0.2;
+                p.line_segment(
+                    [
+                        egui::Pos2::new(page.left() + inset + 1.0, y),
+                        egui::Pos2::new(page.right() - inset, y),
+                    ],
+                    egui::Stroke::new(1.1_f32, fg),
+                );
+            }
         }
     }
 }

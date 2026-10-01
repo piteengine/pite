@@ -535,6 +535,13 @@ impl EditorApp {
                 )
             })
         }).unwrap_or_else(|| ("?".to_string(), "?".to_string(), vec![]));
+        let script = self.session.host().with_tree(|t| {
+            t.get(id).and_then(|n| {
+                n.script
+                    .as_ref()
+                    .map(|s| (s.class_name.clone(), self.resolve_res(&s.path)))
+            })
+        });
         let selected = self.selected.as_ref() == Some(&id.to_string());
         let id_str = id.to_string();
         let target = id.clone();
@@ -558,6 +565,18 @@ impl EditorApp {
                 grip_rect = Some(g.inner.0);
             }
             let r = ui.selectable_label(selected, format!("{name} ({type_name})"));
+            if let Some((class, file)) = script.as_ref() {
+                let (badge, resp) =
+                    ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                if ui.is_rect_visible(badge) {
+                    icons::draw_icon(ui.painter(), badge, Icon::Script, crate::theme::FAINT);
+                }
+                let resp = resp.on_hover_text(format!("open {class}"));
+                if resp.clicked() {
+                    let file = file.clone();
+                    self.open_asset(&file);
+                }
+            }
             if r.clicked() {
                 self.selected = Some(id_str.clone());
             }
