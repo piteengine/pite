@@ -105,6 +105,74 @@ pub fn move_node(tree: &mut NodeTree, id: &NodeId, new_parent: Option<NodeId>) -
     Ok(())
 }
 
+/// Place `id` under `new_parent` at child `index` (clamped to the end).
+/// Unlike `move_node` this controls sibling order: index 0 makes it first.
+/// Refuses unknown nodes, root moves, and cycles (under itself or a
+/// descendant); the node keeps its subtree.
+pub fn place_node(
+    tree: &mut NodeTree,
+    id: &NodeId,
+    new_parent: &NodeId,
+    index: usize,
+) -> Result<()> {
+    if tree.root() == Some(id) {
+        anyhow::bail!("cannot move the root node `{id}`");
+    }
+    let node = tree
+        .get(id)
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+    if !tree.contains(new_parent) {
+        anyhow::bail!("parent `{new_parent}` does not exist");
+    }
+    if new_parent == id {
+        anyhow::bail!("cannot place `{id}` under itself");
+    }
+    let mut cursor = Some(new_parent.clone());
+    while let Some(current) = cursor {
+        if &current == id {
+            anyhow::bail!("cannot place `{id}` under its descendant `{new_parent}`");
+        }
+        cursor = tree.get(&current).and_then(|n| n.parent.clone());
+    }
+    let old_parent = node.parent.clone();
+    if let Some(old) = &old_parent {
+        if let Some(n) = tree.get_mut(old) {
+            n.children.retain(|c| c != id);
+        }
+    }
+    let node_parent = tree
+        .get_mut(id)
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+    node_parent.parent = Some(new_parent.clone());
+    let host = tree
+        .get_mut(new_parent)
+        .ok_or_else(|| anyhow::anyhow!("parent `{new_parent}` does not exist"))?;
+    let at = index.min(host.children.len());
+    host.children.insert(at, id.clone());
+    Ok(())
+}
+
+/// Shift `id` by `delta` slots among its siblings (negative moves up).
+/// Out-of-range shifts clamp to the first/last slot; parentless nodes and
+/// the root are errors.
+pub fn move_sibling(tree: &mut NodeTree, id: &NodeId, delta: i32) -> Result<()> {
+    let node = tree
+        .get(id)
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+    let parent = node
+        .parent
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` has no parent to reorder in"))?;
+    let siblings = tree.children_of(&parent);
+    let pos = siblings
+        .iter()
+        .position(|s| s == id)
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` is not listed under its parent"))?;
+    let len = siblings.len() as i32;
+    let at = (pos as i32 + delta).clamp(0, len - 1) as usize;
+    place_node(tree, id, &parent, at)
+}
+
 /// Set one prop on `id`. Unknown nodes are errors.
 pub fn set_prop(tree: &mut NodeTree, id: &NodeId, key: &str, value: PropValue) -> Result<()> {
     match tree.get_mut(id) {
@@ -309,6 +377,68 @@ mod tests {
         assert_eq!(marks[0].0, 27);
         assert!(marks[0].1.contains("ZeroDivisionError"));
         assert!(gutter_marks(&["clean".to_string()]).is_empty());
+    }
+
+    fn children_of(tree: &NodeTree, id: &str) -> Vec<String> {
+        tree.children_of(&NodeId::from(id.to_string()))
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    fn three_kids() -> NodeTree {
+        let mut tree = rooted_tree();
+        let root = tree.root().cloned().unwrap();
+        for name in ["a", "b", "c"] {
+            add_node(&mut tree, Some(root.clone()), "Node2D", name).unwrap();
+        }
+        tree
+    }
+
+    #[test]
+    fn place_node_reorders_and_moves_across_parents() {
+        let mut tree = three_kids();
+        let root = tree.root().cloned().unwrap();
+        place_node(&mut tree, &NodeId::from("c".to_string()), &root, 0).unwrap();
+        assert_eq!(children_of(&tree, "main"), vec!["c", "a", "b"]);
+        move_sibling(&mut tree, &NodeId::from("a".to_string()), 1).unwrap();
+        assert_eq!(children_of(&tree, "main"), vec!["c", "b", "a"]);
+        move_sibling(&mut tree, &NodeId::from("c".to_string()), -5).unwrap();
+        assert_eq!(children_of(&tree, "main"), vec!["c", "b", "a"]);
+        let sub = add_node(&mut tree, Some(root.clone()), "Node2D", "sub").unwrap();
+        place_node(&mut tree, &NodeId::from("a".to_string()), &sub, 0).unwrap();
+        assert_eq!(children_of(&tree, "main"), vec!["c", "b", "sub"]);
+        assert_eq!(children_of(&tree, &sub.to_string()), vec!["a"]);
+    }
+
+    #[test]
+    fn place_node_refuses_root_cycles_and_unknowns() {
+        let mut tree = three_kids();
+        let root = tree.root().cloned().unwrap();
+        assert!(place_node(&mut tree, &root, &NodeId::from("a".to_string()), 0).is_err());
+        assert!(place_node(
+            &mut tree,
+            &NodeId::from("a".to_string()),
+            &NodeId::from("a".to_string()),
+            0
+        )
+        .is_err());
+        place_node(&mut tree, &NodeId::from("b".to_string()), &NodeId::from("a".to_string()), 0)
+            .unwrap();
+        assert!(place_node(
+            &mut tree,
+            &NodeId::from("a".to_string()),
+            &NodeId::from("b".to_string()),
+            0
+        )
+        .is_err());
+        assert!(place_node(
+            &mut tree,
+            &NodeId::from("nope".to_string()),
+            &root,
+            0
+        )
+        .is_err());
     }
 
     #[test]

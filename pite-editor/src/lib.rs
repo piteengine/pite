@@ -4,6 +4,7 @@
 //! code pane — all on the same `NodeTree` the game runs.
 
 mod app;
+mod icons;
 pub mod ops;
 pub mod theme;
 

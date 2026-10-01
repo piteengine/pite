@@ -8,10 +8,24 @@ use pite_core::{NodeId, PropValue};
 use pite_render::{OffscreenRenderer, Renderer2D};
 use pite_runtime::GameSession;
 
+use crate::icons::{self, Icon};
 use crate::ops;
 
 const VIEW_W: u32 = 640;
 const VIEW_H: u32 = 400;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Viewport,
+    Code,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum DropZone {
+    None,
+    Before,
+    Under,
+}
 
 pub fn launch(scene: &Path) -> Result<()> {
     let app = EditorApp::new(scene)?;
@@ -56,6 +70,8 @@ pub struct EditorApp {
     viewport_failed: bool,
     viewport_tex: Option<egui::TextureHandle>,
     viewport_dirty: bool,
+    grip_hover: Option<String>,
+    tab: Tab,
 }
 
 impl EditorApp {
@@ -82,6 +98,8 @@ impl EditorApp {
             viewport_failed: false,
             viewport_tex: None,
             viewport_dirty: true,
+            grip_hover: None,
+            tab: Tab::Viewport,
         })
     }
 
@@ -98,6 +116,11 @@ impl EditorApp {
                 self.log(err);
             }
         }
+    }
+
+    fn toggle_play(&mut self) {
+        self.playing = !self.playing;
+        self.last_frame = Instant::now();
     }
 
     fn stop(&mut self) {
@@ -126,15 +149,12 @@ impl EditorApp {
         }
     }
 
-    fn delete_selected(&mut self) {
-        let Some(sel) = self.selected.clone() else {
-            self.log("delete: nothing selected.".to_string());
-            return;
-        };
-        let id = NodeId::from(sel);
-        match self.session.host().with_tree_mut(|t| ops::remove_node(t, &id)) {
+    fn delete_node(&mut self, id: &NodeId) {
+        match self.session.host().with_tree_mut(|t| ops::remove_node(t, id)) {
             Ok(()) => {
-                self.selected = None;
+                if self.selected.as_deref() == Some(id.as_str()) {
+                    self.selected = None;
+                }
                 self.viewport_dirty = true;
                 self.log(format!("deleted {id}."));
             }
@@ -142,66 +162,47 @@ impl EditorApp {
         }
     }
 
-    fn move_selected_out(&mut self) {
-        let Some(sel) = self.selected.clone() else {
-            self.log("move out: nothing selected.".to_string());
-            return;
-        };
-        let id = NodeId::from(sel);
-        let target = self.session.host().with_tree(|t| {
-            let node = t.get(&id)?;
-            let parent = node.parent.clone()?;
-            let grandparent = t.get(&parent)?.parent.clone();
-            if grandparent.is_none() {
-                return None;
+    fn move_sibling(&mut self, id: &NodeId, delta: i32) {
+        match self
+            .session
+            .host()
+            .with_tree_mut(|t| ops::move_sibling(t, id, delta))
+        {
+            Ok(()) => {
+                self.viewport_dirty = true;
+                self.log(format!("moved {id}."));
             }
-            Some(grandparent)
-        });
-        match target {
-            None => self.log("move out: already at top.".to_string()),
-            Some(grandparent) => {
-                match self.session.host().with_tree_mut(|t| {
-                    ops::move_node(t, &id, grandparent.clone())
-                }) {
-                    Ok(()) => {
-                        self.viewport_dirty = true;
-                        self.log(format!("moved {id} out."));
-                    }
-                    Err(e) => self.log(format!("move failed: {e:#}")),
-                }
-            }
+            Err(e) => self.log(format!("move failed: {e:#}")),
         }
     }
 
-    fn move_selected_in(&mut self) {
-        let Some(sel) = self.selected.clone() else {
-            self.log("move in: nothing selected.".to_string());
+    fn drop_node(&mut self, dragged: &str, target: &NodeId, zone: DropZone) {
+        let dragged_id = NodeId::from(dragged);
+        if dragged_id == *target || zone == DropZone::None {
             return;
-        };
-        let id = NodeId::from(sel);
-        let target = self.session.host().with_tree(|t| {
-            let node = t.get(&id)?;
-            let parent = node.parent.clone()?;
-            let siblings = t.children_of(&parent);
-            let pos = siblings.iter().position(|s| s == &id)?;
-            if pos == 0 {
-                return None;
+        }
+        let result = self.session.host().with_tree_mut(|t| match zone {
+            DropZone::Under => ops::move_node(t, &dragged_id, Some(target.clone())),
+            DropZone::Before => {
+                let parent = t
+                    .get(target)
+                    .and_then(|n| n.parent.clone())
+                    .ok_or_else(|| anyhow::anyhow!("cannot reorder at the top level"))?;
+                let sibs = t.children_of(&parent);
+                let pos = sibs
+                    .iter()
+                    .position(|s| s == target)
+                    .ok_or_else(|| anyhow::anyhow!("target `{target}` not found"))?;
+                ops::place_node(t, &dragged_id, &parent, pos)
             }
-            Some(Some(siblings[pos - 1].clone()))
+            DropZone::None => Ok(()),
         });
-        match target {
-            None => self.log("move in: no previous sibling.".to_string()),
-            Some(new_parent) => {
-                match self.session.host().with_tree_mut(|t| {
-                    ops::move_node(t, &id, new_parent.clone())
-                }) {
-                    Ok(()) => {
-                        self.viewport_dirty = true;
-                        self.log(format!("moved {id} in."));
-                    }
-                    Err(e) => self.log(format!("move failed: {e:#}")),
-                }
+        match result {
+            Ok(()) => {
+                self.viewport_dirty = true;
+                self.log(format!("moved {dragged_id}."));
             }
+            Err(e) => self.log(format!("move failed: {e:#}")),
         }
     }
 
@@ -260,88 +261,111 @@ impl eframe::App for EditorApp {
         }
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Save scene  Ctrl+S").clicked() {
+            ui.horizontal(|ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Save scene  Ctrl+S").clicked() {
+                            self.save_scene();
+                            ui.close();
+                        }
+                        if ui.button("Quit").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                    ui.menu_button("Run", |ui| {
+                        let label = if self.playing { "Pause" } else { "Play" };
+                        if ui.button(label).clicked() {
+                            self.toggle_play();
+                            ui.close();
+                        }
+                        if ui.button("Stop").clicked() {
+                            self.stop();
+                            ui.close();
+                        }
+                    });
+                });
+                ui.separator();
+                ui.label(self.scene_path.to_string_lossy().as_ref());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if icons::icon_button(ui, Icon::Save, "Save scene (Ctrl+S)").clicked() {
                         self.save_scene();
-                        ui.close();
                     }
-                    if ui.button("Quit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene").clicked() {
+                        self.stop();
+                    }
+                    let (play_icon, play_tip) = if self.playing {
+                        (Icon::Pause, "Pause the scene")
+                    } else {
+                        (Icon::Play, "Run the scene")
+                    };
+                    if icons::icon_button(ui, play_icon, play_tip).clicked() {
+                        self.toggle_play();
                     }
                 });
             });
         });
 
-        egui::TopBottomPanel::top("transport").show(ctx, |ui| {
+        egui::SidePanel::left("left").default_width(240.0).resizable(true).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let label = if self.playing { "Pause" } else { "Play" };
-                if ui.button(label).on_hover_text("Run or pause the scene").clicked() {
-                    self.playing = !self.playing;
-                    self.last_frame = Instant::now();
-                }
-                if ui.button("Stop").on_hover_text("Stop and reset the scene").clicked() {
-                    self.stop();
-                }
-                if ui.button("Save scene").on_hover_text("Save scene (Ctrl+S)").clicked() {
-                    self.save_scene();
-                }
-                ui.separator();
-                ui.label(self.scene_path.to_string_lossy().as_ref());
-            });
-        });
-
-        egui::SidePanel::left("tree").default_width(220.0).resizable(true).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Scene tree");
-                if ui.button("Add").on_hover_text("Add a child node under the selection").clicked() {
+                ui.heading("Scene");
+                if icons::icon_button(ui, Icon::Add, "Add a child node under the selection").clicked() {
                     self.add_open = true;
-                }
-                if ui.button("Del").on_hover_text("Delete the selected node").clicked() {
-                    self.delete_selected();
-                }
-                if ui.button("Out").on_hover_text("Move the selection to its grandparent").clicked() {
-                    self.move_selected_out();
-                }
-                if ui.button("In").on_hover_text("Move the selection under its previous sibling").clicked() {
-                    self.move_selected_in();
                 }
             });
             if self.add_open {
                 self.show_add_child(ui);
             }
-            let root = self
-                .session
-                .host()
-                .with_tree(|t| t.root().cloned());
-            if let Some(root) = root {
-                self.show_node(ui, &root, 0);
-            }
-        });
-
-        egui::SidePanel::right("inspector").default_width(280.0).resizable(true).show(ctx, |ui| {
-            ui.heading("Inspector");
-            match self.selected.clone() {
-                Some(id) => self.show_inspector(ui, &id),
-                None => {
-                    ui.label("Select a node.");
+            let tree_h = (ui.available_height() * 0.52).max(120.0);
+            egui::ScrollArea::vertical().id_salt("tree").max_height(tree_h).show(ui, |ui| {
+                let root = self
+                    .session
+                    .host()
+                    .with_tree(|t| t.root().cloned());
+                if let Some(root) = root {
+                    self.show_node(ui, &root);
                 }
-            }
-        });
-
-        egui::TopBottomPanel::bottom("console").resizable(true).show(ctx, |ui| {
-            ui.heading("Console");
-            egui::ScrollArea::vertical().max_height(200.0).stick_to_bottom(true).show(ui, |ui| {
-                for line in &self.console {
-                    ui.monospace(line);
+                let avail = ui.available_size();
+                if avail.y > 8.0 {
+                    let (rect, resp) = ui.allocate_exact_size(
+                        egui::vec2(avail.x.max(1.0), avail.y),
+                        egui::Sense::hover(),
+                    );
+                    if egui::DragAndDrop::has_any_payload(ui.ctx())
+                        && resp.contains_pointer()
+                    {
+                        ui.painter().rect_stroke(
+                            rect,
+                            3.0,
+                            egui::Stroke::new(1.5_f32, crate::theme::FAINT),
+                            egui::StrokeKind::Middle,
+                        );
+                    }
+                    if let Some(dragged) = resp.dnd_release_payload::<String>() {
+                        if let Some(root) = self
+                            .session
+                            .host()
+                            .with_tree(|t| t.root().cloned())
+                        {
+                            let dragged_id = NodeId::from(dragged.as_str());
+                            let result = self.session.host().with_tree_mut(|t| {
+                                let len = t.children_of(&root).len();
+                                ops::place_node(t, &dragged_id, &root, len)
+                            });
+                            match result {
+                                Ok(()) => {
+                                    self.viewport_dirty = true;
+                                    self.log(format!("moved {dragged_id}."));
+                                }
+                                Err(e) => self.log(format!("move failed: {e:#}")),
+                            }
+                        }
+                    }
                 }
             });
-        });
-
-        egui::SidePanel::left("assets").default_width(220.0).resizable(true).show(ctx, |ui| {
+            ui.separator();
             ui.heading("Assets");
             let files = self.asset_files();
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("assets").show(ui, |ui| {
                 for file in files {
                     let label = file
                         .strip_prefix(self.project_dir.as_deref().unwrap_or(Path::new(".")))
@@ -355,42 +379,54 @@ impl eframe::App for EditorApp {
             });
         });
 
+        egui::SidePanel::right("inspector").default_width(280.0).min_width(200.0).resizable(true).show(ctx, |ui| {
+            ui.heading("Inspector");
+            match self.selected.clone() {
+                Some(id) => self.show_inspector(ui, &id),
+                None => {
+                    ui.label("Select a node.");
+                }
+            }
+        });
+
+        egui::TopBottomPanel::bottom("console").min_height(100.0).resizable(true).show(ctx, |ui| {
+            ui.heading("Console");
+            egui::ScrollArea::vertical().id_salt("console").auto_shrink([false, false]).max_height(200.0).stick_to_bottom(true).show(ui, |ui| {
+                for line in &self.console {
+                    ui.monospace(line);
+                }
+            });
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Viewport");
-            self.show_viewport(ui);
-            ui.separator();
             ui.horizontal(|ui| {
-                ui.heading("Code");
-                if let Some(file) = self.code_file.clone() {
-                    ui.label(file.to_string_lossy().as_ref());
-                    if ui.button("Save").clicked() {
-                        match std::fs::write(&file, &self.code_text) {
-                            Ok(()) => {
-                                self.session.reload_script_path(&file);
-                                self.log(format!("saved {}", file.display()));
-                            }
-                            Err(e) => self.log(format!("save failed: {e:#}")),
-                        }
+                ui.selectable_value(&mut self.tab, Tab::Viewport, "Viewport");
+                ui.selectable_value(&mut self.tab, Tab::Code, "Code");
+            });
+            ui.separator();
+            ui.horizontal(|ui| match self.tab {
+                Tab::Viewport => {
+                    ui.label(self.scene_path.to_string_lossy().as_ref());
+                    if ui.small_button("Save").clicked() {
+                        self.save_scene();
                     }
-                } else {
-                    ui.label("Open a .py file from Assets.");
+                }
+                Tab::Code => {
+                    if let Some(file) = self.code_file.clone() {
+                        ui.label(file.to_string_lossy().as_ref());
+                        if ui.small_button("Save").clicked() {
+                            self.save_code();
+                        }
+                    } else {
+                        ui.label("Open a .py file from Assets.");
+                    }
                 }
             });
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                let marks = ops::gutter_marks(&self.current_file_errors());
-                for (line, msg) in &marks {
-                    let _ = ui.small_button(
-                        egui::RichText::new(format!("line {line}: {msg}"))
-                            .monospace()
-                            .color(egui::Color32::YELLOW),
-                    );
-                }
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.code_text)
-                        .code_editor()
-                        .desired_width(f32::INFINITY),
-                );
-            });
+            ui.separator();
+            match self.tab {
+                Tab::Viewport => self.show_viewport(ui),
+                Tab::Code => self.show_code(ui),
+            }
         });
     }
 }
@@ -437,8 +473,7 @@ impl EditorApp {
         });
     }
 
-    fn show_node(&mut self, ui: &mut egui::Ui, id: &NodeId, depth: usize) {
-        let _ = depth;
+    fn show_node(&mut self, ui: &mut egui::Ui, id: &NodeId) {
         let (name, type_name, children) = self.session.host().with_tree(|t| {
             t.get(id).map(|n| {
                 (
@@ -450,31 +485,128 @@ impl EditorApp {
         }).unwrap_or_else(|| ("?".to_string(), "?".to_string(), vec![]));
         let selected = self.selected.as_ref() == Some(&id.to_string());
         let id_str = id.to_string();
-        if children.is_empty() {
-            if ui.selectable_label(selected, format!("{name} ({type_name})")).clicked() {
-                self.selected = Some(id_str);
-            }
-            return;
-        }
+        let target = id.clone();
+        let is_root = self.session.host().with_tree(|t| t.root() == Some(id));
         let open = self.is_open(&id_str);
-        ui.horizontal(|ui| {
-            let toggle = if open { "[-]" } else { "[+]" };
-            if ui.button(toggle).on_hover_text("Expand or collapse children").clicked() {
+        let show_grip = self.grip_hover.as_deref() == Some(id_str.as_str());
+        let mut row_resp: Option<egui::Response> = None;
+        let mut grip_rect: Option<egui::Rect> = None;
+        let hresp = ui.horizontal(|ui| {
+            if !is_root {
+                let g = ui.dnd_drag_source(
+                    egui::Id::new(("tree-grip", id_str.clone())),
+                    id_str.clone(),
+                    |ui| {
+                        ui.allocate_exact_size(
+                            egui::Vec2::new(12.0, ui.text_style_height(&egui::TextStyle::Body)),
+                            egui::Sense::hover(),
+                        )
+                    },
+                );
+                grip_rect = Some(g.inner.0);
+            }
+            let r = ui.selectable_label(selected, format!("{name} ({type_name})"));
+            if r.clicked() {
+                self.selected = Some(id_str.clone());
+            }
+            if !children.is_empty() && r.double_clicked() {
                 if open {
                     self.open_nodes.remove(&id_str);
                 } else {
                     self.open_nodes.insert(id_str.clone());
                 }
             }
-            if ui.selectable_label(selected, format!("{name} ({type_name})")).clicked() {
-                self.selected = Some(id.to_string());
-            }
+            let menu_id = id.clone();
+            let menu_open = open;
+            let menu_kids = !children.is_empty();
+            let _ = r.context_menu(|ui| {
+                if ui.button("Delete").clicked() {
+                    self.delete_node(&menu_id);
+                    ui.close();
+                }
+                if ui.button("Move up").clicked() {
+                    self.move_sibling(&menu_id, -1);
+                    ui.close();
+                }
+                if ui.button("Move down").clicked() {
+                    self.move_sibling(&menu_id, 1);
+                    ui.close();
+                }
+                if menu_kids {
+                    let label = if menu_open { "Collapse" } else { "Expand" };
+                    if ui.button(label).clicked() {
+                        if menu_open {
+                            self.open_nodes.remove(&menu_id.to_string());
+                        } else {
+                            self.open_nodes.insert(menu_id.to_string());
+                        }
+                        ui.close();
+                    }
+                }
+            });
+            row_resp = Some(r);
         });
-        if open {
-            let indent_id = id.to_string();
-            ui.indent(indent_id, |ui| {
+        if hresp.response.contains_pointer() {
+            self.grip_hover = Some(id_str.clone());
+        } else if self.grip_hover.as_deref() == Some(id_str.as_str()) {
+            self.grip_hover = None;
+        }
+        if show_grip {
+            if let (Some(g), Some(r)) = (grip_rect, &row_resp) {
+                let p = ui.painter();
+                let x = g.center().x;
+                let y = r.rect.center().y;
+                for row in 0..3 {
+                    for col in 0..2 {
+                        p.circle_filled(
+                            egui::Pos2::new(x - 2.25 + col as f32 * 4.5, y - 4.5 + row as f32 * 4.5),
+                            1.2,
+                            crate::theme::FAINT,
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(r) = &row_resp {
+            let dragging = egui::DragAndDrop::has_any_payload(ui.ctx());
+            let zone = if dragging && r.contains_pointer() {
+                let pos = ui.ctx().pointer_hover_pos().unwrap_or(r.rect.center());
+                let frac = (pos.y - r.rect.top()) / r.rect.height().max(1.0);
+                if is_root {
+                    DropZone::Under
+                } else if frac < 0.35 || frac > 0.65 {
+                    DropZone::Before
+                } else {
+                    DropZone::Under
+                }
+            } else {
+                DropZone::None
+            };
+            let p = ui.painter();
+            let edge = egui::Stroke::new(1.5_f32, crate::theme::FAINT);
+            match zone {
+                DropZone::Before => {
+                    p.line_segment(
+                        [
+                            egui::Pos2::new(r.rect.left(), r.rect.top() + 1.0),
+                            egui::Pos2::new(r.rect.right(), r.rect.top() + 1.0),
+                        ],
+                        edge,
+                    );
+                }
+                DropZone::Under => {
+                    p.rect_stroke(r.rect, 3.0, edge, egui::StrokeKind::Middle);
+                }
+                DropZone::None => {}
+            }
+            if let Some(dragged) = r.dnd_release_payload::<String>() {
+                self.drop_node(dragged.as_str(), &target, zone);
+            }
+        }
+        if open && !children.is_empty() {
+            ui.indent(id_str, |ui| {
                 for child in children {
-                    self.show_node(ui, &child, depth + 1);
+                    self.show_node(ui, &child);
                 }
             });
         }
@@ -562,6 +694,34 @@ impl EditorApp {
                 ui.label("no script attached.");
             }
         }
+    }
+
+    fn save_code(&mut self) {
+        let Some(file) = self.code_file.clone() else {
+            self.log("save: no script open.".to_string());
+            return;
+        };
+        match std::fs::write(&file, &self.code_text) {
+            Ok(()) => {
+                self.session.reload_script_path(&file);
+                self.log(format!("saved {}", file.display()));
+            }
+            Err(e) => self.log(format!("save failed: {e:#}")),
+        }
+    }
+
+    fn show_code(&mut self, ui: &mut egui::Ui) {
+        for (line, msg) in &ops::gutter_marks(&self.current_file_errors()) {
+            let _ = ui.small_button(
+                egui::RichText::new(format!("line {line}: {msg}"))
+                    .monospace()
+                    .color(egui::Color32::YELLOW),
+            );
+        }
+        ui.add_sized(
+            ui.available_size(),
+            egui::TextEdit::multiline(&mut self.code_text).code_editor(),
+        );
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui) {
@@ -764,6 +924,7 @@ impl EditorApp {
                 Ok(text) => {
                     self.code_file = Some(file.to_path_buf());
                     self.code_text = text;
+                    self.tab = Tab::Code;
                 }
                 Err(e) => self.log(format!("cannot open {}: {e:#}", file.display())),
             }
@@ -774,6 +935,7 @@ impl EditorApp {
                     self.scene_path = file.to_path_buf();
                     self.selected = None;
                     self.viewport_dirty = true;
+                    self.tab = Tab::Viewport;
                     self.log(format!("opened {}", file.display()));
                 }
                 Err(e) => self.log(format!("open failed: {e:#}")),
