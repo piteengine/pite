@@ -505,6 +505,19 @@ impl GameSession {
             self.armed.clear();
         }
     }
+
+    /// One frame: pump watchers, run scripts, then retire edge input.
+    ///
+    /// `input_begin_frame()` MUST come last. OS/window events arrive
+    /// between frames, so clearing edges before `update()` wipes presses
+    /// and releases scripts have not consumed yet (`pite.pressed()` would
+    /// read false forever and buttons would never arm). Edges set since
+    /// the previous frame stay visible for exactly one `update()`.
+    pub fn frame(&mut self, delta: f64) {
+        self.poll_watch();
+        self.update(delta);
+        pite_script::input_begin_frame();
+    }
 }
 
 fn button_size(node: &pite_core::Node) -> (f64, f64) {
@@ -591,8 +604,11 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
-                pite_script::input_set_mouse(position.x / scale, position.y / scale);
+                // Physical pixels: the renderer's viewport (`inner_size`)
+                // is physical too, and `button_at` maps the cursor through
+                // it. Dividing by the scale factor here once made every
+                // click miss on scaled displays while the button drew fine.
+                pite_script::input_set_mouse(position.x, position.y);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let name = match button {
@@ -605,13 +621,11 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 let delta = self.session_delta();
-                self.session.poll_watch();
-                pite_script::input_begin_frame();
                 if let Some(renderer) = &self.renderer {
                     let (w, h) = renderer.size();
                     self.session.set_viewport(w, h);
                 }
-                self.session.update(delta);
+                self.session.frame(delta);
                 self.render_frame();
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -1005,6 +1019,33 @@ mod tests {
         assert!((walker_x(&session) - 310.0).abs() < 1e-6);
         input_set_key("T-WalkRight", false);
         input_set_key("T-Step", false);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const STEPPER: &str = "import pite\n\nclass Walker(pite.Node2D):\n    def _process(self, delta):\n        x, y = self.position\n        if pite.pressed(\"T-EdgeStep\"):\n            x += 10.0\n        self.position = (x, y)\n";
+
+    #[test]
+    fn frame_delivers_production_order_edges_exactly_once() {
+        let _guard = SERIAL.lock().unwrap();
+        use pite_script::input_set_key;
+
+        let (dir, _) = make_project("edgeorder", "Walker", STEPPER);
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+
+        // Production order: the OS event lands between frames, so the
+        // edge is set BEFORE frame() with no begin_frame in between.
+        // (frame() itself retires edges at its end.)
+        input_set_key("T-EdgeStep", true);
+        session.frame(0.5);
+        assert!((walker_x(&session) - 10.0).abs() < 1e-6);
+        session.frame(0.5);
+        assert!(
+            (walker_x(&session) - 10.0).abs() < 1e-6,
+            "edge must be consumed exactly once"
+        );
+        input_set_key("T-EdgeStep", false);
+        pite_script::input_begin_frame();
         std::fs::remove_dir_all(&dir).ok();
     }
 
