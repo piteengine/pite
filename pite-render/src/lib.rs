@@ -220,8 +220,8 @@ fn create_sprite_pipeline(
     });
     let pipe_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("pite pipe layout"),
-        bind_group_layouts: &[&tex_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&tex_layout)],
+        immediate_size: 0,
     });
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("pite sprite pipe"),
@@ -229,11 +229,11 @@ fn create_sprite_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<SpriteVertex>() as u64,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         primitive: wgpu::PrimitiveState::default(),
@@ -249,7 +249,7 @@ fn create_sprite_pipeline(
             })],
             compilation_options: Default::default(),
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -306,14 +306,14 @@ fn upload(
         view_formats: &[],
     });
     queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &tex,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         rgba,
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4 * w),
             rows_per_image: Some(h),
@@ -403,10 +403,12 @@ fn encode_groups(
                     }),
                     store: wgpu::StoreOp::Store,
                 },
+                depth_slice: None,
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(pipeline);
         for key in order {
@@ -450,16 +452,17 @@ pub struct WgpuRenderer {
 impl WgpuRenderer {
     pub fn new(window: std::sync::Arc<winit::window::Window>) -> Result<Self> {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let surface = instance.create_surface(window)?;
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .context("no suitable GPU adapter")?;
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .context("cannot request GPU device")?;
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -482,6 +485,7 @@ impl WgpuRenderer {
             alpha_mode: alpha,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
+            color_space: wgpu::SurfaceColorSpace::Auto,
         };
         surface.configure(&device, &config);
 
@@ -675,13 +679,16 @@ impl Renderer2D for WgpuRenderer {
             .collect();
         let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
         let frame = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
-            Err(e) => anyhow::bail!("surface failed: {e}"),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(())
+            }
+            other => anyhow::bail!("surface failed: {other:?}"),
         };
         let view = frame.texture.create_view(&Default::default());
         let cmd = encode_groups(
@@ -693,7 +700,7 @@ impl Renderer2D for WgpuRenderer {
             &view,
         );
         self.queue.submit(std::iter::once(cmd));
-        frame.present();
+        self.queue.present(frame);
         Ok(())
     }
 
@@ -726,15 +733,16 @@ impl OffscreenRenderer {
     pub fn new_offscreen(width: u32, height: u32) -> Result<Self> {
         let width = width.max(1);
         let height = height.max(1);
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .context("no suitable GPU adapter")?;
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .context("cannot request GPU device")?;
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
@@ -911,10 +919,12 @@ impl OffscreenRenderer {
                         }),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
             for key in &order {
@@ -943,15 +953,15 @@ impl OffscreenRenderer {
             mapped_at_creation: false,
         });
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.target,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &readback,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(h),
@@ -968,11 +978,16 @@ impl OffscreenRenderer {
         readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .context("offscreen readback poll failed")?;
         rx.recv()
             .map_err(|_| anyhow::anyhow!("offscreen readback channel closed"))??;
         let out = {
-            let view = readback.slice(..).get_mapped_range();
+            let view = readback
+                .slice(..)
+                .get_mapped_range()
+                .expect("offscreen readback maps");
             let row_len = w as usize * 4;
             let pitch = padded_bytes_per_row as usize;
             let mut out = vec![0u8; row_len * h as usize];
@@ -1108,20 +1123,20 @@ mod tests {
 
     #[test]
     fn sprite_renders_green_pixel_offscreen() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let Some(adapter) =
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+                apply_limit_buckets: false,
             }))
         else {
             eprintln!("SKIP: no fallback GPU adapter on this machine");
             return;
         };
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
-                .unwrap();
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
 
@@ -1194,10 +1209,12 @@ mod tests {
                         }),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &sprite_bg, &[]);
@@ -1211,15 +1228,15 @@ mod tests {
             mapped_at_creation: false,
         });
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &target,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &readback,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(64 * 4),
                     rows_per_image: Some(64),
@@ -1236,11 +1253,14 @@ mod tests {
         readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             tx.send(r).unwrap();
         });
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         rx.recv().unwrap().unwrap();
         let center: [u8; 4];
         {
-            let view = readback.slice(..).get_mapped_range();
+            let view = readback
+                .slice(..)
+                .get_mapped_range()
+                .expect("offscreen readback maps");
             let i = (32 * 64 + 32) * 4;
             center = [view[i], view[i + 1], view[i + 2], view[i + 3]];
         }
@@ -1317,20 +1337,20 @@ mod tests {
 
     #[test]
     fn baked_text_renders_bright_pixels_offscreen() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let Some(adapter) =
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+                apply_limit_buckets: false,
             }))
         else {
             eprintln!("SKIP: no fallback GPU adapter on this machine");
             return;
         };
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
-                .unwrap();
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
 
@@ -1402,10 +1422,12 @@ mod tests {
                         }),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &glyph_bg, &[]);
@@ -1419,15 +1441,15 @@ mod tests {
             mapped_at_creation: false,
         });
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &target,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &readback,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(64 * 4),
                     rows_per_image: Some(64),
@@ -1444,10 +1466,13 @@ mod tests {
         readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             tx.send(r).unwrap();
         });
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         rx.recv().unwrap().unwrap();
         let bright = {
-            let view = readback.slice(..).get_mapped_range();
+            let view = readback
+                .slice(..)
+                .get_mapped_range()
+                .expect("offscreen readback maps");
             view.chunks(4)
                 .filter(|px| px[0] > 200 && px[1] > 200 && px[2] > 200)
                 .count()
