@@ -1287,7 +1287,16 @@ impl EditorApp {
             };
             for entry in entries.flatten() {
                 let path = entry.path();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                // Mirror pite-assets::scan_files: never show build output,
+                // VCS metadata, or hidden files in the Assets panel.
+                if name.starts_with('.') {
+                    continue;
+                }
                 if path.is_dir() {
+                    if name == "target" || name == "dist" || name == ".git" {
+                        continue;
+                    }
                     if out.len() < 400 {
                         stack.push(path);
                     }
