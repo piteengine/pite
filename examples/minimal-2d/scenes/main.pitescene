@@ -36,10 +36,10 @@ name = "HpLabel"
 parent = "root"
 
 [node.props]
-text = "HP: 3"
+color = "#4ADE80"
 font_size = 20.0
 position = [100.0, 80.0]
-color = "#4ADE80"
+text = "HP: 3"
 
 [[node]]
 id = "hitbtn"
@@ -48,11 +48,11 @@ name = "HitBtn"
 parent = "root"
 
 [node.props]
-text = "HIT"
+color = "#4ADE80"
 font_size = 20.0
 position = [500.0, 200.0]
 size = [140.0, 44.0]
-color = "#4ADE80"
+text = "HIT"
 
 [node.script]
 path = "res://scripts/hitbutton.py"
