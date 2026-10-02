@@ -3,7 +3,7 @@
 //!
 //! Knows nothing about Python (`pite-script`), rendering (`pite-render`) or the
 //! scene file format (`pite-scene`). Those plug in through the traits re-exported
-//! here (see SCAFFOLD-SPEC §12 seams).
+//! here, which is where the crate boundaries are drawn.
 
 #![forbid(unsafe_code)]
 

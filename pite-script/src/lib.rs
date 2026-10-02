@@ -1,4 +1,4 @@
-//! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl (M1b);
+//! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl;
 //! future backends (or a mock for tests) plug in without touching runtime.
 
 mod host;

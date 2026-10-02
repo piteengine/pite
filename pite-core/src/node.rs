@@ -4,7 +4,7 @@ use crate::Props;
 
 /// Handle to a node inside a [`NodeTree`].
 ///
-/// M1 uses human-readable string ids (DECISIONS D7): they survive edits, read well
+/// Ids are human-readable strings: they survive edits, read well
 /// in diffs, and can be crossed to Python without an integer translation table.
 #[derive(Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(String);
@@ -55,8 +55,8 @@ impl AsRef<str> for NodeId {
 
 /// Script attachment: project-relative path plus the exported class name.
 ///
-/// One file exports one class in M1 (SCAFFOLD-SPEC §3), which keeps the
-/// `path + class` attach mapping trivial.
+/// One file exports one class, which keeps the `path + class` attach
+/// mapping trivial.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ScriptRef {
     pub path: String,

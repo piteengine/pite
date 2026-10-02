@@ -30,7 +30,7 @@ reported, not fatal to the rest. `check` itself never writes.
 
 ## Importers (`pite-assets`)
 
-`Importer` trait (`match_ext`, `import`) + `UidRegistry`, same seam as M1.
+`Importer` trait (`match_ext`, `import`) + `UidRegistry`.
 `png` and `wav` are registered; new formats are new impls, no registry change.
 
 ## Atlas (sprite sheets)

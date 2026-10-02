@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-/// Recorded design for the M2 signal system (SCAFFOLD-SPEC §12).
 /// A signal is a name plus ordered payload type names, registered at
-/// class-load. No dispatch yet — Python surface stays reserved
-/// (`connect(callable)` / `emit(typed values)` land here in M2).
+/// class-load. `connect`/`emit` dispatch through the host; drop-disconnect
+/// is handled on node drop.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SignalDef {
     pub name: String,

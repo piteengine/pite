@@ -7,12 +7,12 @@
 
 ## v0.1-m2
 
-Playable 2D run: real rendering, signals, text, audio, export, assets, editor, plus scene cache, manifest schema, and an LSP bridge. Counts are workspace `cargo test` greens at each landing commit.
+Playable 2D run: real rendering, signals, text, audio, export, assets, editor, plus scene cache, manifest schema, and an LSP bridge. Counts are workspace `cargo test` greens at each commit.
 
-- M2a playable (`a027137`): textured sprites through Camera2D (pixel-proven), key-driven input, parent-carried transforms, 26 green.
-- M2b signals (`068aa52`): typed `pite.signal(T)` descriptors + Rust `SignalRegistry`, drop-disconnect, Space→recoil dogfood, 28 green.
+- Playable 2D (`a027137`): textured sprites through Camera2D (pixel-proven), key-driven input, parent-carried transforms, 26 green.
+- Typed signals (`068aa52`): typed `pite.signal(T)` descriptors + Rust `SignalRegistry`, drop-disconnect, Space→recoil dogfood, 28 green.
 - Editor theme (`739c828`): single `theme.rs`, dark + green accent, OFL fonts; brand assets + `DESIGN.md` alongside. Behavior untouched, 29 green.
-- M2c text (`e608871`): `Label` via `ab_glyph` on the sprite pipeline (no wgpu upgrade), two-way script text sync, HP label on the hit signal, 38 green.
+- Text nodes (`e608871`): `Label` via `ab_glyph` on the sprite pipeline (no wgpu upgrade), two-way script text sync, HP label on the hit signal, 38 green.
 - Button (`e85743b`): rect on the sprite pipeline, armed press-inside/release-inside clicks, `pressed` signal, HitButton dogfood, 43 green.
 - Audio (`7838a4f`): `pite-audio` + `WavBackend` state machine, `pite.play/stop` API, `check` literal scan, hit-sound dogfood, 47 green. Follow-up: real device sink (`cpal`/`rodio`) on hardware.
 - Export (`76380b4`): runnable dir with referenced-files-only + Python gate at export and launch, manifest round-trip, 52 green. Follow-up: Python bundling (ship without dev Python).
@@ -26,14 +26,14 @@ Playable 2D run: real rendering, signals, text, audio, export, assets, editor, p
 - Atlas slice: sprite-sheet atlases (one PNG + `<sheet>.atlas.json`) with named frames and UV rects; `Sprite2D` gains `atlas` + `frame` (mutually exclusive with `texture`, loud error otherwise), all frames of a sheet draw in one batched call, `pite check` validates frame names and flags unreferenced frames, `pite.frames()` lists them. Dogfood packs player + enemy into `assets/sheet.png`. 116 green.
 - Python bundling: export fetches a pinned, checksum-verified CPython 3.12 into a toolchain cache and ships the interpreter library + stdlib zip (no `site-packages`) so exports run with no system Python; `--no-bundle-python` keeps the old gate. Loader story proved on Linux (`LD_LIBRARY_PATH` from the launcher, and `RUNPATH $ORIGIN` when built with it); offline and checksum-mismatch paths fail loudly. 127 green.
 - Upgrade note (`92f5fc9`): prop keys are written in sorted order, so the first save after upgrading reorders the existing `[node.props]` keys of a scene once. No values change, and every save after that is a no-op.
-- Parked (not hidden): DAP, camera follow/smoothing/deadzone + bounds, multi-class Python files, 3D/physics/networking (out of scope per spec).
+- Parked (not hidden): DAP, camera follow/smoothing/deadzone + bounds, multi-class Python files, 3D, real physics and networking.
 
 ## v0.1-m1
 
-First bootable milestone: 2D scaffold with scripting and a minimal editor.
+First bootable release: 2D scaffold with scripting and a minimal editor.
 
-- M0 (`5a6cd67`): nine-crate workspace, `pite new/run/check` skeleton, winit window, empty scene, `examples/minimal-2d` dogfood, Python stubs, CI.
-- M1a (`319fbc5`): tree remove/reparent with root protection, real scene instantiation with overrides, strict `check`.
-- M1b (`d1f6489`): embedded Python via PyO3 — `class X(pite.Node2D)`, `_ready`/`_process`, Vec2 crossing, error isolation, real `pite.pyi`.
-- M1c (`71fc871`): notify hot reload for scripts and scenes, eframe editor (viewport, tree, inspector, assets, console, code pane), working `get_node`, `pite edit`.
+- Workspace skeleton (`5a6cd67`): nine-crate workspace, `pite new/run/check` skeleton, winit window, empty scene, `examples/minimal-2d` dogfood, Python stubs, CI.
+- Tree and instantiation (`319fbc5`): tree remove/reparent with root protection, real scene instantiation with overrides, strict `check`.
+- Embedded scripting (`d1f6489`): embedded Python via PyO3 — `class X(pite.Node2D)`, `_ready`/`_process`, Vec2 crossing, error isolation, real `pite.pyi`.
+- Hot reload and editor shell (`71fc871`): notify hot reload for scripts and scenes, eframe editor (viewport, tree, inspector, assets, console, code pane), working `get_node`, `pite edit`.
 - Docs (`19ff1fc`): `docs/scene-format.md`, `docs/scripting-api.md` one-pagers.

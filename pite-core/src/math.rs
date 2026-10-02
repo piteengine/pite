@@ -14,7 +14,7 @@ pub struct Rect {
     pub h: f64,
 }
 
-/// Local/global convention (M2a): a node's global position is its local
+/// A node's global position is its local
 /// `position` plus every ancestor's, up to the root. Nodes without a
 /// `position` prop contribute nothing. Moving a parent carries children.
 pub fn global_position(tree: &crate::NodeTree, id: &crate::NodeId) -> (f64, f64) {

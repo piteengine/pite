@@ -221,7 +221,7 @@ fn check_scene_ref(
             }
             if pite_script::is_reserved(&script.class) {
                 warnings.push(format!(
-                    "scene {}: node {:?} script class {:?} is reserved for M2 signals",
+                    "scene {}: node {:?} script class {:?} is reserved for the signal system",
                     path.display(),
                     node.id,
                     script.class

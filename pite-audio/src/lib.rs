@@ -107,7 +107,7 @@ pub fn decode_wav(path: &Path) -> Result<DecodedAudio> {
         hound::WavReader::open(path).with_context(|| format!("cannot open {}", path.display()))?;
     let spec = reader.spec();
     if spec.bits_per_sample != 16 {
-        anyhow::bail!("{}: only 16-bit WAV in M2, got {}", path.display(), spec.bits_per_sample);
+        anyhow::bail!("{}: only 16-bit WAV supported, got {}-bit", path.display(), spec.bits_per_sample);
     }
     let mut samples = Vec::with_capacity(reader.len() as usize);
     for sample in reader.samples::<i16>() {
@@ -174,7 +174,7 @@ pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if !ext.eq_ignore_ascii_case("wav") {
-        anyhow::bail!("{}: only .wav in M2, got .{ext}", path.display());
+        anyhow::bail!("{}: only .wav supported, got .{ext}", path.display());
     }
     let audio = decode_wav(&path)?;
     Ok((path, audio))

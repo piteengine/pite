@@ -1,7 +1,7 @@
 //! `pite-editor`: `Panel` trait plus panel registry.
 //! New panels register without editing dock layout code.
-//! M1c ships the eframe shell: viewport, tree, inspector, assets, console,
-//! code pane — all on the same `NodeTree` the game runs.
+//! The eframe shell provides viewport, tree, inspector, assets, console
+//! and code pane — all on the same `NodeTree` the game runs.
 
 mod app;
 mod icons;

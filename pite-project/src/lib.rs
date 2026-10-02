@@ -263,7 +263,7 @@ const TEMPLATE_PLAYER_PNG: &[u8] = &[
 
 pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf> {
     if template != "minimal-2d" {
-        anyhow::bail!("unknown template {template:?} (only \"minimal-2d\" exists in M0)");
+        anyhow::bail!("unknown template {template:?} (only \"minimal-2d\" exists)");
     }
     let dir = if dest.file_name().map(|n| n == name).unwrap_or(false) {
         dest.to_path_buf()

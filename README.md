@@ -34,8 +34,7 @@ transforms; typed signals (`pite.signal(int)`) connect nodes; `Label` and
 type. Around that: a binary scene cache (`_cache/`, content-hash keyed, version
 stamped), an asset pipeline with uid tracking (`pite reimport`), a locked
 `pite.toml` schema, and an external Python language server in the code pane.
-See [`CHANGELOG.md`](CHANGELOG.md) for the slice-by-slice record and
-`../pite-brain/LOG.md` for the build order.
+See [`CHANGELOG.md`](CHANGELOG.md) for the release-by-release record.
 
 ## Workspace
 

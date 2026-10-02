@@ -9,7 +9,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "pite", version, about = "Pite game engine CLI (M0 scaffold)")]
+#[command(name = "pite", version, about = "Pite game engine CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

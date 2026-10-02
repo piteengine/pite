@@ -1,4 +1,4 @@
-//! `pite-render`: `Renderer2D` trait. wgpu is the only impl (M1);
+//! `pite-render`: `Renderer2D` trait. wgpu is the only impl;
 //! the viewport talks to the trait so batching/3D later doesn't touch
 //! tree or editor code.
 

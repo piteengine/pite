@@ -7,10 +7,10 @@ use crate::node::{Node, NodeId};
 pub type NodeFactory = Box<dyn Fn(NodeId) -> Node + Send + Sync>;
 
 /// Registry for node types. New nodes = new registration,
-/// never a core match-statement edit (§12).
+/// never a core match-statement edit.
 ///
-/// Closed set for M1 (D15) plus `Label` (M2c text): `Node`, `Node2D`,
-/// `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`.
+/// Registered set: `Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`,
+/// `Label`, `Button`.
 pub struct NodeTypeRegistry {
     factories: HashMap<String, NodeFactory>,
 }

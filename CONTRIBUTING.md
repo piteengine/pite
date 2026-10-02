@@ -2,7 +2,7 @@
 
 ## Rhythm
 
-- One milestone per session, one commit per milestone.
+- One focused change per commit; keep unrelated changes in separate commits.
 - Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
 - Never commit secrets, `target/`, or local-only paths.
 
