@@ -10,8 +10,8 @@ use anyhow::Result;
 
 pub use host::{fire_pressed, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost};
 pub use input::{
-    input_begin_frame, input_held, input_mouse, input_pressed, input_released, input_set_key,
-    input_set_mouse,
+    input_begin_frame, input_clear, input_held, input_mouse, input_pressed, input_released,
+    input_set_key, input_set_mouse,
 };
 pub use python::Pyo3Backend;
 

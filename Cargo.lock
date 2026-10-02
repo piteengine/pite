@@ -2759,6 +2759,7 @@ dependencies = [
  "pite-render",
  "pite-runtime",
  "pite-scene",
+ "pite-script",
  "serde_json",
  "toml",
  "tracing",

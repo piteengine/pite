@@ -5,6 +5,67 @@ use std::time::Instant;
 
 use anyhow::Result;
 use eframe::egui;
+
+/// egui keys forwarded to the running scene, with the `pite.held` /
+/// `pite.pressed` names scripts use. Level-read each frame while playing.
+const GAME_KEYS: &[(egui::Key, &str)] = &[
+    (egui::Key::Space, "Space"),
+    (egui::Key::Enter, "Enter"),
+    (egui::Key::Escape, "Escape"),
+    (egui::Key::Tab, "Tab"),
+    (egui::Key::Backspace, "Backspace"),
+    (egui::Key::ArrowLeft, "ArrowLeft"),
+    (egui::Key::ArrowRight, "ArrowRight"),
+    (egui::Key::ArrowUp, "ArrowUp"),
+    (egui::Key::ArrowDown, "ArrowDown"),
+    (egui::Key::A, "A"),
+    (egui::Key::B, "B"),
+    (egui::Key::C, "C"),
+    (egui::Key::D, "D"),
+    (egui::Key::E, "E"),
+    (egui::Key::F, "F"),
+    (egui::Key::G, "G"),
+    (egui::Key::H, "H"),
+    (egui::Key::I, "I"),
+    (egui::Key::J, "J"),
+    (egui::Key::K, "K"),
+    (egui::Key::L, "L"),
+    (egui::Key::M, "M"),
+    (egui::Key::N, "N"),
+    (egui::Key::O, "O"),
+    (egui::Key::P, "P"),
+    (egui::Key::Q, "Q"),
+    (egui::Key::R, "R"),
+    (egui::Key::S, "S"),
+    (egui::Key::T, "T"),
+    (egui::Key::U, "U"),
+    (egui::Key::V, "V"),
+    (egui::Key::W, "W"),
+    (egui::Key::X, "X"),
+    (egui::Key::Y, "Y"),
+    (egui::Key::Z, "Z"),
+    (egui::Key::Num0, "0"),
+    (egui::Key::Num1, "1"),
+    (egui::Key::Num2, "2"),
+    (egui::Key::Num3, "3"),
+    (egui::Key::Num4, "4"),
+    (egui::Key::Num5, "5"),
+    (egui::Key::Num6, "6"),
+    (egui::Key::Num7, "7"),
+    (egui::Key::Num8, "8"),
+    (egui::Key::Num9, "9"),
+];
+
+/// Cursor in offscreen pixels from an egui pointer position. The texture
+/// stretches uniformly into its rect, so this is a pure rescale.
+fn viewport_cursor(rect: egui::Rect, view: (u32, u32), pointer: egui::Pos2) -> Option<(f64, f64)> {
+    if view.0 == 0 || view.1 == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return None;
+    }
+    let x = (pointer.x - rect.min.x) as f64 / rect.width() as f64 * view.0 as f64;
+    let y = (pointer.y - rect.min.y) as f64 / rect.height() as f64 * view.1 as f64;
+    Some((x, y))
+}
 use pite_core::{NodeId, PropValue};
 use pite_render::{OffscreenRenderer, Renderer2D};
 use pite_runtime::GameSession;
@@ -76,6 +137,10 @@ pub struct EditorApp {
     viewport_failed: bool,
     viewport_tex: Option<egui::TextureHandle>,
     viewport_dirty: bool,
+    /// Pointer was over the viewport last frame: game input goes to the
+    /// running scene only then, so editing text and shortcuts keep priority.
+    viewport_hovered: bool,
+    viewport_rect: Option<egui::Rect>,
     /// Bound to the project's window size: the viewport must frame the scene the
     /// way the game window does.
     view_size: (u32, u32),
@@ -123,6 +188,8 @@ impl EditorApp {
             viewport: None,
             viewport_failed: false,
             viewport_tex: None,
+            viewport_hovered: false,
+            viewport_rect: None,
             view_size,
             viewport_dirty: true,
             grip_hover: None,
@@ -148,9 +215,48 @@ impl EditorApp {
     fn toggle_play(&mut self) {
         self.playing = !self.playing;
         self.last_frame = Instant::now();
+        pite_script::input_clear();
+    }
+
+    /// Forward viewport input to the running scene's script input state.
+    /// Reads level state (`key_down`) and lets `input_set_key` derive edges;
+    /// runs before `session.frame()` so scripts consume this frame's state.
+    fn pump_game_input(&mut self, ctx: &egui::Context) {
+        let (view_w, view_h) = self.view_size;
+        self.session.set_viewport(view_w, view_h);
+        if !(self.playing && self.viewport_hovered) {
+            return;
+        }
+        let rect = self.viewport_rect;
+        ctx.input(|i| {
+            for (key, name) in GAME_KEYS {
+                pite_script::input_set_key(name, i.key_down(*key));
+            }
+            pite_script::input_set_key("Shift", i.modifiers.shift);
+            pite_script::input_set_key("Control", i.modifiers.ctrl);
+            pite_script::input_set_key("Alt", i.modifiers.alt);
+            if let (Some(rect), Some(pos)) = (rect, i.pointer.hover_pos()) {
+                if let Some((x, y)) = viewport_cursor(rect, (view_w, view_h), pos) {
+                    pite_script::input_set_mouse(x, y);
+                }
+            }
+            pite_script::input_set_key(
+                "MouseLeft",
+                i.pointer.button_down(egui::PointerButton::Primary),
+            );
+            pite_script::input_set_key(
+                "MouseRight",
+                i.pointer.button_down(egui::PointerButton::Secondary),
+            );
+            pite_script::input_set_key(
+                "MouseMiddle",
+                i.pointer.button_down(egui::PointerButton::Middle),
+            );
+        });
     }
 
     fn stop(&mut self) {
+        pite_script::input_clear();
         match GameSession::open(&self.scene_path, false) {
             Ok(session) => {
                 self.session = session;
@@ -309,54 +415,50 @@ impl eframe::App for EditorApp {
         if self.playing {
             let delta = self.last_frame.elapsed().as_secs_f64().min(0.1);
             self.last_frame = Instant::now();
-            self.session.poll_watch();
-            self.session.update(delta);
+            self.pump_game_input(ctx);
+            self.session.frame(delta);
             self.drain_script_errors();
             ctx.request_repaint();
         }
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                egui::MenuBar::new().ui(ui, |ui| {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Save scene  Ctrl+S").clicked() {
-                            self.save_scene();
-                            ui.close();
-                        }
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.menu_button("Run", |ui| {
-                        let label = if self.playing { "Pause" } else { "Play" };
-                        if ui.button(label).clicked() {
-                            self.toggle_play();
-                            ui.close();
-                        }
-                        if ui.button("Stop").clicked() {
-                            self.stop();
-                            ui.close();
-                        }
-                    });
-                });
-                ui.separator();
-                ui.label(self.scene_path.to_string_lossy().as_ref());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icons::icon_button(ui, Icon::Save, "Save scene (Ctrl+S)").clicked() {
+            // Everything lives inside the MenuBar scope: MenuBar claims the
+            // full row width, so siblings after it in an outer horizontal
+            // row get zero space and vanish.
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Save scene  Ctrl+S").clicked() {
                         self.save_scene();
+                        ui.close();
                     }
-                    if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene").clicked() {
-                        self.stop();
-                    }
-                    let (play_icon, play_tip) = if self.playing {
-                        (Icon::Pause, "Pause the scene")
-                    } else {
-                        (Icon::Play, "Run the scene")
-                    };
-                    if icons::icon_button(ui, play_icon, play_tip).clicked() {
-                        self.toggle_play();
+                    if ui.button("Quit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+                ui.menu_button("Run", |ui| {
+                    let label = if self.playing { "Pause" } else { "Play" };
+                    if ui.button(label).clicked() {
+                        self.toggle_play();
+                        ui.close();
+                    }
+                    if ui.button("Stop").clicked() {
+                        self.stop();
+                        ui.close();
+                    }
+                });
+                // Transport controls next to the menus, Godot-style: the same
+                // actions as the Run menu, always visible.
+                let (play_icon, play_tip) = if self.playing {
+                    (Icon::Pause, "Pause the scene")
+                } else {
+                    (Icon::Play, "Run the scene")
+                };
+                if icons::icon_button(ui, play_icon, play_tip).clicked() {
+                    self.toggle_play();
+                }
+                if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene").clicked() {
+                    self.stop();
+                }
             });
         });
 
@@ -479,14 +581,14 @@ impl eframe::App for EditorApp {
             ui.horizontal(|ui| match self.tab {
                 Tab::Viewport => {
                     ui.label(self.scene_path.to_string_lossy().as_ref());
-                    if ui.small_button("Save").clicked() {
+                    if icons::icon_button(ui, Icon::Save, "Save scene (Ctrl+S)").clicked() {
                         self.save_scene();
                     }
                 }
                 Tab::Code => {
                     if let Some(file) = self.code_file.clone() {
                         ui.label(file.to_string_lossy().as_ref());
-                        if ui.small_button("Save").clicked() {
+                        if icons::icon_button(ui, Icon::Save, "Save script (Ctrl+S)").clicked() {
                             self.save_code();
                         }
                     } else {
@@ -1105,6 +1207,8 @@ impl EditorApp {
         let height = width * view_h as f32 / view_w as f32;
         let (resp, painter) =
             ui.allocate_painter(egui::Vec2::new(width, height), egui::Sense::hover());
+        self.viewport_hovered = resp.hovered();
+        self.viewport_rect = Some(resp.rect);
         if textured {
             if let Some(handle) = self.viewport_tex.as_ref() {
                 egui::Image::from_texture(handle).paint_at(ui, resp.rect);
@@ -1240,5 +1344,42 @@ impl EditorApp {
         } else {
             self.log(format!("no opener for {}", file.display()));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_maps_viewport_corners() {
+        let rect =
+            egui::Rect::from_min_size(egui::Pos2::new(10.0, 20.0), egui::Vec2::new(400.0, 300.0));
+        assert_eq!(
+            viewport_cursor(rect, (800, 600), egui::Pos2::new(10.0, 20.0)),
+            Some((0.0, 0.0))
+        );
+        assert_eq!(
+            viewport_cursor(rect, (800, 600), egui::Pos2::new(410.0, 320.0)),
+            Some((800.0, 600.0))
+        );
+        assert_eq!(
+            viewport_cursor(rect, (800, 600), egui::Pos2::new(210.0, 170.0)),
+            Some((400.0, 300.0))
+        );
+    }
+
+    #[test]
+    fn cursor_rejects_degenerate_viewport() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(400.0, 300.0));
+        assert_eq!(
+            viewport_cursor(rect, (0, 600), egui::Pos2::new(10.0, 10.0)),
+            None
+        );
+        let flat = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(0.0, 300.0));
+        assert_eq!(
+            viewport_cursor(flat, (800, 600), egui::Pos2::new(10.0, 10.0)),
+            None
+        );
     }
 }

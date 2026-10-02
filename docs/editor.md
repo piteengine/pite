@@ -1,7 +1,7 @@
 # Editor
 
-Godot-style layout: menu bar on top (`File`, `Run`) with play / pause / stop /
-save icon buttons at top-right; `Scene` tree above `Assets` in the left panel;
+Godot-style layout: menu bar on top (`File`, `Run`) with play / pause / stop
+icon buttons beside the menus (mirroring the `Run` menu). `Scene` tree above `Assets` in the left panel;
 `Viewport` / `Code` tabs in the center; `Inspector` on the right; `Console` at
 the bottom. All toolbar glyphs are hand-drawn vector icons (`icons.rs`, painted
 with the egui painter — never font glyphs, which the bundled Inter does not
@@ -22,6 +22,12 @@ ops); otherwise the last handle is reused. When no GPU is available the
 renderer stays `None` forever and the old dots painter remains as fallback
 (muted overlay colors).
 
+While playing, keyboard and mouse over the viewport reach the running scene:
+`pump_game_input` forwards egui key/mouse state into the script input state
+before each `session.frame()`, with the cursor rescaled into offscreen
+pixels. Input stays out of the way — it only forwards while the pointer is
+over the viewport, so the code pane and shortcuts keep priority.
+
 ## Save scene
 
 `File` > `Save scene`, the save icon button, or `Ctrl+S` / `Cmd+S`
@@ -30,7 +36,7 @@ renderer stays `None` forever and the old dots painter remains as fallback
 land in the console; saves never panic and never fail silently. `File` > `Quit`
 closes the editor window; `Run` > `Play`/`Pause`/`Stop` mirrors the icon
 buttons. Below the `Viewport` / `Code` tabs a path bar shows the open scene or
-the open script with its own Save button; the Code tab itself is just the
+the open script with its own save icon button; the Code tab itself is just the
 gutter plus a borderless editor filling the panel like the viewport.
 
 The scene file on disk stays authoritative: save reads it first and re-attaches
