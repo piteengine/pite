@@ -327,6 +327,24 @@ impl GameSession {
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
         let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;
         self.host.with_tree_mut(|t| *t = tree);
+        // `pressed` belongs to the Button type itself (Godot-style), not to
+        // each script: the engine fires it, so it must be declared BEFORE
+        // any `_ready` runs — scripts connect to it during `_ready`.
+        // Re-declaring it in a script is a harmless overwrite.
+        let buttons: Vec<String> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Button")
+                .map(|n| n.id.to_string())
+                .collect()
+        });
+        for id in &buttons {
+            if let Err(e) = self
+                .host
+                .declare_signals(id, vec![("pressed".to_string(), Vec::new())])
+            {
+                tracing::error!(node = %id, "cannot declare builtin pressed: {e:#}");
+            }
+        }
         let mut olds: HashMap<String, ScriptSlot> = HashMap::new();
         for slot in self.slots.drain(..) {
             olds.insert(slot.id.to_string(), slot);
@@ -892,7 +910,13 @@ mod tests {
 
     const COUNTER: &str = "import pite\n\nclass Counter(pite.Button):\n    pressed = pite.signal()\n    def _ready(self):\n        self.text = \"0\"\n        self.get_node(\".\").pressed.connect(self.on_pressed)\n    def on_pressed(self):\n        self.text = str(int(self.text) + 1)\n";
 
+    const COUNTER_BUILTIN: &str = "import pite\n\nclass Counter(pite.Button):\n    def _ready(self):\n        self.text = \"0\"\n        self.get_node(\".\").pressed.connect(self.on_pressed)\n    def on_pressed(self):\n        self.text = str(int(self.text) + 1)\n";
+
     fn make_button_project(tag: &str) -> PathBuf {
+        make_button_project_with(tag, COUNTER)
+    }
+
+    fn make_button_project_with(tag: &str, script_src: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pite-sess-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("scenes")).unwrap();
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
@@ -902,7 +926,7 @@ mod tests {
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"btn\"\ntype = \"Button\"\nname = \"HitBtn\"\nparent = \"root\"\n\n[node.props]\nposition = [100.0, 100.0]\nsize = [120.0, 40.0]\ntext = \"0\"\n\n[node.script]\npath = \"res://scripts/counter.py\"\nclass = \"Counter\"\n",
         )
         .unwrap();
-        std::fs::write(dir.join("scripts").join("counter.py"), COUNTER).unwrap();
+        std::fs::write(dir.join("scripts").join("counter.py"), script_src).unwrap();
         dir
     }
 
@@ -939,6 +963,19 @@ mod tests {
         assert_eq!(btn_text(&session), "1");
         click(&mut session, (500.0, 400.0), (500.0, 400.0));
         assert_eq!(btn_text(&session), "2");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn button_pressed_needs_no_script_declaration() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = make_button_project_with("btn-builtin", COUNTER_BUILTIN);
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        assert!(session.host.has_signal("btn", "pressed"));
+        assert_eq!(btn_text(&session), "0");
+        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        assert_eq!(btn_text(&session), "1");
         std::fs::remove_dir_all(&dir).ok();
     }
 

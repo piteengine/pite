@@ -54,12 +54,10 @@ class Enemy(pite.Node2D):
 - Emitting the wrong arity or type fails loudly; emitting an undeclared signal fails loudly. There are no untyped string signals.
 - `connect(handler)` takes a bound method of a live node; when that node drops, its connections go with it — emitting afterwards simply skips it, no crash.
 - `pite check` warns about `.emit(`/`.connect(` calls with no matching `pite.signal(` declaration in the same file. Do not define your own methods named `emit` or `connect`.
-- `Button` clicks arrive as a zero-payload `pressed` signal fired by the engine (press-inside plus release-inside). Declare it and connect like any signal:
+- `Button` clicks arrive as a zero-payload `pressed` signal fired by the engine (press-inside plus release-inside). `pressed` belongs to the `Button` type itself — just connect it, no declaration needed (re-declaring it is harmless):
 
 ```python
 class HitButton(pite.Button):
-    pressed = pite.signal()
-
     def _ready(self):
         self.get_node(".").pressed.connect(self.on_pressed)
 

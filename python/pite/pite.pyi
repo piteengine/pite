@@ -44,3 +44,4 @@ class Label(Node):
 
 class Button(Node2D):
     text: str
+    pressed: Signal
