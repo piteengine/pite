@@ -135,19 +135,19 @@ impl CpalBackend {
         let err_fn = |err| eprintln!("audio output stream error: {err}");
         let stream = match format {
             cpal::SampleFormat::F32 => device.build_output_stream(
-                &config,
+                config.clone(),
                 Self::data_fn::<f32>(shared.clone(), channels),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_output_stream(
-                &config,
+                config.clone(),
                 Self::data_fn::<i16>(shared.clone(), channels),
                 err_fn,
                 None,
             ),
             _ => device.build_output_stream(
-                &config,
+                config.clone(),
                 Self::data_fn::<u16>(shared.clone(), channels),
                 err_fn,
                 None,
