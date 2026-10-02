@@ -89,6 +89,10 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
             .map(|f| (f.hash.as_str(), f.res_path.as_str()))
             .collect();
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if manifest.project.icon.starts_with("res://") {
+            referenced.insert(manifest.project.icon.clone());
+        }
         check_scene_ref(
             &root,
             &manifest.project.main_scene,
@@ -100,10 +104,29 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
             &by_path,
             &by_hash,
             &mut visited,
+            &mut referenced,
         );
         let (atlas_errors, atlas_warnings) = pite_assets::atlas_report(&root, &atlas_uses);
         errors.extend(atlas_errors);
         warnings.extend(atlas_warnings);
+        // Sheets are referenced through their sidecar, never directly: mark
+        // each used sidecar's sheet so packed PNGs don't read as orphans.
+        let mut sheets = Vec::new();
+        for r in &referenced {
+            if r.ends_with(".atlas.json") {
+                let sheet = pite_assets::sheet_path(&root, r);
+                if let Ok(rel) = sheet.strip_prefix(&root) {
+                    let joined = rel
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    sheets.push(format!("res://{joined}"));
+                }
+            }
+        }
+        referenced.extend(sheets);
+        warnings.extend(orphan_warnings(&by_path, &referenced));
         for p in &manifest.export.platforms {
             if !pite_export::SUPPORTED_PLATFORMS.contains(&p.as_str()) {
                 warnings.push(format!(
@@ -155,6 +178,7 @@ fn check_scene_ref(
     by_path: &std::collections::HashMap<&str, &pite_assets::ScannedFile>,
     by_hash: &std::collections::HashMap<&str, &str>,
     visited: &mut std::collections::HashSet<String>,
+    referenced: &mut std::collections::HashSet<String>,
 ) {
     let path = if let Some(rel) = scene_ref.strip_prefix("res://") {
         root.join(rel)
@@ -239,6 +263,7 @@ fn check_scene_ref(
                     }
                 }
                 for asset in played_assets(&text) {
+                    referenced.insert(normalize_asset_ref(asset));
                     let asset_path = if let Some(rel) = asset.strip_prefix("res://") {
                         root.join(rel)
                     } else {
@@ -290,6 +315,7 @@ fn check_scene_ref(
             if !s.starts_with("res://") {
                 continue;
             }
+            referenced.insert(s.to_string());
             let asset_path = if let Some(rel) = s.strip_prefix("res://") {
                 root.join(rel)
             } else {
@@ -371,6 +397,16 @@ fn check_scene_ref(
                 )),
             }
         }
+        // Override values apply as props at runtime, so asset refs hiding
+        // in them count exactly like prop refs (same top-level-strings
+        // convention as the node-props loop above).
+        for value in inst.overrides.values() {
+            if let Some(s) = value.as_str() {
+                if s.starts_with("res://") {
+                    referenced.insert(s.to_string());
+                }
+            }
+        }
         let nested_ref = if inst.scene.starts_with("res://") {
             inst.scene.clone()
         } else {
@@ -378,9 +414,37 @@ fn check_scene_ref(
         };
         check_scene_ref(
             root, &nested_ref, errors, warnings, cache, atlas_uses, uid_registry, by_path,
-            by_hash, visited,
+            by_hash, visited, referenced,
         );
     }
+}
+
+fn normalize_asset_ref(asset: &str) -> String {
+    if asset.starts_with("res://") {
+        return asset.to_string();
+    }
+    let rel = asset.replace('\\', "/");
+    let rel = rel.strip_prefix("./").unwrap_or(&rel);
+    format!("res://{rel}")
+}
+
+/// Scanned files no reachable scene references. Only `res://` strings from
+/// reachable scenes feed `referenced`, so anything unvisited (uninstantiated
+/// scenes, loose scripts) keeps its assets silent — reachable-only by design.
+fn orphan_warnings(
+    by_path: &std::collections::HashMap<&str, &pite_assets::ScannedFile>,
+    referenced: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let mut orphans: Vec<&str> = by_path
+        .keys()
+        .copied()
+        .filter(|p| !referenced.contains(*p))
+        .collect();
+    orphans.sort_unstable();
+    orphans
+        .into_iter()
+        .map(|p| format!("asset {p:?} is never referenced by a reachable scene"))
+        .collect()
 }
 
 fn declared_signals(text: &str) -> std::collections::HashSet<String> {
@@ -487,12 +551,13 @@ texture = "res://assets/gone.png"
         registry: &pite_assets::UidRegistry,
         by_path: &HashMap<&str, &pite_assets::ScannedFile>,
         by_hash: &HashMap<&str, &str>,
-    ) -> (Vec<String>, Vec<String>) {
+    ) -> (Vec<String>, Vec<String>, HashSet<String>) {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
         let mut cache = Vec::new();
         let mut atlas_uses = Vec::new();
         let mut visited = HashSet::new();
+        let mut referenced = HashSet::new();
         check_scene_ref(
             root,
             "res://scenes/main.pitescene",
@@ -504,8 +569,9 @@ texture = "res://assets/gone.png"
             by_path,
             by_hash,
             &mut visited,
+            &mut referenced,
         );
-        (errors, cache)
+        (errors, cache, referenced)
     }
 
     #[test]
@@ -514,7 +580,7 @@ texture = "res://assets/gone.png"
         let registry = pite_assets::UidRegistry::new();
         let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
         let by_hash: HashMap<&str, &str> = HashMap::new();
-        let (errors, _) = run_ref(&root, &registry, &by_path, &by_hash);
+        let (errors, _, _) = run_ref(&root, &registry, &by_path, &by_hash);
         assert!(
             errors
                 .iter()
@@ -532,7 +598,7 @@ texture = "res://assets/gone.png"
         let registry = pite_assets::UidRegistry::new();
         let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
         let by_hash: HashMap<&str, &str> = HashMap::new();
-        let (errors, cache) = run_ref(&root, &registry, &by_path, &by_hash);
+        let (errors, cache, _) = run_ref(&root, &registry, &by_path, &by_hash);
         assert!(
             !errors.iter().any(|e| e.contains("asset")),
             "expected zero asset errors, got: {errors:?}"
@@ -542,6 +608,83 @@ texture = "res://assets/gone.png"
             cache[0].starts_with("miss "),
             "first run populates the cache, got: {cache:?}"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn scanned(paths: &[&str]) -> Vec<pite_assets::ScannedFile> {
+        paths
+            .iter()
+            .map(|p| pite_assets::ScannedFile {
+                res_path: p.to_string(),
+                fs_path: PathBuf::from(&p["res://".len()..]),
+                hash: String::new(),
+                size: 0,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn prop_references_leave_no_orphan() {
+        let root = fixture_root(3);
+        let files = scanned(&["res://assets/gone.png"]);
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> =
+            files.iter().map(|f| (f.res_path.as_str(), f)).collect();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+        let registry = pite_assets::UidRegistry::new();
+        let (_, _, referenced) = run_ref(&root, &registry, &by_path, &by_hash);
+        assert!(
+            referenced.contains("res://assets/gone.png"),
+            "got: {referenced:?}"
+        );
+        assert!(orphan_warnings(&by_path, &referenced).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unreferenced_assets_warn_sorted() {
+        let files = scanned(&[
+            "res://assets/zebra.png",
+            "res://assets/apple.png",
+            "res://assets/used.wav",
+        ]);
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> =
+            files.iter().map(|f| (f.res_path.as_str(), f)).collect();
+        let mut referenced = HashSet::new();
+        referenced.insert("res://assets/used.wav".to_string());
+        assert_eq!(
+            orphan_warnings(&by_path, &referenced),
+            vec![
+                "asset \"res://assets/apple.png\" is never referenced by a reachable scene",
+                "asset \"res://assets/zebra.png\" is never referenced by a reachable scene",
+            ]
+        );
+    }
+
+    #[test]
+    fn played_literals_count_as_references() {
+        let root = fixture_root(4);
+        std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
+        std::fs::write(
+            root.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"sfx\"\ntype = \"Node\"\nname = \"Sfx\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/sfx.py\"\nclass = \"Sfx\"\n",
+        )
+        .expect("write scene");
+        std::fs::write(
+            root.join("scripts").join("sfx.py"),
+            "import pite\n\nclass Sfx(pite.Node):\n    def _ready(self):\n        pite.play(\"res://assets/hit.wav\")\n",
+        )
+        .expect("write script");
+        let files = scanned(&["res://assets/hit.wav"]);
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> =
+            files.iter().map(|f| (f.res_path.as_str(), f)).collect();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+        let registry = pite_assets::UidRegistry::new();
+        let (_, _, referenced) = run_ref(&root, &registry, &by_path, &by_hash);
+        assert!(
+            referenced.contains("res://assets/hit.wav"),
+            "got: {referenced:?}"
+        );
+        assert!(orphan_warnings(&by_path, &referenced).is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

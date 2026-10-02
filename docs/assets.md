@@ -20,6 +20,12 @@ Every `res://` string in node props (main scene + instanced scenes) and every
 - `references missing asset "res://…"` — nothing on disk, no uid match.
 - `references moved asset "res://…" (now at "res://…"); run 'pite reimport'` —
   the path is gone but the uid (content hash) was found elsewhere.
+- `asset "res://…" is never referenced by a reachable scene` — the file is
+  scanned but nothing reachable uses it (warning only, never an error).
+  Reachable means: node props and instance overrides of scenes transitively
+  instantiated from the main scene, `play("…")` literals in their attached
+  scripts, atlas sheets via their sidecar, and the manifest icon. Assets used
+  only by uninstantiated scenes or loose scripts stay silent by design.
 
 ## `pite reimport`
 

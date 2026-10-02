@@ -13,6 +13,8 @@ jobs:
         with:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install ALSA headers (cpal device output)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - name: Install pinned pyright (editor LSP smoke)
         run: pip install "pyright==1.1.411"
       - name: Export Python env for embedded builds
