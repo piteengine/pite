@@ -4,7 +4,7 @@
 
 - Input edges (`pite-runtime`): `GameSession::frame()` retires edge input after scripts consume it — `pite.pressed()`/`released()` and button clicks now work in the real loop, not just in tests. Mouse coordinates are physical pixels (no scale-factor division), fixing clicks on scaled displays.
 - `Button.pressed` is declared by the engine for every `Button` node — scripts just connect, no `pressed = pite.signal()` needed.
-- Audio device sink (`pite-audio/device.rs`, cpal 0.17): real output through the default device with silent-simulation fallback where none exists. Compiles and 9/9 tests green on Windows incl. real device open; audible proof in `pite run` still pending.
+- Audio device sink (`pite-audio/device.rs`, cpal 0.17): real output through the default device with silent-simulation fallback where none exists. Proven on Windows: compiles, 9/9 tests green incl. real device open, hit sound audible in `pite run`.
 
 ## v0.1-m3
 
