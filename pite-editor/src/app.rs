@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
@@ -524,20 +524,17 @@ impl eframe::App for EditorApp {
                     });
                 ui.separator();
                 ui.heading("Assets");
-                let files = self.asset_files();
-                egui::ScrollArea::vertical()
+                let rels = self.asset_rel_paths();
+                let refs: Vec<&str> = rels.iter().map(String::as_str).collect();
+                let root = self
+                    .project_dir
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("."));
+                egui::ScrollArea::new([true, true])
                     .id_salt("assets")
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        for file in files {
-                            let label = file
-                                .strip_prefix(self.project_dir.as_deref().unwrap_or(Path::new(".")))
-                                .unwrap_or(&file)
-                                .to_string_lossy()
-                                .replace('\\', "/");
-                            if ui.link(format!("res://{label}")).clicked() {
-                                self.open_asset(&file);
-                            }
-                        }
+                        self.show_asset_dir(ui, &root, "", &refs);
                     });
             });
 
@@ -690,7 +687,7 @@ impl EditorApp {
             let r = ui.selectable_label(selected, format!("{name} ({type_name})"));
             if let Some((class, file)) = script.as_ref() {
                 let (badge, resp) =
-                    ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::click());
                 if ui.is_rect_visible(badge) {
                     icons::draw_icon(ui.painter(), badge, Icon::Script, crate::theme::FAINT);
                 }
@@ -1311,6 +1308,102 @@ impl EditorApp {
         }
         out.sort();
         out
+    }
+
+    fn asset_rel_paths(&self) -> Vec<String> {
+        let root = self
+            .project_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let mut out: Vec<String> = self
+            .asset_files()
+            .iter()
+            .filter_map(|f| {
+                f.strip_prefix(&root)
+                    .ok()
+                    .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    fn show_asset_dir(&mut self, ui: &mut egui::Ui, root: &Path, dir: &str, paths: &[&str]) {
+        let mut subdirs: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        let mut files: Vec<&str> = Vec::new();
+        for p in paths {
+            match p.split_once('/') {
+                Some((head, rest)) => subdirs.entry(head).or_default().push(rest),
+                None => files.push(p),
+            }
+        }
+        for (name, rest) in &subdirs {
+            let full = if dir.is_empty() {
+                name.to_string()
+            } else {
+                format!("{dir}/{name}")
+            };
+            let key = format!("assets:{full}");
+            let open = self.is_open(&key);
+            let mut toggled = false;
+            ui.horizontal(|ui| {
+                let (rect, icon_resp) =
+                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::click());
+                if ui.is_rect_visible(rect) {
+                    icons::draw_icon(ui.painter(), rect, icons::Icon::Folder, crate::theme::FAINT);
+                }
+                toggled = icon_resp.clicked() || ui.label(*name).clicked();
+            });
+            if toggled {
+                if open {
+                    self.open_nodes.remove(&key);
+                } else {
+                    self.open_nodes.insert(key.clone());
+                }
+            }
+            if toggled != open {
+                ui.indent(format!("assets-indent:{full}"), |ui| {
+                    self.show_asset_dir(ui, root, &full, rest)
+                });
+            }
+        }
+        for name in &files {
+            let rel = if dir.is_empty() {
+                name.to_string()
+            } else {
+                format!("{dir}/{name}")
+            };
+            let kind = match name
+                .rsplit('.')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "py" => icons::Icon::Script,
+                "pitescene" => icons::Icon::Scene,
+                "toml" | "cfg" | "ini" | "json" | "yaml" | "yml" => icons::Icon::Gear,
+                "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" => icons::Icon::Image,
+                "wav" | "ogg" | "mp3" | "flac" => icons::Icon::Audio,
+                _ => icons::Icon::File,
+            };
+            let mut opened = false;
+            ui.horizontal(|ui| {
+                let (rect, icon_resp) =
+                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::click());
+                if ui.is_rect_visible(rect) {
+                    icons::draw_icon(ui.painter(), rect, kind, crate::theme::FAINT);
+                }
+                opened = icon_resp.clicked()
+                    || ui
+                        .add(egui::Label::new(*name).sense(egui::Sense::click()))
+                        .clicked();
+            });
+            if opened {
+                let abs = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                self.open_asset(&abs);
+            }
+        }
     }
 
     fn resolve_res(&self, res_path: &str) -> PathBuf {

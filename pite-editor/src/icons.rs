@@ -13,6 +13,12 @@ pub enum Icon {
     Save,
     Add,
     Script,
+    Folder,
+    Scene,
+    Gear,
+    Image,
+    Audio,
+    File,
 }
 
 /// A 26x22 click target with a painted glyph. Returns the response so callers
@@ -114,24 +120,141 @@ pub fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Colo
             );
         }
         Icon::Script => {
-            let page = egui::Rect::from_center_size(c, egui::vec2(8.0, 10.5));
+            let page = egui::Rect::from_center_size(c, egui::vec2(8.0, 10.0));
             p.rect_stroke(
                 page,
                 1.2,
                 egui::Stroke::new(1.2_f32, fg),
                 egui::StrokeKind::Middle,
             );
-            let inset = page.width() * 0.26;
-            for row in [-0.8_f32, 0.8] {
-                let y = c.y + row * page.height() * 0.2 + 0.2;
+            for dy in [-1.5_f32, 1.5] {
+                let y = c.y + dy;
                 p.line_segment(
                     [
-                        egui::Pos2::new(page.left() + inset + 1.0, y),
-                        egui::Pos2::new(page.right() - inset, y),
+                        egui::Pos2::new(page.left() + 2.0, y),
+                        egui::Pos2::new(page.right() - 2.0, y),
                     ],
                     egui::Stroke::new(1.1_f32, fg),
                 );
             }
+        }
+        Icon::Folder => {
+            p.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::Pos2::new(c.x - 6.5, c.y - 5.0),
+                    egui::vec2(5.5, 4.0),
+                ),
+                1.0,
+                fg,
+            );
+            p.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::Pos2::new(c.x - 6.5, c.y - 2.5),
+                    egui::vec2(13.0, 8.5),
+                ),
+                1.5,
+                fg,
+            );
+        }
+        Icon::Scene => {
+            let frame = egui::Rect::from_center_size(c, egui::vec2(13.0, 10.0));
+            p.rect_stroke(
+                frame,
+                1.2,
+                egui::Stroke::new(1.4_f32, fg),
+                egui::StrokeKind::Middle,
+            );
+            p.circle_filled(egui::Pos2::new(c.x - 3.0, c.y - 1.5), 1.8, fg);
+            p.circle_filled(egui::Pos2::new(c.x + 2.5, c.y + 2.0), 1.8, fg);
+            p.line_segment(
+                [
+                    egui::Pos2::new(c.x - 3.0, c.y - 1.5),
+                    egui::Pos2::new(c.x + 2.5, c.y + 2.0),
+                ],
+                egui::Stroke::new(1.1_f32, fg),
+            );
+        }
+        Icon::Gear => {
+            let r = 4.2;
+            p.circle_stroke(c, r, egui::Stroke::new(2.0_f32, fg));
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let (s, co) = a.sin_cos();
+                let tooth = egui::Pos2::new(c.x + co * (r + 1.6), c.y + s * (r + 1.6));
+                p.rect_filled(
+                    egui::Rect::from_center_size(tooth, egui::vec2(2.2, 2.2)),
+                    0.6,
+                    fg,
+                );
+            }
+            p.circle_filled(c, 1.4, fg);
+        }
+        Icon::Image => {
+            p.rect_stroke(
+                egui::Rect::from_center_size(c, egui::vec2(13.0, 10.5)),
+                1.2,
+                egui::Stroke::new(1.4_f32, fg),
+                egui::StrokeKind::Middle,
+            );
+            p.circle_filled(egui::Pos2::new(c.x + 3.5, c.y - 2.5), 1.5, fg);
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::Pos2::new(c.x - 6.5, c.y + 5.2),
+                    egui::Pos2::new(c.x - 1.5, c.y - 1.0),
+                    egui::Pos2::new(c.x + 1.5, c.y + 2.0),
+                    egui::Pos2::new(c.x + 3.5, c.y + 0.5),
+                    egui::Pos2::new(c.x + 6.5, c.y + 5.2),
+                ],
+                fg,
+                egui::Stroke::NONE,
+            ));
+        }
+        Icon::Audio => {
+            p.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::Pos2::new(c.x - 6.5, c.y - 2.5),
+                    egui::vec2(3.0, 5.0),
+                ),
+                0.8,
+                fg,
+            );
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::Pos2::new(c.x - 3.5, c.y - 2.5),
+                    egui::Pos2::new(c.x + 0.5, c.y - 5.0),
+                    egui::Pos2::new(c.x + 0.5, c.y + 5.0),
+                    egui::Pos2::new(c.x - 3.5, c.y + 2.5),
+                ],
+                fg,
+                egui::Stroke::NONE,
+            ));
+            for r in [3.2_f32, 5.8] {
+                let mut prev: Option<egui::Pos2> = None;
+                for k in 0..=6 {
+                    let a = -0.96 + k as f32 * (1.92 / 6.0);
+                    let pt = egui::Pos2::new(c.x + 0.5 + a.cos() * r, c.y + a.sin() * r);
+                    if let Some(q) = prev {
+                        p.line_segment([q, pt], egui::Stroke::new(1.4_f32, fg));
+                    }
+                    prev = Some(pt);
+                }
+            }
+        }
+        Icon::File => {
+            let q = [
+                egui::Pos2::new(c.x - 4.0, c.y - 4.0),
+                egui::Pos2::new(c.x - 1.5, c.y - 5.5),
+                egui::Pos2::new(c.x + 1.5, c.y - 5.0),
+                egui::Pos2::new(c.x + 3.5, c.y - 3.0),
+                egui::Pos2::new(c.x + 3.0, c.y - 0.5),
+                egui::Pos2::new(c.x + 0.5, c.y + 1.0),
+                egui::Pos2::new(c.x - 0.5, c.y + 2.0),
+                egui::Pos2::new(c.x - 0.5, c.y + 3.2),
+            ];
+            for w in q.windows(2) {
+                p.line_segment([w[0], w[1]], egui::Stroke::new(1.8_f32, fg));
+            }
+            p.circle_filled(egui::Pos2::new(c.x - 0.5, c.y + 5.2), 1.3, fg);
         }
     }
 }
