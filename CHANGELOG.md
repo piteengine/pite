@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+## v0.1-m3
+
+Correctness pass over rendering and export, plus scene-tree script markers. 135 green.
+
 - Windows bundle fix (`a6fa4e8`): the bundled interpreter never produced a working Windows export. The pinned spec named the stdlib at `lib/python3.12`, but the Windows `install_only` archive keeps it in `Lib/`, so `stage()` bailed *after* copying the library — leaving 136 MB of unpacked CPython in the output directory, which the exists-guard then refused to overwrite. The staged library was also `python3.dll`, a 56 KB forwarder onto `python312.dll` rather than the interpreter. Windows does not bootstrap a stdlib zip from `PYTHONPATH` the way Linux does: it reads `python312._pth` from beside the DLL and ignores `PYTHONPATH` once that file exists, so the export now writes one. A failed export no longer leaves its directory behind. Verified by running `run.bat` on Windows — it previously died with "Could not find platform independent libraries" and now boots with no system Python installed. The layout tests read the real cached archives instead of a fixture that assumed the Linux layout, which is why this shipped; the opt-in bundle smoke test also asserted a path `stage()` never wrote to, so it had never passed.
 - Staged-stdlib slimming (`9154343`): drop `venv` (8 MB of the Windows stdlib), `lib2to3`, `pydoc_data`, `turtledemo`, `msilib`. Windows stdlib zip 19 MB → 9.0 MB (export 47 MB → 37 MB), Linux → 9.3 MB. Nothing Pite ships imports any of them; both zips keep every startup-critical module.
+- Export atlas dependency (`6948895`): export shipped `sheet.atlas.json` without the `sheet.png` it names, so the runtime fell back to a 1x1 magenta placeholder and both atlased sprites drew as magenta blocks. A referenced sidecar now also pulls in its sheet, resolved through the same helper the runtime uses; unreferenced files stay out.
+- Colour-space parity (`7f003d9`): the editor viewport and the game window cleared to the same value but presented it differently — the sRGB surface encoded it, the non-sRGB offscreen target stored it raw and the UI read it as already-encoded. Sprites took the same double conversion. The offscreen target is now sRGB, matching the surface and the texture format.
+- Sprite quad geometry (`8b7dd3f`): the pipeline is `TriangleList`, which needs six vertices per quad, but four were emitted — so half of each sprite drew and a spurious triangle bridged one quad to the next, visible as a diagonal smear between sprites. Extents were also halved, rendering a 32x32 frame as 16x16. Three tests encoded the wrong values and now check pixel spans.
+- Editor viewport size (`ecc02ac`): the viewport rendered at a hardcoded 640x400 while the game window used the project's configured size, so authoring framing never matched the exported game. It now reads `window_width`/`window_height` from the manifest. The per-node caption overlay is gone.
+- Scene-tree script markers (`50bba0b`): nodes with an attached script are marked with a page glyph; hovering names the class and clicking opens the file in the code pane and notifies the language server. The add icon is redrawn as two filled bars.
+- Documentation (`e7f90ad`, `6820e36`): removed references to external planning documents and internal milestone labels from sources, docs and this file; corrected two stale claims about the signal API.
 
 ## v0.1-m2
 
