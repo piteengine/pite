@@ -4,6 +4,9 @@ use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Context, Result};
 
+pub mod device;
+pub use device::CpalBackend;
+
 pub const POLL_CHUNK: usize = 4096;
 
 #[derive(Debug, Clone)]
@@ -128,8 +131,20 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     fn new() -> Self {
+        // Prefer real output; fall back to silent simulation where no
+        // device exists (CI, containers) so games still run everywhere.
+        let backend: Box<dyn AudioBackend> = match CpalBackend::new() {
+            Ok(device) => {
+                eprintln!("audio: playing through the default output device");
+                Box::new(device)
+            }
+            Err(e) => {
+                eprintln!("audio: no output device ({e:#}); simulating playback");
+                Box::new(WavBackend::new())
+            }
+        };
         Self {
-            backend: Box::new(WavBackend::new()),
+            backend,
             project_dir: None,
         }
     }
