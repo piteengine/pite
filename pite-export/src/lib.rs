@@ -515,10 +515,12 @@ fn played_assets(text: &str) -> Vec<&str> {
 }
 
 #[cfg(test)]
+pub(crate) static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use crate::SERIAL;
 
     const MAIN: &str = r#"format_version = 1
 root = "root"

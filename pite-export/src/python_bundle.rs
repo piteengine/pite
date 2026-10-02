@@ -145,7 +145,16 @@ pub fn verify(spec: &BundleSpec, path: &Path) -> Result<()> {
 fn download(url: &str, dest: &Path) -> Result<()> {
     let tool = downloader()?;
     let result = std::process::Command::new(&tool)
-        .args(["--fail", "--silent", "--show-error", "--location"])
+        .args([
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--retry",
+            "3",
+            "--retry-delay",
+            "3",
+        ])
         .arg(url)
         .arg("--output")
         .arg(dest)
@@ -428,6 +437,7 @@ mod tests {
 
     #[test]
     fn offline_download_is_loud_and_suggests_the_opt_out() {
+        let _guard = crate::SERIAL.lock().unwrap();
         let mut spec = LINUX;
         spec.file = "cpython-offline-probe.tar.gz";
         let dir = tmpdir("offline");
