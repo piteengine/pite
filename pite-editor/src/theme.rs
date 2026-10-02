@@ -13,7 +13,7 @@ const ACTIVE: egui::Color32 = egui::Color32::from_rgb(30, 58, 53);
 pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
     ctx.set_visuals(visuals());
-    ctx.style_mut(|style| {
+    ctx.global_style_mut(|style| {
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
         style.spacing.indent = 20.0;
@@ -105,7 +105,7 @@ mod tests {
     fn theme_applies_cleanly() {
         let ctx = egui::Context::default();
         apply(&ctx);
-        let style = ctx.style();
+        let style = ctx.global_style();
         assert!(style.visuals.dark_mode);
         assert_eq!(style.visuals.window_fill, PANEL);
         assert_eq!(style.text_styles[&egui::TextStyle::Body].size, 15.0);

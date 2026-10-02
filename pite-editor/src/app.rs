@@ -407,7 +407,7 @@ impl EditorApp {
 }
 
 impl eframe::App for EditorApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let save_shortcut = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
         if save_shortcut {
             self.save_scene();
@@ -420,8 +420,12 @@ impl eframe::App for EditorApp {
             self.drain_script_errors();
             ctx.request_repaint();
         }
+    }
 
-        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
+        egui::Panel::top("menu").show(ui, |ui| {
             // Everything lives inside the MenuBar scope: MenuBar claims the
             // full row width, so siblings after it in an outer horizontal
             // row get zero space and vanish.
@@ -462,10 +466,10 @@ impl eframe::App for EditorApp {
             });
         });
 
-        egui::SidePanel::left("left")
-            .default_width(240.0)
+        egui::Panel::left("left")
+            .default_size(240.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading("Scene");
                     if icons::icon_button(ui, Icon::Add, "Add a child node under the selection")
@@ -538,11 +542,11 @@ impl eframe::App for EditorApp {
                     });
             });
 
-        egui::SidePanel::right("inspector")
-            .default_width(280.0)
-            .min_width(200.0)
+        egui::Panel::right("inspector")
+            .default_size(280.0)
+            .min_size(200.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.heading("Inspector");
                 match self.selected.clone() {
                     Some(id) => self.show_inspector(ui, &id),
@@ -552,10 +556,10 @@ impl eframe::App for EditorApp {
                 }
             });
 
-        egui::TopBottomPanel::bottom("console")
-            .min_height(100.0)
+        egui::Panel::bottom("console")
+            .min_size(100.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.heading("Console");
                 egui::ScrollArea::vertical()
                     .id_salt("console")
@@ -569,7 +573,7 @@ impl eframe::App for EditorApp {
                     });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Viewport, "Viewport");
                 ui.selectable_value(&mut self.tab, Tab::Code, "Code");
@@ -957,7 +961,7 @@ impl EditorApp {
     fn code_cursor_byte(text: &str, ctx: &egui::Context, id: &egui::Id) -> Option<usize> {
         let state = egui::widgets::text_edit::TextEditState::load(ctx, *id)?;
         let range = state.cursor.char_range()?;
-        Some(lsp::byte_offset_of_char(text, range.primary.index))
+        Some(lsp::byte_offset_of_char(text, range.primary.index.0))
     }
 
     fn ensure_lsp(&mut self) {
@@ -1124,7 +1128,7 @@ impl EditorApp {
             .fixed_pos(anchor)
             .collapsible(false)
             .resizable(false)
-            .show(ui.ctx(), |ui| {
+            .show(ui, |ui| {
                 ui.set_max_height(220.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for item in &self.lsp_completions[..self.lsp_completions.len().min(20)] {
