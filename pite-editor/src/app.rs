@@ -1294,7 +1294,11 @@ impl EditorApp {
                     continue;
                 }
                 if path.is_dir() {
-                    if name == "target" || name == "dist" || name == ".git" {
+                    if name == "target"
+                        || name == "dist"
+                        || name == ".git"
+                        || name == pite_scene::cache::CACHE_DIR_NAME
+                    {
                         continue;
                     }
                     if out.len() < 400 {
