@@ -106,8 +106,8 @@ impl Default for ExportConfig {
 
 pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
     let path = dir.join(MANIFEST_FILE);
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("cannot read {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))
 }
 
@@ -133,8 +133,9 @@ pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) 
     unknown.sort();
     for field in unknown {
         match deprecated_replacement(&field) {
-            Some(use_instead) => warnings
-                .push(format!("manifest: {field:?} is deprecated, use {use_instead:?}")),
+            Some(use_instead) => warnings.push(format!(
+                "manifest: {field:?} is deprecated, use {use_instead:?}"
+            )),
             None => warnings.push(format!("manifest: unknown field {field:?}")),
         }
     }
@@ -179,12 +180,9 @@ pub fn resolve_res(project_dir: &Path, res_path: &str) -> Option<PathBuf> {
 }
 
 pub fn to_res_path(project_dir: &Path, path: &Path) -> Option<String> {
-    path.strip_prefix(project_dir).ok().map(|rel| {
-        format!(
-            "res://{}",
-            rel.to_string_lossy().replace('\\', "/")
-        )
-    })
+    path.strip_prefix(project_dir)
+        .ok()
+        .map(|rel| format!("res://{}", rel.to_string_lossy().replace('\\', "/")))
 }
 
 pub const TEMPLATE_PITE_TOML: &str = r#"[project]
@@ -295,8 +293,8 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir()
-            .join(format!("pite-manifest-{tag}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("pite-manifest-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -371,7 +369,10 @@ mod tests {
             "[project]\nname = \"x\"\npython = \"\"\nwindow_width = 0\nicon = \"/abs/icon.png\"\n",
         );
         let (errors, _) = validate_manifest(&manifest);
-        assert!(errors.iter().any(|e| e.contains("python")), "got {errors:?}");
+        assert!(
+            errors.iter().any(|e| e.contains("python")),
+            "got {errors:?}"
+        );
         assert!(errors.iter().any(|e| e.contains("0x")), "got {errors:?}");
         assert!(errors.iter().any(|e| e.contains("icon")), "got {errors:?}");
     }

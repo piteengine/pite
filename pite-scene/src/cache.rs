@@ -267,7 +267,10 @@ struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        let end = self.pos.checked_add(n).context("scene cache is corrupt (truncated)")?;
+        let end = self
+            .pos
+            .checked_add(n)
+            .context("scene cache is corrupt (truncated)")?;
         if end > self.b.len() {
             anyhow::bail!("scene cache is corrupt (truncated)");
         }
@@ -345,8 +348,9 @@ fn get_toml_value(cur: &mut Cursor<'_>) -> Result<toml::Value> {
         }
         6 => {
             let raw = cur.str()?;
-            let dt: toml::value::Datetime =
-                raw.parse().context("scene cache is corrupt (bad datetime)")?;
+            let dt: toml::value::Datetime = raw
+                .parse()
+                .context("scene cache is corrupt (bad datetime)")?;
             Ok(toml::Value::Datetime(dt))
         }
         tag => anyhow::bail!("scene cache is corrupt (bad value tag {tag})"),
@@ -377,7 +381,14 @@ fn get_node(cur: &mut Cursor<'_>) -> Result<SceneNode> {
         props.insert(k, v);
     }
     let script = get_script(cur)?;
-    Ok(SceneNode { id, type_name, name, parent, props, script })
+    Ok(SceneNode {
+        id,
+        type_name,
+        name,
+        parent,
+        props,
+        script,
+    })
 }
 
 fn get_instance(cur: &mut Cursor<'_>) -> Result<SceneInstance> {
@@ -391,7 +402,12 @@ fn get_instance(cur: &mut Cursor<'_>) -> Result<SceneInstance> {
         let v = get_toml_value(cur)?;
         overrides.insert(k, v);
     }
-    Ok(SceneInstance { scene, parent, prefix, overrides })
+    Ok(SceneInstance {
+        scene,
+        parent,
+        prefix,
+        overrides,
+    })
 }
 
 fn get_doc(cur: &mut Cursor<'_>) -> Result<SceneDoc> {
@@ -407,7 +423,12 @@ fn get_doc(cur: &mut Cursor<'_>) -> Result<SceneDoc> {
     for _ in 0..inst_len {
         instance.push(get_instance(cur)?);
     }
-    Ok(SceneDoc { format_version, root, node, instance })
+    Ok(SceneDoc {
+        format_version,
+        root,
+        node,
+        instance,
+    })
 }
 
 /// Decode a cache payload. Bad magic, truncation, trailing bytes, or a
@@ -415,15 +436,25 @@ fn get_doc(cur: &mut Cursor<'_>) -> Result<SceneDoc> {
 /// falls back to TOML and says so, never silently reinterprets.
 pub fn decode(bytes: &[u8]) -> Result<(SceneDoc, CacheHeader)> {
     let mut cur = Cursor { b: bytes, pos: 0 };
-    let magic = cur.take(MAGIC.len()).context("scene cache is corrupt (truncated header)")?;
+    let magic = cur
+        .take(MAGIC.len())
+        .context("scene cache is corrupt (truncated header)")?;
     if magic != MAGIC {
         anyhow::bail!("scene cache is corrupt (bad magic)");
     }
     let header = CacheHeader {
-        cache_version: cur.u32().context("scene cache is corrupt (truncated header)")?,
-        format_version: cur.u32().context("scene cache is corrupt (truncated header)")?,
-        source_len: cur.u64().context("scene cache is corrupt (truncated header)")?,
-        source_hash: cur.u64().context("scene cache is corrupt (truncated header)")?,
+        cache_version: cur
+            .u32()
+            .context("scene cache is corrupt (truncated header)")?,
+        format_version: cur
+            .u32()
+            .context("scene cache is corrupt (truncated header)")?,
+        source_len: cur
+            .u64()
+            .context("scene cache is corrupt (truncated header)")?,
+        source_hash: cur
+            .u64()
+            .context("scene cache is corrupt (truncated header)")?,
     };
     if header.cache_version != CACHE_VERSION {
         anyhow::bail!(
@@ -512,7 +543,9 @@ prefix = "e1_"
     #[test]
     fn binary_round_trip_preserves_doc() {
         let doc = crate::parse_scene_str(SCENE).unwrap();
-        let bytes = std::fs::read("Cargo.toml").map(|b| b.len() as u64).unwrap_or(0);
+        let bytes = std::fs::read("Cargo.toml")
+            .map(|b| b.len() as u64)
+            .unwrap_or(0);
         let (again, header) = decode(&encode(&doc, 0x1234, bytes)).unwrap();
         assert_eq!(doc, again);
         assert_eq!(header.cache_version, CACHE_VERSION);
@@ -525,8 +558,14 @@ prefix = "e1_"
         let scene = write_scene(&dir, SCENE);
         let (doc, status, warning) = crate::load_cached(&scene).unwrap();
         assert_eq!(status, CacheStatus::Miss);
-        assert!(warning.is_none(), "clean miss is transparent, got {warning:?}");
-        assert!(cache_file_for(&scene).is_file(), "miss must write the cache");
+        assert!(
+            warning.is_none(),
+            "clean miss is transparent, got {warning:?}"
+        );
+        assert!(
+            cache_file_for(&scene).is_file(),
+            "miss must write the cache"
+        );
         let (again, status, warning) = crate::load_cached(&scene).unwrap();
         assert_eq!(status, CacheStatus::Hit);
         assert!(warning.is_none(), "hit is transparent, got {warning:?}");
@@ -547,7 +586,10 @@ prefix = "e1_"
         std::fs::write(&scene, &changed).unwrap();
         let (doc, status, warning) = crate::load_cached(&scene).unwrap();
         assert_eq!(status, CacheStatus::Miss);
-        assert!(warning.is_none(), "source change is a clean miss, got {warning:?}");
+        assert!(
+            warning.is_none(),
+            "source change is a clean miss, got {warning:?}"
+        );
         assert!(doc.node.iter().any(|n| n.id == "extra"));
         assert!(!old_cache.exists(), "stale hash file must be pruned");
         assert!(cache_file_for(&scene).is_file());
@@ -562,7 +604,13 @@ prefix = "e1_"
         let cpath = cache_file_for(&scene);
         let doc = crate::parse_scene_str(SCENE).unwrap();
         let bytes = std::fs::read(&scene).unwrap();
-        let stale = encode_with(&doc, fnv1a_u64(&bytes), bytes.len() as u64, CACHE_VERSION + 1, FORMAT_VERSION);
+        let stale = encode_with(
+            &doc,
+            fnv1a_u64(&bytes),
+            bytes.len() as u64,
+            CACHE_VERSION + 1,
+            FORMAT_VERSION,
+        );
         std::fs::write(&cpath, &stale).unwrap();
         let (again, status, warning) = crate::load_cached(&scene).unwrap();
         assert!(matches!(status, CacheStatus::Rebuilt(_)), "got {status:?}");
@@ -583,7 +631,13 @@ prefix = "e1_"
         let cpath = cache_file_for(&scene);
         let doc = crate::parse_scene_str(SCENE).unwrap();
         let bytes = std::fs::read(&scene).unwrap();
-        let stale = encode_with(&doc, fnv1a_u64(&bytes), bytes.len() as u64, CACHE_VERSION, FORMAT_VERSION + 1);
+        let stale = encode_with(
+            &doc,
+            fnv1a_u64(&bytes),
+            bytes.len() as u64,
+            CACHE_VERSION,
+            FORMAT_VERSION + 1,
+        );
         std::fs::write(&cpath, &stale).unwrap();
         let (again, status, warning) = crate::load_cached(&scene).unwrap();
         assert!(matches!(status, CacheStatus::Rebuilt(_)), "got {status:?}");
@@ -607,7 +661,10 @@ prefix = "e1_"
         assert_eq!(doc, crate::parse_scene_str(SCENE).unwrap());
         let (_, status, warning) = crate::load_cached(&scene).unwrap();
         assert_eq!(status, CacheStatus::Hit);
-        assert!(warning.is_none(), "rewritten cache must be valid, got {warning:?}");
+        assert!(
+            warning.is_none(),
+            "rewritten cache must be valid, got {warning:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

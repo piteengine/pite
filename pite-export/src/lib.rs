@@ -152,10 +152,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     if !binary_src.is_file() {
         anyhow::bail!("engine binary not found: {}", binary_src.display());
     }
-    if opts.platform == "windows"
-        && std::env::consts::OS != "windows"
-        && opts.binary.is_none()
-    {
+    if opts.platform == "windows" && std::env::consts::OS != "windows" && opts.binary.is_none() {
         anyhow::bail!(
             "cross-compiling a windows binary is out of scope: build on Windows \
              (`cargo build --release -p pite-cli`) and pass it with --binary"
@@ -169,7 +166,10 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     if out.exists() {
         anyhow::bail!("{} exists; remove it or pass --out <dir>", out.display());
     }
-    let mut owned = ExportDir { path: out.clone(), complete: false };
+    let mut owned = ExportDir {
+        path: out.clone(),
+        complete: false,
+    };
     let bin_name = if opts.platform == "windows" {
         format!("{game_name}.exe")
     } else {
@@ -245,7 +245,10 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         )?;
     } else {
         let sh = out.join("run.sh");
-        std::fs::write(&sh, unix_launcher(&game_name, &bin_name, &main_rel, &out, staged.as_ref()))?;
+        std::fs::write(
+            &sh,
+            unix_launcher(&game_name, &bin_name, &main_rel, &out, staged.as_ref()),
+        )?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -258,7 +261,9 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     )?;
 
     let python = match staged {
-        Some(staged) => PythonChoice::Bundled { zip: staged.stdlib_zip },
+        Some(staged) => PythonChoice::Bundled {
+            zip: staged.stdlib_zip,
+        },
         None => PythonChoice::System,
     };
     owned.commit();
@@ -386,8 +391,9 @@ fn readme(game: &str, platform: &str, python: &PythonChoice) -> String {
             python_bundle::PINNED_PYTHON,
             python_bundle::PINNED_BUILD
         ),
-        PythonChoice::System => "Requires system Python 3.12 on PATH (PITE_PYTHON overrides detection).\n"
-            .to_string(),
+        PythonChoice::System => {
+            "Requires system Python 3.12 on PATH (PITE_PYTHON overrides detection).\n".to_string()
+        }
     };
     format!(
         "{game} ({platform} export)\n\
@@ -398,10 +404,7 @@ fn readme(game: &str, platform: &str, python: &PythonChoice) -> String {
     )
 }
 
-fn collect_referenced(
-    root: &Path,
-    manifest: &pite_project::PiteManifest,
-) -> Result<Vec<PathBuf>> {
+fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Result<Vec<PathBuf>> {
     let mut files = HashSet::new();
     let mut scenes = vec![manifest.project.main_scene.clone()];
     let mut visited: HashSet<String> = HashSet::new();
@@ -409,9 +412,8 @@ fn collect_referenced(
         if !visited.insert(scene_ref.clone()) {
             continue;
         }
-        let scene_path = resolve_ref(root, None, &scene_ref).with_context(|| {
-            format!("export cannot resolve scene {scene_ref:?}")
-        })?;
+        let scene_path = resolve_ref(root, None, &scene_ref)
+            .with_context(|| format!("export cannot resolve scene {scene_ref:?}"))?;
         files.insert(scene_path.clone());
         let scene_dir = scene_path
             .parent()
@@ -421,24 +423,24 @@ fn collect_referenced(
             .with_context(|| format!("export cannot parse {}", scene_path.display()))?;
         for node in &doc.node {
             if let Some(script) = &node.script {
-                let p = resolve_ref(root, Some(&scene_dir), &script.path).with_context(|| {
-                    format!("export cannot resolve script {:?}", script.path)
-                })?;
+                let p = resolve_ref(root, Some(&scene_dir), &script.path)
+                    .with_context(|| format!("export cannot resolve script {:?}", script.path))?;
                 files.insert(p.clone());
-                for audio in played_assets(&std::fs::read_to_string(&p).with_context(|| {
-                    format!("export cannot read {}", p.display())
-                })?) {
-                    files.insert(resolve_ref(root, Some(&scene_dir), audio).with_context(|| {
-                        format!("export cannot resolve audio {audio:?}")
-                    })?);
+                for audio in played_assets(
+                    &std::fs::read_to_string(&p)
+                        .with_context(|| format!("export cannot read {}", p.display()))?,
+                ) {
+                    files.insert(
+                        resolve_ref(root, Some(&scene_dir), audio)
+                            .with_context(|| format!("export cannot resolve audio {audio:?}"))?,
+                    );
                 }
             }
             for value in node.props.values() {
                 if let toml::Value::String(s) = value {
                     if s.starts_with("res://") {
-                        let asset = resolve_ref(root, Some(&scene_dir), s).with_context(|| {
-                            format!("export cannot resolve asset {s:?}")
-                        })?;
+                        let asset = resolve_ref(root, Some(&scene_dir), s)
+                            .with_context(|| format!("export cannot resolve asset {s:?}"))?;
                         if let Some(sheet) = atlas_sheet(&asset) {
                             files.insert(sheet);
                         }
@@ -662,10 +664,13 @@ def _once():
         let prev = std::env::var_os("PITE_PYTHON");
         std::env::set_var("PITE_PYTHON", "/nonexistent/python3.12");
         let (dir, bin) = fixture("nopy");
-        let err = export_project(&dir, &ExportOptions {
-            skip_python_check: false,
-            ..opts(&bin)
-        })
+        let err = export_project(
+            &dir,
+            &ExportOptions {
+                skip_python_check: false,
+                ..opts(&bin)
+            },
+        )
         .unwrap_err();
         assert!(err.to_string().contains("Python 3.12"), "{err:#}");
         match prev {
@@ -688,10 +693,13 @@ def _once():
             std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         std::env::set_var("PITE_PYTHON", &fake);
-        let report = export_project(&dir, &ExportOptions {
-            skip_python_check: false,
-            ..opts(&bin)
-        })
+        let report = export_project(
+            &dir,
+            &ExportOptions {
+                skip_python_check: false,
+                ..opts(&bin)
+            },
+        )
         .unwrap();
         match prev {
             Some(v) => std::env::set_var("PITE_PYTHON", v),
@@ -714,9 +722,14 @@ def _once():
             b"fake-so",
         )
         .unwrap();
-        std::fs::write(dir.join("python/lib/python3.12").join("os.py"), b"import sys\n").unwrap();
         std::fs::write(
-            dir.join("python/lib/python3.12/site-packages").join("pip.py"),
+            dir.join("python/lib/python3.12").join("os.py"),
+            b"import sys\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("python/lib/python3.12/site-packages")
+                .join("pip.py"),
             b"raise SystemExit\n",
         )
         .unwrap();
@@ -746,7 +759,10 @@ def _once():
         let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
         assert!(listing.contains("os.py"), "{listing}");
         assert!(!listing.contains("site-packages"), "{listing}");
-        assert!(!out.join(".staging").exists(), "staging dir must be cleaned up");
+        assert!(
+            !out.join(".staging").exists(),
+            "staging dir must be cleaned up"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -760,20 +776,26 @@ def _once():
         }
         let _guard = SERIAL.lock().unwrap();
         let (dir, bin) = fixture("bundle");
-        let report = export_project(&dir, &ExportOptions {
-            platform: "linux".to_string(),
-            out_dir: None,
-            binary: Some(bin.clone()),
-            skip_python_check: false,
-            bundle_python: true,
-        })
+        let report = export_project(
+            &dir,
+            &ExportOptions {
+                platform: "linux".to_string(),
+                out_dir: None,
+                binary: Some(bin.clone()),
+                skip_python_check: false,
+                bundle_python: true,
+            },
+        )
         .expect("bundled export must succeed");
         match &report.python {
             PythonChoice::Bundled { zip } => assert!(zip.is_file(), "{zip:?}"),
             other => panic!("expected a bundled interpreter, got {other:?}"),
         }
         let out = &report.out_dir;
-        assert!(out.join("bin").join("fixt").is_file(), "engine binary missing");
+        assert!(
+            out.join("bin").join("fixt").is_file(),
+            "engine binary missing"
+        );
         assert!(
             python_bundle::pinned("linux").is_some_and(|spec| {
                 let staged = spec.lib.rsplit('/').next().unwrap_or(spec.lib);
@@ -781,11 +803,17 @@ def _once():
             }),
             "bundled libpython missing under python/lib"
         );
-        assert!(out.join("python").join("python312.zip").is_file(), "stdlib zip missing");
+        assert!(
+            out.join("python").join("python312.zip").is_file(),
+            "stdlib zip missing"
+        );
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
         assert!(sh.contains("LD_LIBRARY_PATH"), "{sh}");
         assert!(sh.contains("PYTHONPATH"), "{sh}");
-        assert!(!sh.contains("needs system Python"), "bundled launcher must not gate");
+        assert!(
+            !sh.contains("needs system Python"),
+            "bundled launcher must not gate"
+        );
         let readme = std::fs::read_to_string(out.join("README.txt")).unwrap();
         assert!(readme.contains("bundled CPython"), "{readme}");
         std::fs::remove_dir_all(&report.out_dir).ok();
@@ -798,12 +826,18 @@ def _once():
         let prev = std::env::var_os("PITE_TOOLCHAIN_DIR");
         let dir = std::env::temp_dir().join(format!("pite-offline-{}", std::process::id()));
         std::env::set_var("PITE_TOOLCHAIN_DIR", &dir);
-        let err = export_project(&dir, &ExportOptions {
-            platform: "ps5".to_string(),
-            ..opts(Path::new("unused"))
-        })
+        let err = export_project(
+            &dir,
+            &ExportOptions {
+                platform: "ps5".to_string(),
+                ..opts(Path::new("unused"))
+            },
+        )
         .unwrap_err();
-        assert!(err.to_string().contains("unsupported export platform"), "{err:#}");
+        assert!(
+            err.to_string().contains("unsupported export platform"),
+            "{err:#}"
+        );
         match prev {
             Some(v) => std::env::set_var("PITE_TOOLCHAIN_DIR", v),
             None => std::env::remove_var("PITE_TOOLCHAIN_DIR"),
@@ -815,7 +849,11 @@ def _once():
     fn exported_manifest_runs_round_trip() {
         let (dir, bin) = fixture("roundtrip");
         let report = export_project(&dir, &opts(&bin)).unwrap();
-        let scene = report.out_dir.join("game").join("scenes").join("main.pitescene");
+        let scene = report
+            .out_dir
+            .join("game")
+            .join("scenes")
+            .join("main.pitescene");
         let manifest = pite_project::load_manifest(&report.out_dir.join("game")).unwrap();
         assert_eq!(manifest.project.name, "fixt");
         let session =
@@ -845,7 +883,10 @@ def _once():
         }
         let err = export_project(
             &dir,
-            &ExportOptions { out_dir: Some(out.clone()), ..opts(&bin) },
+            &ExportOptions {
+                out_dir: Some(out.clone()),
+                ..opts(&bin)
+            },
         )
         .unwrap_err();
         assert!(
@@ -870,7 +911,10 @@ def _once():
         };
         let pth = windows_pth(Path::new("/game/bin"), &bundle).unwrap();
         assert_eq!(pth, "..\\python\\python312.zip\r\n.\r\n");
-        assert!(!pth.contains("/game"), "loader config must stay relative: {pth:?}");
+        assert!(
+            !pth.contains("/game"),
+            "loader config must stay relative: {pth:?}"
+        );
     }
 
     /// A staged `python/` that is not a sibling of `bin/` has no nameable
@@ -918,7 +962,9 @@ def _once():
             out.join("bin").join(dll).is_file(),
             "interpreter must sit next to the exe, not in python/lib"
         );
-        let pth = out.join("bin").join(spec.pth_name.expect("windows needs a loader config"));
+        let pth = out
+            .join("bin")
+            .join(spec.pth_name.expect("windows needs a loader config"));
         let body = std::fs::read_to_string(&pth).unwrap();
         assert!(
             body.contains("python312.zip") && !body.contains(&out.display().to_string()),
@@ -926,8 +972,14 @@ def _once():
         );
         let bat = std::fs::read_to_string(out.join("run.bat")).unwrap();
         assert!(!bat.contains("PYTHONPATH"), "{bat}");
-        assert!(!bat.contains("needs system Python"), "bundled launcher must not gate");
-        assert!(!out.join("python/.staging").exists(), "staging dir must be cleaned up");
+        assert!(
+            !bat.contains("needs system Python"),
+            "bundled launcher must not gate"
+        );
+        assert!(
+            !out.join("python/.staging").exists(),
+            "staging dir must be cleaned up"
+        );
         std::fs::remove_dir_all(&report.out_dir).ok();
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -935,10 +987,13 @@ def _once():
     #[test]
     fn unknown_platform_fails_loudly() {
         let (dir, bin) = fixture("plat");
-        let err = export_project(&dir, &ExportOptions {
-            platform: "ps5".to_string(),
-            ..opts(&bin)
-        })
+        let err = export_project(
+            &dir,
+            &ExportOptions {
+                platform: "ps5".to_string(),
+                ..opts(&bin)
+            },
+        )
         .unwrap_err();
         assert!(err.to_string().contains("unsupported export platform"));
         std::fs::remove_dir_all(&dir).ok();

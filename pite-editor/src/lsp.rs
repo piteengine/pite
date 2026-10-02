@@ -50,7 +50,9 @@ pub fn path_to_uri(path: &Path) -> String {
     let abs = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(path)
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
     };
     uri_from_path_text(&abs.to_string_lossy())
 }
@@ -181,7 +183,9 @@ pub fn probe_server_version(cmd: &str) -> (Option<String>, Option<String>) {
     let Some(text) = text else {
         return (
             None,
-            Some(format!("LSP: `{cmd} --version` failed; proceeding without a version check.")),
+            Some(format!(
+                "LSP: `{cmd} --version` failed; proceeding without a version check."
+            )),
         );
     };
     match parse_version(&text) {
@@ -201,7 +205,9 @@ pub fn probe_server_version(cmd: &str) -> (Option<String>, Option<String>) {
         }
         None => (
             None,
-            Some(format!("LSP: could not parse server version from {text:?}; proceeding.")),
+            Some(format!(
+                "LSP: could not parse server version from {text:?}; proceeding."
+            )),
         ),
     }
 }
@@ -251,7 +257,10 @@ impl<R: BufRead> FramingReader<R> {
         let mut len: Option<usize> = None;
         loop {
             let mut line = String::new();
-            let n = self.inner.read_line(&mut line).context("server closed stdio")?;
+            let n = self
+                .inner
+                .read_line(&mut line)
+                .context("server closed stdio")?;
             if n == 0 {
                 anyhow::bail!("server closed stdio");
             }
@@ -265,7 +274,9 @@ impl<R: BufRead> FramingReader<R> {
         }
         let len = len.context("message without Content-Length")?;
         let mut buf = vec![0u8; len];
-        self.inner.read_exact(&mut buf).context("server closed stdio")?;
+        self.inner
+            .read_exact(&mut buf)
+            .context("server closed stdio")?;
         serde_json::from_slice(&buf).context("server sent invalid JSON")
     }
 }
@@ -357,15 +368,27 @@ fn position_params(uri: &str, line: u32, character: u32) -> Value {
 }
 
 pub fn completion_request(id: i64, uri: &str, line: u32, character: u32) -> Value {
-    request(id, "textDocument/completion", position_params(uri, line, character))
+    request(
+        id,
+        "textDocument/completion",
+        position_params(uri, line, character),
+    )
 }
 
 pub fn hover_request(id: i64, uri: &str, line: u32, character: u32) -> Value {
-    request(id, "textDocument/hover", position_params(uri, line, character))
+    request(
+        id,
+        "textDocument/hover",
+        position_params(uri, line, character),
+    )
 }
 
 pub fn signature_request(id: i64, uri: &str, line: u32, character: u32) -> Value {
-    request(id, "textDocument/signatureHelp", position_params(uri, line, character))
+    request(
+        id,
+        "textDocument/signatureHelp",
+        position_params(uri, line, character),
+    )
 }
 
 /// One server diagnostic (0-based line, protocol severity 1=error..4=hint).
@@ -424,8 +447,16 @@ pub fn parse_completion_items(result: &Value) -> Vec<CompletionItem> {
     items
         .iter()
         .map(|i| CompletionItem {
-            label: i.get("label").and_then(Value::as_str).unwrap_or("").to_string(),
-            detail: i.get("detail").and_then(Value::as_str).unwrap_or("").to_string(),
+            label: i
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            detail: i
+                .get("detail")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
         })
         .filter(|i| !i.label.is_empty())
         .collect()
@@ -522,7 +553,14 @@ impl StdioTransport {
                 }
             }
         });
-        Ok((Self { stdin, inbox, dead: false }, child))
+        Ok((
+            Self {
+                stdin,
+                inbox,
+                dead: false,
+            },
+            child,
+        ))
     }
 }
 
@@ -589,7 +627,11 @@ impl Bridge {
         Ok(id)
     }
 
-    pub fn send_initialize(&mut self, tx: &mut dyn RpcTransport, root_uri: Option<&str>) -> Result<i64> {
+    pub fn send_initialize(
+        &mut self,
+        tx: &mut dyn RpcTransport,
+        root_uri: Option<&str>,
+    ) -> Result<i64> {
         let id = self.next_id;
         let body = initialize_request(id, root_uri);
         self.call(tx, PendingKind::Initialize, body)
@@ -599,7 +641,11 @@ impl Bridge {
         tx.send(&initialized_notification())
     }
 
-    pub fn send_configuration(&mut self, tx: &mut dyn RpcTransport, stubs: Option<&Path>) -> Result<()> {
+    pub fn send_configuration(
+        &mut self,
+        tx: &mut dyn RpcTransport,
+        stubs: Option<&Path>,
+    ) -> Result<()> {
         tx.send(&did_change_configuration(stubs))
     }
 
@@ -660,13 +706,15 @@ impl Bridge {
                 let result = msg.get("result").cloned().unwrap_or(Value::Null);
                 match self.pending.remove(&id) {
                     Some(PendingKind::Completion) => {
-                        self.completions.push_back((id, parse_completion_items(&result)));
+                        self.completions
+                            .push_back((id, parse_completion_items(&result)));
                     }
                     Some(PendingKind::Hover) => {
                         self.hovers.push_back((id, parse_hover(&result)));
                     }
                     Some(PendingKind::Signature) => {
-                        self.signatures.push_back((id, parse_signature_help(&result)));
+                        self.signatures
+                            .push_back((id, parse_signature_help(&result)));
                     }
                     Some(PendingKind::Initialize) => {
                         self.responses.insert(id, result);
@@ -835,15 +883,18 @@ impl LspClient {
     }
 
     pub fn request_completion(&mut self, uri: &str, line: u32, character: u32) -> Result<i64> {
-        self.bridge.request_completion(&mut *self.transport, uri, line, character)
+        self.bridge
+            .request_completion(&mut *self.transport, uri, line, character)
     }
 
     pub fn request_hover(&mut self, uri: &str, line: u32, character: u32) -> Result<i64> {
-        self.bridge.request_hover(&mut *self.transport, uri, line, character)
+        self.bridge
+            .request_hover(&mut *self.transport, uri, line, character)
     }
 
     pub fn request_signature(&mut self, uri: &str, line: u32, character: u32) -> Result<i64> {
-        self.bridge.request_signature(&mut *self.transport, uri, line, character)
+        self.bridge
+            .request_signature(&mut *self.transport, uri, line, character)
     }
 
     pub fn take_completion(&mut self) -> Option<(i64, Vec<CompletionItem>)> {
@@ -863,7 +914,11 @@ impl LspClient {
     }
 
     pub fn diagnostics_for_uri(&self, uri: &str) -> &[Diagnostic] {
-        self.bridge.diagnostics.get(uri).map(Vec::as_slice).unwrap_or(&[])
+        self.bridge
+            .diagnostics
+            .get(uri)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn diagnostic_count(&self) -> usize {
@@ -873,7 +928,10 @@ impl LspClient {
 
 /// Starter outcome delivered to the UI thread.
 pub enum LspOutcome {
-    Ready { client: LspClient, warning: Option<String> },
+    Ready {
+        client: LspClient,
+        warning: Option<String>,
+    },
     Failed(String),
 }
 
@@ -917,7 +975,11 @@ fn start_blocking(root_dir: Option<&Path>, script: &Path) -> LspOutcome {
     let stubs = stubs_dir.clone();
     match bridge.await_response(&mut transport, init_id, stubs.as_deref(), INIT_TIMEOUT) {
         Ok(_) => {}
-        Err(e) => return LspOutcome::Failed(format!("LSP: initialize failed ({e:#}); editing continues without it.")),
+        Err(e) => {
+            return LspOutcome::Failed(format!(
+                "LSP: initialize failed ({e:#}); editing continues without it."
+            ))
+        }
     }
     let stubs_ref = stubs_dir.clone();
     if bridge.send_initialized(&mut transport).is_err()
@@ -949,7 +1011,9 @@ mod tests {
 
     impl MockServer {
         fn new() -> Self {
-            Self { opened: HashMap::new() }
+            Self {
+                opened: HashMap::new(),
+            }
         }
 
         fn handle(&mut self, msg: &Value) -> Vec<Value> {
@@ -975,11 +1039,18 @@ mod tests {
             match method {
                 "textDocument/didOpen" | "textDocument/didChange" => {
                     let doc = msg.get("params").and_then(|p| p.get("textDocument"));
-                    let uri = doc.and_then(|d| d.get("uri")).and_then(Value::as_str).unwrap_or("");
+                    let uri = doc
+                        .and_then(|d| d.get("uri"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
                     let text = if method.ends_with("didOpen") {
-                        msg.pointer("/params/textDocument/text").and_then(Value::as_str).unwrap_or("")
+                        msg.pointer("/params/textDocument/text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
                     } else {
-                        msg.pointer("/params/contentChanges/0/text").and_then(Value::as_str).unwrap_or("")
+                        msg.pointer("/params/contentChanges/0/text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
                     };
                     self.opened.insert(uri.to_string(), text.to_string());
                     let diagnostics = if text.contains("oops") {
@@ -1006,7 +1077,11 @@ mod tests {
 
     impl MockTransport {
         fn new() -> Self {
-            Self { outbox: Vec::new(), inbox: VecDeque::new(), server: MockServer::new() }
+            Self {
+                outbox: Vec::new(),
+                inbox: VecDeque::new(),
+                server: MockServer::new(),
+            }
         }
     }
 
@@ -1046,7 +1121,10 @@ mod tests {
     #[test]
     fn builders_carry_params() {
         let open = did_open_notification("file:///a.py", "import pite\n");
-        assert_eq!(open.pointer("/params/textDocument/uri").unwrap(), "file:///a.py");
+        assert_eq!(
+            open.pointer("/params/textDocument/uri").unwrap(),
+            "file:///a.py"
+        );
         let change = did_change_notification("file:///a.py", 7, "x = 1\n");
         assert_eq!(
             change.pointer("/params/contentChanges/0/text").unwrap(),
@@ -1062,12 +1140,19 @@ mod tests {
             init.pointer("/params/workspaceFolders/0/uri").unwrap(),
             "file:///proj"
         );
-        assert_eq!(init.pointer("/params/capabilities/workspace/configuration"), Some(&Value::Bool(true)));
+        assert_eq!(
+            init.pointer("/params/capabilities/workspace/configuration"),
+            Some(&Value::Bool(true))
+        );
         let bare = initialize_request(1, None);
-        assert_eq!(bare.pointer("/params/workspaceFolders").unwrap(), &serde_json::json!([]));
+        assert_eq!(
+            bare.pointer("/params/workspaceFolders").unwrap(),
+            &serde_json::json!([])
+        );
         let cfg = did_change_configuration(Some(Path::new("/stubs")));
         assert_eq!(
-            cfg.pointer("/params/settings/python/analysis/extraPaths/0").unwrap(),
+            cfg.pointer("/params/settings/python/analysis/extraPaths/0")
+                .unwrap(),
             "/stubs"
         );
     }
@@ -1078,7 +1163,9 @@ mod tests {
         let mut tx = MockTransport::new();
         let uri = "file:///proj/scripts/player.py";
 
-        bridge.did_open(&mut tx, uri, "import pite\noops\n").unwrap();
+        bridge
+            .did_open(&mut tx, uri, "import pite\noops\n")
+            .unwrap();
         assert!(bridge.poll(&mut tx, None));
         let diags = bridge.diagnostics.get(uri).cloned().unwrap_or_default();
         assert_eq!(diags.len(), 1);
@@ -1087,12 +1174,20 @@ mod tests {
 
         bridge.did_change(&mut tx, uri, "import pite\n").unwrap();
         assert!(bridge.poll(&mut tx, None));
-        assert!(bridge.diagnostics.get(uri).cloned().unwrap_or_default().is_empty());
+        assert!(bridge
+            .diagnostics
+            .get(uri)
+            .cloned()
+            .unwrap_or_default()
+            .is_empty());
         let versions: Vec<i64> = tx
             .outbox
             .iter()
             .filter(|m| m.get("method").and_then(Value::as_str) == Some("textDocument/didChange"))
-            .filter_map(|m| m.pointer("/params/textDocument/version").and_then(Value::as_i64))
+            .filter_map(|m| {
+                m.pointer("/params/textDocument/version")
+                    .and_then(Value::as_i64)
+            })
             .collect();
         assert_eq!(versions, vec![2]);
 
@@ -1114,7 +1209,10 @@ mod tests {
         assert_eq!(sigs, vec!["play(path, volume)"]);
 
         // Every request carried a JSON-RPC id; notifications did not.
-        assert!(tx.outbox.iter().any(|m| m.get("method").unwrap() == "textDocument/didOpen"));
+        assert!(tx
+            .outbox
+            .iter()
+            .any(|m| m.get("method").unwrap() == "textDocument/didOpen"));
     }
 
     #[test]
@@ -1130,7 +1228,9 @@ mod tests {
         let reply = tx.outbox.last().expect("server request answered");
         assert_eq!(reply.get("id").unwrap(), 9);
         assert_eq!(
-            reply.pointer("/result/0/python/analysis/extraPaths/0").unwrap(),
+            reply
+                .pointer("/result/0/python/analysis/extraPaths/0")
+                .unwrap(),
             "/stubs"
         );
     }
@@ -1245,7 +1345,10 @@ mod tests {
         let script = root.join("scripts").join("player.py");
         let text = std::fs::read_to_string(&script).expect("dogfood script exists");
         let rx = spawn_lsp(Some(root), &script);
-        let mut client = match rx.recv_timeout(Duration::from_secs(180)).expect("starter answers") {
+        let mut client = match rx
+            .recv_timeout(Duration::from_secs(180))
+            .expect("starter answers")
+        {
             LspOutcome::Ready { client, warning } => {
                 if let Some(w) = warning {
                     eprintln!("smoke warning: {w}");
@@ -1298,7 +1401,9 @@ mod tests {
         line: u32,
         character: u32,
     ) -> Vec<CompletionItem> {
-        client.request_completion(uri, line, character).expect("completion sends");
+        client
+            .request_completion(uri, line, character)
+            .expect("completion sends");
         let deadline = Instant::now() + Duration::from_secs(120);
         loop {
             if let Some(msg) = client.poll() {

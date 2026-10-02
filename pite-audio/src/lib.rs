@@ -110,7 +110,11 @@ pub fn decode_wav(path: &Path) -> Result<DecodedAudio> {
         hound::WavReader::open(path).with_context(|| format!("cannot open {}", path.display()))?;
     let spec = reader.spec();
     if spec.bits_per_sample != 16 {
-        anyhow::bail!("{}: only 16-bit WAV supported, got {}-bit", path.display(), spec.bits_per_sample);
+        anyhow::bail!(
+            "{}: only 16-bit WAV supported, got {}-bit",
+            path.display(),
+            spec.bits_per_sample
+        );
     }
     let mut samples = Vec::with_capacity(reader.len() as usize);
     for sample in reader.samples::<i16>() {
@@ -167,8 +171,7 @@ impl AudioEngine {
     }
 }
 
-static ENGINE: LazyLock<Mutex<AudioEngine>> =
-    LazyLock::new(|| Mutex::new(AudioEngine::new()));
+static ENGINE: LazyLock<Mutex<AudioEngine>> = LazyLock::new(|| Mutex::new(AudioEngine::new()));
 
 pub fn set_backend(backend: Box<dyn AudioBackend>) {
     ENGINE.lock().unwrap().backend = backend;
@@ -180,9 +183,9 @@ pub fn set_project_dir(dir: Option<PathBuf>) {
 
 pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
     let engine = ENGINE.lock().unwrap();
-    let path = engine.resolve(asset_ref).ok_or_else(|| {
-        anyhow::anyhow!("{asset_ref:?} uses res:// but no project is known")
-    })?;
+    let path = engine
+        .resolve(asset_ref)
+        .ok_or_else(|| anyhow::anyhow!("{asset_ref:?} uses res:// but no project is known"))?;
     drop(engine);
     if !path.is_file() {
         anyhow::bail!("audio asset not found: {}", path.display());
@@ -284,7 +287,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pite-aud-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("blip.wav");
-        let samples: Vec<i16> = (0..len).map(|i| (i as f64 * 0.1).sin() as i16 * 1000).collect();
+        let samples: Vec<i16> = (0..len)
+            .map(|i| (i as f64 * 0.1).sin() as i16 * 1000)
+            .collect();
         write_wav(&path, &samples);
         (dir, path)
     }

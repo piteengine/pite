@@ -40,8 +40,7 @@ impl Importer for PngImporter {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("asset not found: {path}"))?;
+        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
         if bytes.len() < PNG_SIG.len() || bytes[..PNG_SIG.len()] != PNG_SIG {
             anyhow::bail!("not a PNG asset: {path}");
         }
@@ -57,8 +56,7 @@ impl Importer for WavImporter {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("asset not found: {path}"))?;
+        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
         if bytes.len() < 12 || bytes[0..4] != *b"RIFF" || bytes[8..12] != *b"WAVE" {
             anyhow::bail!("not a WAV asset: {path}");
         }
@@ -216,11 +214,10 @@ pub fn scan_files(root: &Path) -> Result<Vec<ScannedFile>> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir)
-            .with_context(|| format!("read dir {}", dir.display()))?;
+        let entries =
+            std::fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))?;
         for entry in entries {
-            let entry = entry
-                .with_context(|| format!("read entry in {}", dir.display()))?;
+            let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
             let fs_path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
@@ -263,9 +260,7 @@ pub fn load_registry(root: &Path) -> Result<UidRegistry> {
     let path = root.join(MANIFEST_FILE);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(UidRegistry::new())
-        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(UidRegistry::new()),
         Err(err) => {
             return Err(err).with_context(|| format!("read {}", path.display()));
         }
@@ -311,11 +306,7 @@ pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, Scan
         files_by_path.insert(file.res_path.as_str(), file);
     }
 
-    let mut old_paths: Vec<&str> = old
-        .by_path
-        .keys()
-        .map(String::as_str)
-        .collect();
+    let mut old_paths: Vec<&str> = old.by_path.keys().map(String::as_str).collect();
     old_paths.sort();
 
     let mut claimed: HashSet<&str> = HashSet::new();
@@ -469,11 +460,10 @@ pub fn apply_renames(root: &Path, renames: &[(String, String)]) -> Result<Vec<St
     let mut targets: Vec<(String, PathBuf)> = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir)
-            .with_context(|| format!("read dir {}", dir.display()))?;
+        let entries =
+            std::fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))?;
         for entry in entries {
-            let entry = entry
-                .with_context(|| format!("read entry in {}", dir.display()))?;
+            let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
             let fs_path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
@@ -531,8 +521,7 @@ pub fn apply_renames(root: &Path, renames: &[(String, String)]) -> Result<Vec<St
 pub fn reimport_project(root: &Path) -> Result<(UidRegistry, ReimportReport)> {
     let (reg, scan) = scan_project(root)?;
     let importers = default_importers();
-    let mut targets: Vec<&String> =
-        scan.changed.iter().chain(scan.added.iter()).collect();
+    let mut targets: Vec<&String> = scan.changed.iter().chain(scan.added.iter()).collect();
     targets.sort();
 
     let mut reimported = Vec::new();
@@ -547,12 +536,10 @@ pub fn reimport_project(root: &Path) -> Result<(UidRegistry, ReimportReport)> {
             .to_lowercase();
         let importer = importers.iter().find(|i| i.match_ext(&ext));
         match importer {
-            Some(importer) => {
-                match importer.import(fs_path.to_string_lossy().as_ref()) {
-                    Ok(()) => reimported.push(res_path.clone()),
-                    Err(_) => failed.push(res_path.clone()),
-                }
-            }
+            Some(importer) => match importer.import(fs_path.to_string_lossy().as_ref()) {
+                Ok(()) => reimported.push(res_path.clone()),
+                Err(_) => failed.push(res_path.clone()),
+            },
             None => failed.push(res_path.clone()),
         }
     }
@@ -685,7 +672,9 @@ mod tests {
         let root = test_dir("magic");
         let bad_png = root.join("bad.png");
         std::fs::write(&bad_png, b"definitely not a png").unwrap();
-        assert!(PngImporter.import(bad_png.to_string_lossy().as_ref()).is_err());
+        assert!(PngImporter
+            .import(bad_png.to_string_lossy().as_ref())
+            .is_err());
         assert!(PngImporter
             .import(root.join("missing.png").to_string_lossy().as_ref())
             .is_err());
@@ -697,7 +686,9 @@ mod tests {
 
         let bad_wav = root.join("bad.wav");
         std::fs::write(&bad_wav, b"RIFFxxNOTWAVE!").unwrap();
-        assert!(WavImporter.import(bad_wav.to_string_lossy().as_ref()).is_err());
+        assert!(WavImporter
+            .import(bad_wav.to_string_lossy().as_ref())
+            .is_err());
         let short_wav = root.join("short.wav");
         std::fs::write(&short_wav, b"RIFF").unwrap();
         assert!(WavImporter
@@ -723,11 +714,8 @@ mod tests {
         let text = "texture = \"res://assets/player.png\"\n\
             pite.play('res://assets/player.png')\n\
             bare res://assets/player.png stays\n";
-        let (out, count) = replace_res_ref(
-            text,
-            "res://assets/player.png",
-            "res://assets/hero.png",
-        );
+        let (out, count) =
+            replace_res_ref(text, "res://assets/player.png", "res://assets/hero.png");
         assert_eq!(count, 2);
         assert!(out.contains("\"res://assets/hero.png\""));
         assert!(out.contains("'res://assets/hero.png'"));
@@ -804,11 +792,7 @@ mod tests {
         assert_eq!(rep1.added, vec!["res://old.png".to_string()]);
 
         std::fs::rename(root.join("old.png"), root.join("new.png")).unwrap();
-        std::fs::write(
-            root.join("main.pitescene"),
-            "texture = \"res://old.png\"\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("main.pitescene"), "texture = \"res://old.png\"\n").unwrap();
         std::fs::write(
             root.join("play.py"),
             "pite.play('res://old.png')\nbare res://old.png\n",
@@ -818,7 +802,10 @@ mod tests {
         let (reg, report) = reimport_project(&root).unwrap();
         assert_eq!(
             report.refs_updated,
-            vec!["res://main.pitescene".to_string(), "res://play.py".to_string()]
+            vec![
+                "res://main.pitescene".to_string(),
+                "res://play.py".to_string()
+            ]
         );
         let scene = std::fs::read_to_string(root.join("main.pitescene")).unwrap();
         assert!(scene.contains("\"res://new.png\""));

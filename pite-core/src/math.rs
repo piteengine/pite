@@ -34,7 +34,7 @@ pub fn global_position(tree: &crate::NodeTree, id: &crate::NodeId) -> (f64, f64)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{NodeDesc, NodeId, NodeTree, Props, PropValue};
+    use crate::{NodeDesc, NodeId, NodeTree, PropValue, Props};
 
     fn placed(id: &str, parent: Option<&str>, pos: Option<(f64, f64)>) -> NodeDesc {
         let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
@@ -51,8 +51,10 @@ mod tests {
     #[test]
     fn child_follows_moving_parent() {
         let mut tree = NodeTree::new();
-        tree.insert(placed("root", None, Some((10.0, 0.0)))).unwrap();
-        tree.insert(placed("child", Some("root"), Some((5.0, 0.0)))).unwrap();
+        tree.insert(placed("root", None, Some((10.0, 0.0))))
+            .unwrap();
+        tree.insert(placed("child", Some("root"), Some((5.0, 0.0))))
+            .unwrap();
         tree.insert(placed("grand", Some("child"), None)).unwrap();
         assert_eq!(
             global_position(&tree, &NodeId::from("grand".to_string())),

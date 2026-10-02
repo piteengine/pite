@@ -1,14 +1,14 @@
 //! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl;
 //! future backends (or a mock for tests) plug in without touching runtime.
 
-mod host;
 mod audio;
+mod host;
 mod input;
 mod python;
 
 use anyhow::Result;
 
-pub use host::{fire_pressed, proxy_for, resolve_caller, NodeProxy, ScriptHost, set_current_host};
+pub use host::{fire_pressed, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost};
 pub use input::{
     input_begin_frame, input_held, input_mouse, input_pressed, input_released, input_set_key,
     input_set_mouse,
@@ -18,8 +18,7 @@ pub use python::Pyo3Backend;
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];
 
 /// Project root used to resolve `res://` asset refs from Python.
-static PROJECT_DIR: std::sync::Mutex<Option<std::path::PathBuf>> =
-    std::sync::Mutex::new(None);
+static PROJECT_DIR: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 
 pub fn set_project_dir(dir: Option<std::path::PathBuf>) {
     *PROJECT_DIR.lock().expect("project dir lock") = dir;

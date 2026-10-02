@@ -7,8 +7,8 @@ use pyo3::PyClassInitializer;
 
 use std::collections::HashMap;
 
-use crate::{resolve_caller, ScriptBackend};
 use crate::host::NodeProxy;
+use crate::{resolve_caller, ScriptBackend};
 
 #[pyclass(subclass, name = "Node")]
 struct PyNode {
@@ -42,7 +42,12 @@ struct PyNode2D {
 impl PyNode2D {
     #[new]
     fn new() -> (Self, PyNode) {
-        (Self { position: (0.0, 0.0) }, PyNode::new())
+        (
+            Self {
+                position: (0.0, 0.0),
+            },
+            PyNode::new(),
+        )
     }
 }
 
@@ -61,7 +66,9 @@ impl PySprite2D {
     #[new]
     fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D { position: (0.0, 0.0) })
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
             .add_subclass(PySprite2D {
                 texture: String::new(),
                 atlas: String::new(),
@@ -78,7 +85,9 @@ impl PyCamera2D {
     #[new]
     fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D { position: (0.0, 0.0) })
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
             .add_subclass(PyCamera2D)
     }
 }
@@ -127,7 +136,9 @@ impl PyButton {
     #[new]
     fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D { position: (0.0, 0.0) })
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
             .add_subclass(PyButton {
                 text: String::new(),
             })
@@ -142,9 +153,8 @@ fn frames(atlas_ref: &str) -> PyResult<Vec<String>> {
             "no project root known; pite.frames() needs res:// inside a project",
         )
     })?;
-    let atlas = pite_assets::load_sidecar(&root, atlas_ref).map_err(|e| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("{e:#}"))
-    })?;
+    let atlas = pite_assets::load_sidecar(&root, atlas_ref)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:#}")))?;
     Ok(atlas.names().into_iter().map(str::to_string).collect())
 }
 
@@ -613,7 +623,11 @@ class Boom(pite.Node2D):
     #[test]
     fn missing_method_is_noop() {
         let dir = test_dir("plain");
-        let file = fixture(&dir, "plain.py", "import pite\n\nclass Plain(pite.Node):\n    pass\n");
+        let file = fixture(
+            &dir,
+            "plain.py",
+            "import pite\n\nclass Plain(pite.Node):\n    pass\n",
+        );
         let mut backend = Pyo3Backend::new("/root/Plain");
         backend.load(&file, "Plain").unwrap();
         backend.call_ready().unwrap();
@@ -712,7 +726,11 @@ class Hud(pite.Label):
     #[test]
     fn plain_node_has_no_text_channel() {
         let dir = test_dir("notext");
-        let file = fixture(&dir, "plain.py", "import pite\n\nclass Plain(pite.Node):\n    pass\n");
+        let file = fixture(
+            &dir,
+            "plain.py",
+            "import pite\n\nclass Plain(pite.Node):\n    pass\n",
+        );
         let mut backend = Pyo3Backend::new("plain");
         backend.load(&file, "Plain").unwrap();
         assert_eq!(backend.text(), None);
@@ -744,7 +762,8 @@ class Listener(pite.Node2D):
         self.last_msg = msg
 "#;
 
-    const BAD_DECL: &str = "import pite\n\nclass Bad(pite.Node2D):\n    bad = pite.signal(\"wat\")\n";
+    const BAD_DECL: &str =
+        "import pite\n\nclass Bad(pite.Node2D):\n    bad = pite.signal(\"wat\")\n";
 
     #[test]
     fn signals_declare_connect_emit_drop() {
@@ -789,7 +808,12 @@ class Listener(pite.Node2D):
         assert_eq!(listener.position(), Some((7.0, 0.0)));
         Python::attach(|py| {
             let inst = host.lookup_instance(py, "l").unwrap();
-            let msg: String = inst.bind(py).getattr("last_msg").unwrap().extract().unwrap();
+            let msg: String = inst
+                .bind(py)
+                .getattr("last_msg")
+                .unwrap()
+                .extract()
+                .unwrap();
             assert_eq!(msg, "hi");
         });
 
@@ -807,9 +831,7 @@ class Listener(pite.Node2D):
             let empty = pyo3::types::PyTuple::empty(py);
             let err = host.emit(py, "s", "missing", &empty).unwrap_err();
             assert!(err.to_string().contains("unknown signal"));
-            let err = host
-                .connect("s", "missing", "l", "on_tripped")
-                .unwrap_err();
+            let err = host.connect("s", "missing", "l", "on_tripped").unwrap_err();
             assert!(err.to_string().contains("unknown signal"));
         });
 

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use pite_core::{NodeDesc, NodeId, NodeTree, Props, PropValue, ScriptRef};
+use pite_core::{NodeDesc, NodeId, NodeTree, PropValue, Props, ScriptRef};
 use serde::{Deserialize, Serialize};
 
 pub mod cache;
@@ -132,21 +132,18 @@ pub fn load_cached(path: &Path) -> Result<(SceneDoc, CacheStatus, Option<String>
         }
     }
 
-    let text =
-        std::str::from_utf8(&bytes).with_context(|| format!("cannot parse scene {}", path.display()))?;
+    let text = std::str::from_utf8(&bytes)
+        .with_context(|| format!("cannot parse scene {}", path.display()))?;
     let doc =
         parse_scene_str(text).with_context(|| format!("cannot parse scene {}", path.display()))?;
 
     let payload = cache::encode(&doc, source_hash, bytes.len() as u64);
     let mut warning = rebuilt_reason.clone();
     if let Some(dir) = cache_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(dir)
-            .and_then(|()| std::fs::write(&cache_path, &payload))
+        if let Err(e) =
+            std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&cache_path, &payload))
         {
-            let write_warn = format!(
-                "cannot write scene cache {} ({e:#})",
-                cache_path.display()
-            );
+            let write_warn = format!("cannot write scene cache {} ({e:#})", cache_path.display());
             warning = Some(match warning {
                 Some(w) => format!("{w}; {write_warn}"),
                 None => write_warn,
@@ -188,8 +185,7 @@ pub fn validate(doc: &SceneDoc) -> Vec<String> {
             doc.format_version
         ));
     }
-    let ids: std::collections::HashSet<&str> =
-        doc.node.iter().map(|n| n.id.as_str()).collect();
+    let ids: std::collections::HashSet<&str> = doc.node.iter().map(|n| n.id.as_str()).collect();
     if !ids.contains(doc.root.as_str()) {
         issues.push(format!("root {:?} not found in node list", doc.root));
     }
@@ -272,7 +268,10 @@ pub fn instantiate(
             id: NodeId::from(format!("{prefix}{}", n.id)),
             type_name: n.type_name.clone(),
             name: n.name.clone(),
-            parent: n.parent.clone().map(|p| NodeId::from(format!("{prefix}{p}"))),
+            parent: n
+                .parent
+                .clone()
+                .map(|p| NodeId::from(format!("{prefix}{p}"))),
             props,
             script: n.script.as_ref().map(|s| ScriptRef {
                 path: s.path.clone(),
@@ -288,12 +287,15 @@ pub fn instantiate(
             )
         })?;
         let target = format!("{prefix}{node_id}");
-        let desc = descs.iter_mut().find(|d| d.id.as_str() == target).with_context(|| {
-            format!(
-                "override target {target:?} not found in {}",
-                scene_path.display()
-            )
-        })?;
+        let desc = descs
+            .iter_mut()
+            .find(|d| d.id.as_str() == target)
+            .with_context(|| {
+                format!(
+                    "override target {target:?} not found in {}",
+                    scene_path.display()
+                )
+            })?;
         desc.props.insert(prop.to_string(), toml_to_prop(value));
     }
     Ok((descs, format!("{prefix}{}", doc.root)))
@@ -333,7 +335,9 @@ pub fn build_tree(
         let ref_path = resolve_scene_ref(&inst.scene, scene_dir, project_dir)?;
         let (mut descs, subtree_root) = instantiate(&ref_path, &inst.prefix, &inst.overrides)?;
         let attach_at = inst.parent.clone().unwrap_or_else(|| doc.root.clone());
-        if !host_ids.contains(attach_at.as_str()) && tree.get(&NodeId::from(attach_at.clone())).is_none() {
+        if !host_ids.contains(attach_at.as_str())
+            && tree.get(&NodeId::from(attach_at.clone())).is_none()
+        {
             return Err(pite_core::CoreError::MissingParent {
                 child: format!("instance of {}", inst.scene),
                 parent: attach_at,
@@ -345,8 +349,7 @@ pub fn build_tree(
             if desc.id.as_str() == subtree_root {
                 desc.parent = Some(NodeId::from(attach_at.clone()));
             }
-            tree
-                .insert(desc.clone())
+            tree.insert(desc.clone())
                 .map_err(|e| anyhow::anyhow!("instance of {}: {e}", inst.scene))?;
         }
     }
@@ -436,10 +439,7 @@ position = [0.0, 0.0]
         let mut overrides = BTreeMap::new();
         overrides.insert(
             "sprite.position".to_string(),
-            toml::Value::Array(vec![
-                toml::Value::Float(10.0),
-                toml::Value::Float(20.0),
-            ]),
+            toml::Value::Array(vec![toml::Value::Float(10.0), toml::Value::Float(20.0)]),
         );
         let (descs, root) = instantiate(&ref_path, "e1_", &overrides).unwrap();
         assert_eq!(root, "e1_enemy");

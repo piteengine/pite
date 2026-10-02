@@ -49,8 +49,7 @@ fn fonts() -> egui::FontDefinitions {
     );
     fonts.font_data.insert(
         "JetBrainsMono".to_string(),
-        egui::FontData::from_static(include_bytes!("../../fonts/JetBrainsMono-Regular.ttf"))
-            .into(),
+        egui::FontData::from_static(include_bytes!("../../fonts/JetBrainsMono-Regular.ttf")).into(),
     );
     fonts
         .families
@@ -110,9 +109,6 @@ mod tests {
         assert!(style.visuals.dark_mode);
         assert_eq!(style.visuals.window_fill, PANEL);
         assert_eq!(style.text_styles[&egui::TextStyle::Body].size, 15.0);
-        assert_eq!(
-            style.visuals.selection.stroke.color,
-            ACCENT
-        );
+        assert_eq!(style.visuals.selection.stroke.color, ACCENT);
     }
 }

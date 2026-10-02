@@ -185,10 +185,10 @@ impl EditorApp {
             scene_dir: &scene_dir,
             project_dir: self.project_dir.as_deref(),
         };
-        let built =
-            self.session
-                .host()
-                .with_tree(|tree| ops::build_doc(tree, source.as_ref(), Some(refs)));
+        let built = self
+            .session
+            .host()
+            .with_tree(|tree| ops::build_doc(tree, source.as_ref(), Some(refs)));
         match built.and_then(|doc| pite_scene::save_scene(&doc).map_err(anyhow::Error::from)) {
             Ok(text) => match ops::save_text(&self.scene_path, &text) {
                 Ok(()) => {
@@ -202,7 +202,11 @@ impl EditorApp {
     }
 
     fn delete_node(&mut self, id: &NodeId) {
-        match self.session.host().with_tree_mut(|t| ops::remove_node(t, id)) {
+        match self
+            .session
+            .host()
+            .with_tree_mut(|t| ops::remove_node(t, id))
+        {
             Ok(()) => {
                 if self.selected.as_deref() == Some(id.as_str()) {
                     self.selected = None;
@@ -298,8 +302,7 @@ impl EditorApp {
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let save_shortcut =
-            ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+        let save_shortcut = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
         if save_shortcut {
             self.save_scene();
         }
@@ -357,98 +360,115 @@ impl eframe::App for EditorApp {
             });
         });
 
-        egui::SidePanel::left("left").default_width(240.0).resizable(true).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Scene");
-                if icons::icon_button(ui, Icon::Add, "Add a child node under the selection").clicked() {
-                    self.add_open = true;
-                }
-            });
-            if self.add_open {
-                self.show_add_child(ui);
-            }
-            let tree_h = (ui.available_height() * 0.52).max(120.0);
-            egui::ScrollArea::vertical().id_salt("tree").max_height(tree_h).show(ui, |ui| {
-                let root = self
-                    .session
-                    .host()
-                    .with_tree(|t| t.root().cloned());
-                if let Some(root) = root {
-                    self.show_node(ui, &root);
-                }
-                let avail = ui.available_size();
-                if avail.y > 8.0 {
-                    let (rect, resp) = ui.allocate_exact_size(
-                        egui::vec2(avail.x.max(1.0), avail.y),
-                        egui::Sense::hover(),
-                    );
-                    if egui::DragAndDrop::has_any_payload(ui.ctx())
-                        && resp.contains_pointer()
+        egui::SidePanel::left("left")
+            .default_width(240.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("Scene");
+                    if icons::icon_button(ui, Icon::Add, "Add a child node under the selection")
+                        .clicked()
                     {
-                        ui.painter().rect_stroke(
-                            rect,
-                            3.0,
-                            egui::Stroke::new(1.5_f32, crate::theme::FAINT),
-                            egui::StrokeKind::Middle,
-                        );
+                        self.add_open = true;
                     }
-                    if let Some(dragged) = resp.dnd_release_payload::<String>() {
-                        if let Some(root) = self
-                            .session
-                            .host()
-                            .with_tree(|t| t.root().cloned())
-                        {
-                            let dragged_id = NodeId::from(dragged.as_str());
-                            let result = self.session.host().with_tree_mut(|t| {
-                                let len = t.children_of(&root).len();
-                                ops::place_node(t, &dragged_id, &root, len)
-                            });
-                            match result {
-                                Ok(()) => {
-                                    self.viewport_dirty = true;
-                                    self.log(format!("moved {dragged_id}."));
+                });
+                if self.add_open {
+                    self.show_add_child(ui);
+                }
+                let tree_h = (ui.available_height() * 0.52).max(120.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("tree")
+                    .max_height(tree_h)
+                    .show(ui, |ui| {
+                        let root = self.session.host().with_tree(|t| t.root().cloned());
+                        if let Some(root) = root {
+                            self.show_node(ui, &root);
+                        }
+                        let avail = ui.available_size();
+                        if avail.y > 8.0 {
+                            let (rect, resp) = ui.allocate_exact_size(
+                                egui::vec2(avail.x.max(1.0), avail.y),
+                                egui::Sense::hover(),
+                            );
+                            if egui::DragAndDrop::has_any_payload(ui.ctx())
+                                && resp.contains_pointer()
+                            {
+                                ui.painter().rect_stroke(
+                                    rect,
+                                    3.0,
+                                    egui::Stroke::new(1.5_f32, crate::theme::FAINT),
+                                    egui::StrokeKind::Middle,
+                                );
+                            }
+                            if let Some(dragged) = resp.dnd_release_payload::<String>() {
+                                if let Some(root) =
+                                    self.session.host().with_tree(|t| t.root().cloned())
+                                {
+                                    let dragged_id = NodeId::from(dragged.as_str());
+                                    let result = self.session.host().with_tree_mut(|t| {
+                                        let len = t.children_of(&root).len();
+                                        ops::place_node(t, &dragged_id, &root, len)
+                                    });
+                                    match result {
+                                        Ok(()) => {
+                                            self.viewport_dirty = true;
+                                            self.log(format!("moved {dragged_id}."));
+                                        }
+                                        Err(e) => self.log(format!("move failed: {e:#}")),
+                                    }
                                 }
-                                Err(e) => self.log(format!("move failed: {e:#}")),
                             }
                         }
+                    });
+                ui.separator();
+                ui.heading("Assets");
+                let files = self.asset_files();
+                egui::ScrollArea::vertical()
+                    .id_salt("assets")
+                    .show(ui, |ui| {
+                        for file in files {
+                            let label = file
+                                .strip_prefix(self.project_dir.as_deref().unwrap_or(Path::new(".")))
+                                .unwrap_or(&file)
+                                .to_string_lossy()
+                                .replace('\\', "/");
+                            if ui.link(format!("res://{label}")).clicked() {
+                                self.open_asset(&file);
+                            }
+                        }
+                    });
+            });
+
+        egui::SidePanel::right("inspector")
+            .default_width(280.0)
+            .min_width(200.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("Inspector");
+                match self.selected.clone() {
+                    Some(id) => self.show_inspector(ui, &id),
+                    None => {
+                        ui.label("Select a node.");
                     }
                 }
             });
-            ui.separator();
-            ui.heading("Assets");
-            let files = self.asset_files();
-            egui::ScrollArea::vertical().id_salt("assets").show(ui, |ui| {
-                for file in files {
-                    let label = file
-                        .strip_prefix(self.project_dir.as_deref().unwrap_or(Path::new(".")))
-                        .unwrap_or(&file)
-                        .to_string_lossy()
-                        .replace('\\', "/");
-                    if ui.link(format!("res://{label}")).clicked() {
-                        self.open_asset(&file);
-                    }
-                }
-            });
-        });
 
-        egui::SidePanel::right("inspector").default_width(280.0).min_width(200.0).resizable(true).show(ctx, |ui| {
-            ui.heading("Inspector");
-            match self.selected.clone() {
-                Some(id) => self.show_inspector(ui, &id),
-                None => {
-                    ui.label("Select a node.");
-                }
-            }
-        });
-
-        egui::TopBottomPanel::bottom("console").min_height(100.0).resizable(true).show(ctx, |ui| {
-            ui.heading("Console");
-            egui::ScrollArea::vertical().id_salt("console").auto_shrink([false, false]).max_height(200.0).stick_to_bottom(true).show(ui, |ui| {
-                for line in &self.console {
-                    ui.monospace(line);
-                }
+        egui::TopBottomPanel::bottom("console")
+            .min_height(100.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("Console");
+                egui::ScrollArea::vertical()
+                    .id_salt("console")
+                    .auto_shrink([false, false])
+                    .max_height(200.0)
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for line in &self.console {
+                            ui.monospace(line);
+                        }
+                    });
             });
-        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -502,9 +522,11 @@ impl EditorApp {
             if ui.button("Add").clicked() {
                 let type_name = self.add_type.clone();
                 let name = self.add_name.clone();
-                let parent = self.selected.clone().map(NodeId::from).or_else(|| {
-                    self.session.host().with_tree(|t| t.root().cloned())
-                });
+                let parent = self
+                    .selected
+                    .clone()
+                    .map(NodeId::from)
+                    .or_else(|| self.session.host().with_tree(|t| t.root().cloned()));
                 match self
                     .session
                     .host()
@@ -526,15 +548,14 @@ impl EditorApp {
     }
 
     fn show_node(&mut self, ui: &mut egui::Ui, id: &NodeId) {
-        let (name, type_name, children) = self.session.host().with_tree(|t| {
-            t.get(id).map(|n| {
-                (
-                    n.name.clone(),
-                    n.type_name.clone(),
-                    t.children_of(id),
-                )
+        let (name, type_name, children) = self
+            .session
+            .host()
+            .with_tree(|t| {
+                t.get(id)
+                    .map(|n| (n.name.clone(), n.type_name.clone(), t.children_of(id)))
             })
-        }).unwrap_or_else(|| ("?".to_string(), "?".to_string(), vec![]));
+            .unwrap_or_else(|| ("?".to_string(), "?".to_string(), vec![]));
         let script = self.session.host().with_tree(|t| {
             t.get(id).and_then(|n| {
                 n.script
@@ -630,7 +651,10 @@ impl EditorApp {
                 for row in 0..3 {
                     for col in 0..2 {
                         p.circle_filled(
-                            egui::Pos2::new(x - 2.25 + col as f32 * 4.5, y - 4.5 + row as f32 * 4.5),
+                            egui::Pos2::new(
+                                x - 2.25 + col as f32 * 4.5,
+                                y - 4.5 + row as f32 * 4.5,
+                            ),
                             1.2,
                             crate::theme::FAINT,
                         );
@@ -685,10 +709,7 @@ impl EditorApp {
 
     fn show_inspector(&mut self, ui: &mut egui::Ui, id: &str) {
         let node_id = NodeId::from(id.to_string());
-        let snapshot = self
-            .session
-            .host()
-            .with_tree(|t| t.get(&node_id).cloned());
+        let snapshot = self.session.host().with_tree(|t| t.get(&node_id).cloned());
         let Some(node) = snapshot else {
             ui.label("Node no longer exists.");
             return;
@@ -810,13 +831,15 @@ impl EditorApp {
         let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
         if resp.changed() {
             self.lsp_completion_open = false;
-            let paren_at = cursor_byte.filter(|&off| {
-                self.code_text[..off].chars().next_back() == Some('(')
-            });
+            let paren_at =
+                cursor_byte.filter(|&off| self.code_text[..off].chars().next_back() == Some('('));
             self.code_changed(paren_at);
         }
         if resp.has_focus() {
-            let pressed = |key| ui.ctx().input(|i| i.modifiers.command && i.key_pressed(key));
+            let pressed = |key| {
+                ui.ctx()
+                    .input(|i| i.modifiers.command && i.key_pressed(key))
+            };
             if pressed(egui::Key::Space) {
                 self.request_completion_at(cursor_byte);
             } else if pressed(egui::Key::H) {
@@ -827,7 +850,9 @@ impl EditorApp {
     }
 
     fn code_uri(&self) -> Option<String> {
-        self.code_file.as_ref().map(|p| lsp::path_to_uri(p.as_path()))
+        self.code_file
+            .as_ref()
+            .map(|p| lsp::path_to_uri(p.as_path()))
     }
 
     fn code_cursor_byte(text: &str, ctx: &egui::Context, id: &egui::Id) -> Option<usize> {
@@ -852,7 +877,10 @@ impl EditorApp {
             if let Ok(outcome) = rx.try_recv() {
                 self.lsp_starter = None;
                 match outcome {
-                    LspOutcome::Ready { mut client, warning } => {
+                    LspOutcome::Ready {
+                        mut client,
+                        warning,
+                    } => {
                         if let Some(w) = warning {
                             self.log(w);
                         }
@@ -1034,9 +1062,8 @@ impl EditorApp {
                 }
                 Err(e) => {
                     self.viewport_failed = true;
-                    self.console.push(format!(
-                        "viewport GPU unavailable, using fallback: {e:#}"
-                    ));
+                    self.console
+                        .push(format!("viewport GPU unavailable, using fallback: {e:#}"));
                 }
             }
         }
@@ -1055,7 +1082,8 @@ impl EditorApp {
             }
         }
         if let Some(rgba) = fresh_rgba {
-            let image = egui::ColorImage::from_rgba_unmultiplied([view_w as usize, view_h as usize], &rgba);
+            let image =
+                egui::ColorImage::from_rgba_unmultiplied([view_w as usize, view_h as usize], &rgba);
             match self.viewport_tex.as_mut() {
                 Some(handle) => handle.set(image, egui::TextureOptions::NEAREST),
                 None => {
@@ -1114,10 +1142,7 @@ impl EditorApp {
                 painter.circle_filled(p, 6.0, color);
                 if type_name == "Button" && w > 0.0 && h > 0.0 {
                     painter.rect_stroke(
-                        egui::Rect::from_center_size(
-                            p,
-                            egui::Vec2::new(w as f32, h as f32),
-                        ),
+                        egui::Rect::from_center_size(p, egui::Vec2::new(w as f32, h as f32)),
                         4.0,
                         egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(111, 179, 167)),
                         egui::StrokeKind::Middle,
@@ -1146,7 +1171,10 @@ impl EditorApp {
     }
 
     fn asset_files(&self) -> Vec<PathBuf> {
-        let root = self.project_dir.clone().unwrap_or_else(|| PathBuf::from("."));
+        let root = self
+            .project_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
         let mut out = Vec::new();
         let mut stack = vec![root.clone()];
         while let Some(dir) = stack.pop() {

@@ -21,13 +21,7 @@ impl SignalRegistry {
 
     pub fn register(&mut self, name: impl Into<String>, payload: Vec<String>) {
         let name = name.into();
-        self.defs.insert(
-            name.clone(),
-            SignalDef {
-                name,
-                payload,
-            },
-        );
+        self.defs.insert(name.clone(), SignalDef { name, payload });
     }
 
     pub fn get(&self, name: &str) -> Option<&SignalDef> {

@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 use std::sync::{LazyLock, RwLock};
 
-static INPUT: LazyLock<RwLock<InputState>> =
-    LazyLock::new(|| RwLock::new(InputState::default()));
+static INPUT: LazyLock<RwLock<InputState>> = LazyLock::new(|| RwLock::new(InputState::default()));
 
 #[derive(Debug, Default)]
 pub struct InputState {

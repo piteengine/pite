@@ -51,12 +51,18 @@ pub fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Colo
         }
         Icon::Pause => {
             p.rect_filled(
-                egui::Rect::from_min_size(egui::Pos2::new(c.x - 4.5, c.y - 5.0), egui::vec2(3.2, 10.0)),
+                egui::Rect::from_min_size(
+                    egui::Pos2::new(c.x - 4.5, c.y - 5.0),
+                    egui::vec2(3.2, 10.0),
+                ),
                 1.0,
                 fg,
             );
             p.rect_filled(
-                egui::Rect::from_min_size(egui::Pos2::new(c.x + 1.3, c.y - 5.0), egui::vec2(3.2, 10.0)),
+                egui::Rect::from_min_size(
+                    egui::Pos2::new(c.x + 1.3, c.y - 5.0),
+                    egui::vec2(3.2, 10.0),
+                ),
                 1.0,
                 fg,
             );
@@ -70,7 +76,12 @@ pub fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Colo
         }
         Icon::Save => {
             let body = egui::Rect::from_center_size(c, egui::vec2(12.0, 12.0));
-            p.rect_stroke(body, 1.5, egui::Stroke::new(1.6_f32, fg), egui::StrokeKind::Middle);
+            p.rect_stroke(
+                body,
+                1.5,
+                egui::Stroke::new(1.6_f32, fg),
+                egui::StrokeKind::Middle,
+            );
             p.rect_filled(
                 egui::Rect::from_min_size(
                     egui::Pos2::new(c.x - 2.5, c.y - 6.0),
@@ -91,12 +102,25 @@ pub fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Colo
         Icon::Add => {
             const BAR: f32 = 1.9;
             const ARM: f32 = 5.5;
-            p.rect_filled(egui::Rect::from_center_size(c, egui::vec2(ARM * 2.0, BAR)), 0.0, fg);
-            p.rect_filled(egui::Rect::from_center_size(c, egui::vec2(BAR, ARM * 2.0)), 0.0, fg);
+            p.rect_filled(
+                egui::Rect::from_center_size(c, egui::vec2(ARM * 2.0, BAR)),
+                0.0,
+                fg,
+            );
+            p.rect_filled(
+                egui::Rect::from_center_size(c, egui::vec2(BAR, ARM * 2.0)),
+                0.0,
+                fg,
+            );
         }
         Icon::Script => {
             let page = egui::Rect::from_center_size(c, egui::vec2(8.0, 10.5));
-            p.rect_stroke(page, 1.2, egui::Stroke::new(1.2_f32, fg), egui::StrokeKind::Middle);
+            p.rect_stroke(
+                page,
+                1.2,
+                egui::Stroke::new(1.2_f32, fg),
+                egui::StrokeKind::Middle,
+            );
             let inset = page.width() * 0.26;
             for row in [-0.8_f32, 0.8] {
                 let y = c.y + row * page.height() * 0.2 + 0.2;

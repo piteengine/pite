@@ -95,7 +95,10 @@ pub fn parse_color(s: &str) -> [u8; 4] {
 }
 
 pub fn glyph_cache_key(text: &str, px: u32, color: [u8; 4]) -> String {
-    format!("text\0{text}\0{px}\0{}\0{}\0{}\0{}", color[0], color[1], color[2], color[3])
+    format!(
+        "text\0{text}\0{px}\0{}\0{}\0{}\0{}",
+        color[0], color[1], color[2], color[3]
+    )
 }
 
 pub fn lru_touch(order: &mut std::collections::VecDeque<String>, key: &str, cap: usize) {

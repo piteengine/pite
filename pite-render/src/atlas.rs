@@ -159,7 +159,9 @@ pub fn sheet_for_sidecar(sidecar: &Path) -> PathBuf {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or_default();
-    let stem = name.strip_suffix(&format!(".{SIDECAR_EXT}")).unwrap_or(name);
+    let stem = name
+        .strip_suffix(&format!(".{SIDECAR_EXT}"))
+        .unwrap_or(name);
     sidecar
         .parent()
         .unwrap_or_else(|| Path::new(""))
@@ -186,8 +188,24 @@ mod tests {
         assert_eq!(atlas.texture, "sheet.png");
         assert_eq!(atlas.size, (64, 32));
         assert_eq!(atlas.frames.len(), 3);
-        assert_eq!(atlas.frame("player").unwrap(), AtlasFrame { x: 0, y: 0, w: 32, h: 32 });
-        assert_eq!(atlas.frame("enemy").unwrap(), AtlasFrame { x: 32, y: 0, w: 32, h: 32 });
+        assert_eq!(
+            atlas.frame("player").unwrap(),
+            AtlasFrame {
+                x: 0,
+                y: 0,
+                w: 32,
+                h: 32
+            }
+        );
+        assert_eq!(
+            atlas.frame("enemy").unwrap(),
+            AtlasFrame {
+                x: 32,
+                y: 0,
+                w: 32,
+                h: 32
+            }
+        );
         assert_eq!(atlas.names(), vec!["coin", "enemy", "player"]);
     }
 

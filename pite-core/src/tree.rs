@@ -86,9 +86,7 @@ impl NodeTree {
         let node = self
             .nodes
             .get(id.as_str())
-            .ok_or_else(|| CoreError::UnknownNode {
-                id: id.to_string(),
-            })?;
+            .ok_or_else(|| CoreError::UnknownNode { id: id.to_string() })?;
         if self.root.as_ref() == Some(id) {
             return Err(CoreError::RemoveRoot);
         }
@@ -116,9 +114,7 @@ impl NodeTree {
 
     pub fn reparent(&mut self, id: &NodeId, new_parent: Option<NodeId>) -> Result<()> {
         if !self.nodes.contains_key(id.as_str()) {
-            return Err(CoreError::UnknownNode {
-                id: id.to_string(),
-            });
+            return Err(CoreError::UnknownNode { id: id.to_string() });
         }
         if self.root.as_ref() == Some(id) && new_parent.is_some() {
             return Err(CoreError::RemoveRoot);
@@ -188,7 +184,9 @@ mod tests {
         tree.remove(&NodeId::from("a".to_string())).unwrap();
         assert_eq!(tree.len(), 1);
         assert!(tree.get(&NodeId::from("b".to_string())).is_none());
-        assert!(tree.children_of(&NodeId::from("root".to_string())).is_empty());
+        assert!(tree
+            .children_of(&NodeId::from("root".to_string()))
+            .is_empty());
     }
 
     #[test]

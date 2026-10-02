@@ -15,13 +15,7 @@ use pite_scene::{SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION
 /// the registry exposes no listing API and the editor must not touch core.
 pub fn registered_types() -> Vec<String> {
     [
-        "Node",
-        "Node2D",
-        "Sprite2D",
-        "Camera2D",
-        "Timer",
-        "Label",
-        "Button",
+        "Node", "Node2D", "Sprite2D", "Camera2D", "Timer", "Label", "Button",
     ]
     .iter()
     .map(ToString::to_string)
@@ -190,10 +184,9 @@ fn prop_to_toml(value: &PropValue) -> toml::Value {
         PropValue::Num(f) => toml::Value::Float(*f),
         PropValue::Int(i) => toml::Value::Integer(*i),
         PropValue::Bool(b) => toml::Value::Boolean(*b),
-        PropValue::Vec2(x, y) => toml::Value::Array(vec![
-            toml::Value::Float(*x),
-            toml::Value::Float(*y),
-        ]),
+        PropValue::Vec2(x, y) => {
+            toml::Value::Array(vec![toml::Value::Float(*x), toml::Value::Float(*y)])
+        }
     }
 }
 
@@ -324,9 +317,7 @@ fn plan_instance(
             .with_context(|| format!("live tree is missing `{live_id}`"))?;
         owned.insert(live_id.clone());
         if live.type_name != ref_node.type_name || live.name != ref_node.name {
-            anyhow::bail!(
-                "`{live_id}` was renamed or retyped; overrides carry props only"
-            );
+            anyhow::bail!("`{live_id}` was renamed or retyped; overrides carry props only");
         }
         let live_script = live
             .script
@@ -340,7 +331,10 @@ fn plan_instance(
             anyhow::bail!("script on `{live_id}` cannot be overridden per instance");
         }
         if ref_node.id != ref_doc.root {
-            let expected = ref_node.parent.as_ref().map(|p| format!("{}{p}", inst.prefix));
+            let expected = ref_node
+                .parent
+                .as_ref()
+                .map(|p| format!("{}{p}", inst.prefix));
             if live.parent.as_ref().map(ToString::to_string) != expected {
                 anyhow::bail!("`{live_id}` was reparented inside the instance");
             }
@@ -383,11 +377,7 @@ fn plan_instance(
 
 /// A node that belongs to no source entry and hangs under an instanced node
 /// was added inside an instance — unrepresentable, so refuse the save.
-fn reject_foreign_nodes(
-    tree: &NodeTree,
-    source: &SceneDoc,
-    owned: &HashSet<String>,
-) -> Result<()> {
+fn reject_foreign_nodes(tree: &NodeTree, source: &SceneDoc, owned: &HashSet<String>) -> Result<()> {
     let authored: HashSet<&str> = source.node.iter().map(|n| n.id.as_str()).collect();
     for n in tree.iter() {
         let id = n.id.as_str();
@@ -424,10 +414,7 @@ pub fn gutter_marks(errors: &[String]) -> Vec<(usize, String)> {
         let mut line_no: Option<usize> = None;
         for (idx, _) in err.match_indices("line ") {
             let rest = &err[idx + "line ".len()..];
-            let digits: String = rest
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
             if !digits.is_empty() {
                 if let Ok(n) = digits.parse::<usize>() {
                     line_no = Some(n);
@@ -443,8 +430,7 @@ pub fn gutter_marks(errors: &[String]) -> Vec<(usize, String)> {
 
 /// Thin file write used by scene and script saves.
 pub fn save_text(path: &Path, text: &str) -> Result<()> {
-    std::fs::write(path, text)
-        .with_context(|| format!("cannot write {}", path.display()))?;
+    std::fs::write(path, text).with_context(|| format!("cannot write {}", path.display()))?;
     Ok(())
 }
 
@@ -508,10 +494,8 @@ prefix = "e1_"
         /// Project with `host.pitescene` instantiating `enemy.pitescene`.
         fn with_instances(tag: &str) -> Self {
             let n = FIXTURE_COUNTER.fetch_add(1, Ordering::SeqCst);
-            let dir = std::env::temp_dir().join(format!(
-                "pite-ops-inst-{tag}-{}-{n}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("pite-ops-inst-{tag}-{}-{n}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(dir.join("scenes")).expect("create scenes dir");
             std::fs::write(dir.join("scenes").join("enemy.pitescene"), ENEMY_SCENE)
@@ -550,7 +534,8 @@ prefix = "e1_"
         }
 
         fn save_text(&self, tree: &NodeTree, source: &SceneDoc) -> String {
-            pite_scene::save_scene(&self.save(tree, source).expect("save builds")).expect("serializes")
+            pite_scene::save_scene(&self.save(tree, source).expect("save builds"))
+                .expect("serializes")
         }
     }
 
@@ -573,10 +558,20 @@ prefix = "e1_"
         assert_eq!(inst.prefix, "e1_");
         assert_eq!(inst.parent.as_deref(), Some("root"));
         let ids: Vec<&str> = doc.node.iter().map(|n| n.id.as_str()).collect();
-        assert_eq!(ids, vec!["root", "player"], "instance nodes must not be inlined");
+        assert_eq!(
+            ids,
+            vec!["root", "player"],
+            "instance nodes must not be inlined"
+        );
         let text = pite_scene::save_scene(&doc).unwrap();
-        assert!(text.contains("[[instance]]"), "serialized doc lost its instance");
-        assert!(!text.contains("e1_enemy"), "instance subtree leaked into nodes");
+        assert!(
+            text.contains("[[instance]]"),
+            "serialized doc lost its instance"
+        );
+        assert!(
+            !text.contains("e1_enemy"),
+            "instance subtree leaked into nodes"
+        );
     }
 
     #[test]
@@ -648,7 +643,10 @@ prefix = "e1_"
         let first = pite_scene::save_scene(&doc).unwrap();
         let reparsed = pite_scene::parse_scene_str(&first).unwrap();
         let again = pite_scene::save_scene(&reparsed).unwrap();
-        assert_eq!(first, again, "plain scenes must serialize deterministically");
+        assert_eq!(
+            first, again,
+            "plain scenes must serialize deterministically"
+        );
     }
 
     #[test]
@@ -705,9 +703,7 @@ prefix = "e1_"
         assert_eq!(doc.instance.len(), 1);
         assert_eq!(doc.instance[0].prefix, "e1_");
         assert!(
-            doc.instance[0]
-                .overrides
-                .contains_key("sprite.position"),
+            doc.instance[0].overrides.contains_key("sprite.position"),
             "dogfood override must survive"
         );
         assert!(
@@ -722,7 +718,10 @@ prefix = "e1_"
             &build_doc(&tree2, Some(&reparsed), Some(refs)).expect("second save builds"),
         )
         .unwrap();
-        assert_eq!(first, second, "dogfood save -> load -> save must be identical");
+        assert_eq!(
+            first, second,
+            "dogfood save -> load -> save must be identical"
+        );
     }
 
     fn rooted_tree() -> NodeTree {
@@ -768,13 +767,7 @@ prefix = "e1_"
         let mut tree = rooted_tree();
         let root = tree.root().cloned().unwrap();
         set_prop(&mut tree, &root, "speed", PropValue::Num(3.5)).unwrap();
-        set_prop(
-            &mut tree,
-            &root,
-            "title",
-            PropValue::Str("hi".to_string()),
-        )
-        .unwrap();
+        set_prop(&mut tree, &root, "title", PropValue::Str("hi".to_string())).unwrap();
         let node = tree.get(&root).unwrap();
         assert_eq!(node.props.get("speed"), Some(&PropValue::Num(3.5)));
         assert_eq!(
@@ -787,27 +780,19 @@ prefix = "e1_"
     fn build_save_parse_round_trip_preserves_nodes_and_props() {
         let mut tree = rooted_tree();
         let root = tree.root().cloned().unwrap();
-        set_prop(
-            &mut tree,
-            &root,
-            "position",
-            PropValue::Vec2(100.0, 200.0),
-        )
-        .unwrap();
+        set_prop(&mut tree, &root, "position", PropValue::Vec2(100.0, 200.0)).unwrap();
         let child = add_node(&mut tree, Some(root), "Label", "Score").unwrap();
-        set_prop(
-            &mut tree,
-            &child,
-            "text",
-            PropValue::Str("0".to_string()),
-        )
-        .unwrap();
+        set_prop(&mut tree, &child, "text", PropValue::Str("0".to_string())).unwrap();
         let doc = build_doc(&tree, None, None).unwrap();
         let text = pite_scene::save_scene(&doc).unwrap();
         let again = pite_scene::parse_scene_str(&text).unwrap();
         assert_eq!(again.node.len(), 2);
         assert_eq!(again.root, doc.root);
-        let player = again.node.iter().find(|n| n.id == child.to_string()).unwrap();
+        let player = again
+            .node
+            .iter()
+            .find(|n| n.id == child.to_string())
+            .unwrap();
         assert_eq!(
             player.props.get("text"),
             Some(&toml::Value::String("0".to_string()))
@@ -875,8 +860,13 @@ prefix = "e1_"
             0
         )
         .is_err());
-        place_node(&mut tree, &NodeId::from("b".to_string()), &NodeId::from("a".to_string()), 0)
-            .unwrap();
+        place_node(
+            &mut tree,
+            &NodeId::from("b".to_string()),
+            &NodeId::from("a".to_string()),
+            0,
+        )
+        .unwrap();
         assert!(place_node(
             &mut tree,
             &NodeId::from("a".to_string()),
@@ -884,13 +874,7 @@ prefix = "e1_"
             0
         )
         .is_err());
-        assert!(place_node(
-            &mut tree,
-            &NodeId::from("nope".to_string()),
-            &root,
-            0
-        )
-        .is_err());
+        assert!(place_node(&mut tree, &NodeId::from("nope".to_string()), &root, 0).is_err());
     }
 
     #[test]

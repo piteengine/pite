@@ -18,7 +18,10 @@ pub enum SpriteSource {
     /// No texture at all: the node draws nothing (today's behavior).
     Empty,
     Texture(String),
-    Atlas { atlas: String, frame: String },
+    Atlas {
+        atlas: String,
+        frame: String,
+    },
 }
 
 /// `texture` and `atlas` are mutually exclusive, and `frame` is meaningless
@@ -76,10 +79,9 @@ pub fn atlas_report(root: &Path, uses: &[AtlasUse]) -> (Vec<String>, Vec<String>
             match &loaded {
                 Ok(atlas) => match atlas.frame(&use_.frame) {
                     Ok(_) => referenced.push(use_.frame.as_str()),
-                    Err(e) => errors.push(format!(
-                        "scene {}: node {:?} {e}",
-                        use_.scene, use_.node
-                    )),
+                    Err(e) => {
+                        errors.push(format!("scene {}: node {:?} {e}", use_.scene, use_.node))
+                    }
                 },
                 Err(e) => errors.push(format!("scene {}: node {:?} {e:#}", use_.scene, use_.node)),
             }
@@ -123,8 +125,7 @@ mod tests {
 
     fn project(tag: &str) -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir()
-            .join(format!("pite-atlas-{tag}-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pite-atlas-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         std::fs::write(
@@ -139,9 +140,13 @@ mod tests {
 
     #[test]
     fn texture_and_atlas_are_mutually_exclusive() {
-        let err = resolve_sprite_source(Some("res://a.png"), Some("res://sheet.atlas.json"), Some("player"))
-            .unwrap_err()
-            .to_string();
+        let err = resolve_sprite_source(
+            Some("res://a.png"),
+            Some("res://sheet.atlas.json"),
+            Some("player"),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("mutually exclusive"), "got: {err}");
     }
 
@@ -163,7 +168,10 @@ mod tests {
             resolve_sprite_source(Some("res://a.png"), None, None).unwrap(),
             SpriteSource::Texture("res://a.png".to_string())
         );
-        assert_eq!(resolve_sprite_source(None, None, None).unwrap(), SpriteSource::Empty);
+        assert_eq!(
+            resolve_sprite_source(None, None, None).unwrap(),
+            SpriteSource::Empty
+        );
         assert_eq!(
             resolve_sprite_source(None, Some("res://sheet.atlas.json"), Some("player")).unwrap(),
             SpriteSource::Atlas {
@@ -193,7 +201,10 @@ mod tests {
         let (errors, warnings) = atlas_report(&dir, &uses);
         assert_eq!(errors.len(), 1, "got: {errors:?}");
         assert!(errors[0].contains("no frame \"ghost\""), "got: {errors:?}");
-        assert!(errors[0].contains("player"), "should list alternatives: {errors:?}");
+        assert!(
+            errors[0].contains("player"),
+            "should list alternatives: {errors:?}"
+        );
         assert_eq!(warnings.len(), 1, "got: {warnings:?}");
         assert!(warnings[0].contains("\"enemy\""), "got: {warnings:?}");
         std::fs::remove_dir_all(&dir).ok();

@@ -23,8 +23,7 @@ pub const PINNED_PYTHON: &str = "3.12.9";
 /// Every member path in these archives sits under this directory.
 pub const ARCHIVE_ROOT: &str = "python";
 
-const RELEASE_BASE: &str =
-    "https://github.com/astral-sh/python-build-standalone/releases/download";
+const RELEASE_BASE: &str = "https://github.com/astral-sh/python-build-standalone/releases/download";
 
 /// One platform's pinned artifact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +168,11 @@ fn download(url: &str, dest: &Path) -> Result<()> {
 
 fn downloader() -> Result<&'static str> {
     for tool in ["curl", "curl.exe"] {
-        if Command::new(tool).arg("--version").output().is_ok_and(|o| o.status.success()) {
+        if Command::new(tool)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+        {
             return Ok(tool);
         }
     }
@@ -215,8 +218,7 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
         .to_string_lossy()
         .into_owned();
     let lib = lib_dir.join(&lib_name);
-    std::fs::copy(&lib_src, &lib)
-        .with_context(|| format!("cannot copy {}", lib_src.display()))?;
+    std::fs::copy(&lib_src, &lib).with_context(|| format!("cannot copy {}", lib_src.display()))?;
 
     let stdlib_dir = work.join(ARCHIVE_ROOT).join(&spec.stdlib);
     if !stdlib_dir.is_dir() {
@@ -229,7 +231,11 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
     let stdlib_zip = dest.join(spec.zip_name);
     zip_dir(&stdlib_dir, &stdlib_zip)?;
     let _ = std::fs::remove_dir_all(&work);
-    Ok(StagedBundle { root: dest.to_path_buf(), lib, stdlib_zip })
+    Ok(StagedBundle {
+        root: dest.to_path_buf(),
+        lib,
+        stdlib_zip,
+    })
 }
 
 /// Directories never shipped. `pite` registers its module from Rust, so an
@@ -285,8 +291,8 @@ fn zip_dir(dir: &Path, zip_path: &Path) -> Result<()> {
     let mut central: Vec<u8> = Vec::new();
     let mut count = 0u16;
     for (name, path) in &entries {
-        let data = std::fs::read(path)
-            .with_context(|| format!("cannot read {}", path.display()))?;
+        let data =
+            std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
         let crc = crc32(&data);
         let offset = out.len() as u32;
         out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
@@ -338,9 +344,7 @@ fn zip_dir(dir: &Path, zip_path: &Path) -> Result<()> {
 }
 
 fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
-    for entry in std::fs::read_dir(dir)
-        .with_context(|| format!("cannot read {}", dir.display()))?
-    {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if EXCLUDED.contains(&name.as_str()) {
@@ -367,7 +371,12 @@ pub fn launcher_env(bundle: &StagedBundle) -> Vec<(String, String)> {
     vec![
         (
             "LD_LIBRARY_PATH".to_string(),
-            bundle.lib.parent().unwrap_or(&bundle.root).to_string_lossy().into_owned(),
+            bundle
+                .lib
+                .parent()
+                .unwrap_or(&bundle.root)
+                .to_string_lossy()
+                .into_owned(),
         ),
         (
             "PYTHONPATH".to_string(),
@@ -385,7 +394,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("pite-bundle-{tag}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("pite-bundle-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -484,7 +494,10 @@ mod tests {
                     .any(|l| l == needle || l.starts_with(&format!("{needle}/")))
             };
             assert!(has(&lib), "{platform}: archive has no interpreter at {lib}");
-            assert!(has(&stdlib), "{platform}: archive has no stdlib at {stdlib}");
+            assert!(
+                has(&stdlib),
+                "{platform}: archive has no stdlib at {stdlib}"
+            );
             let stem = spec.lib.rsplit('/').next().unwrap_or(spec.lib);
             assert!(
                 !FORWARDERS.contains(&stem),

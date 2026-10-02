@@ -56,14 +56,7 @@ impl Renderer2D for NoopRenderer {
         Ok(())
     }
 
-    fn draw_rect(
-        &mut self,
-        _x: f64,
-        _y: f64,
-        _w: f64,
-        _h: f64,
-        _color: [u8; 4],
-    ) -> Result<()> {
+    fn draw_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64, _color: [u8; 4]) -> Result<()> {
         Ok(())
     }
 
@@ -83,7 +76,12 @@ pub fn world_to_screen(
     (sx, sy)
 }
 
-pub fn screen_to_world(screen: (f32, f32), cam: (f64, f64), zoom: f64, size: (u32, u32)) -> (f64, f64) {
+pub fn screen_to_world(
+    screen: (f32, f32),
+    cam: (f64, f64),
+    zoom: f64,
+    size: (u32, u32),
+) -> (f64, f64) {
     let zoom = if zoom == 0.0 { 1.0 } else { zoom };
     (
         cam.0 + (screen.0 as f64 - size.0 as f64 / 2.0) / zoom,
@@ -115,10 +113,22 @@ fn quad_for(
     let hw = w_px / size.0 as f32;
     let hh = h_px / size.1 as f32;
     let (cx, cy) = center_ndc;
-    let tl = SpriteVertex { pos: [cx - hw, cy + hh], uv: [uv[0], uv[1]] };
-    let tr = SpriteVertex { pos: [cx + hw, cy + hh], uv: [uv[2], uv[1]] };
-    let br = SpriteVertex { pos: [cx + hw, cy - hh], uv: [uv[2], uv[3]] };
-    let bl = SpriteVertex { pos: [cx - hw, cy - hh], uv: [uv[0], uv[3]] };
+    let tl = SpriteVertex {
+        pos: [cx - hw, cy + hh],
+        uv: [uv[0], uv[1]],
+    };
+    let tr = SpriteVertex {
+        pos: [cx + hw, cy + hh],
+        uv: [uv[2], uv[1]],
+    };
+    let br = SpriteVertex {
+        pos: [cx + hw, cy - hh],
+        uv: [uv[2], uv[3]],
+    };
+    let bl = SpriteVertex {
+        pos: [cx - hw, cy - hh],
+        uv: [uv[0], uv[3]],
+    };
     // The pipeline is TriangleList, so a quad is two whole triangles. Four
     // vertices would draw one triangle, drop the other, and bridge into the
     // next quad in the same batch.
@@ -280,7 +290,11 @@ fn upload(
     w: u32,
     h: u32,
 ) -> wgpu::Texture {
-    let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+    let size = wgpu::Extent3d {
+        width: w,
+        height: h,
+        depth_or_array_layers: 1,
+    };
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("pite tex"),
         size,
@@ -438,18 +452,15 @@ impl WgpuRenderer {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let surface = instance.create_surface(window)?;
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            }))
-            .context("no suitable GPU adapter")?;
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor::default(),
-            None,
-        ))
-        .context("cannot request GPU device")?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }))
+        .context("no suitable GPU adapter")?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .context("cannot request GPU device")?;
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -519,32 +530,46 @@ impl WgpuRenderer {
                 let texture = upload(&self.device, &self.queue, &rgba, w, h);
                 let view = texture.create_view(&Default::default());
                 let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture { texture, view, bind_group, w, h }
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w,
+                    h,
+                }
             }
             None => {
                 tracing::warn!(texture = key, "cannot load texture, using fallback");
                 let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
                 let view = texture.create_view(&Default::default());
-                let bind_group =
-                    bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture { texture, view, bind_group, w: 8, h: 8 }
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w: 8,
+                    h: 8,
+                }
             }
         }
     }
 
     fn texture_for(&mut self, key: &str) -> &GpuTexture {
         if !self.textures.contains_key(key) {
-            let baked = self
-                .baked
-                .get(key)
-                .map(|b| (b.rgba.clone(), b.w, b.h));
+            let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
             let entry = match baked {
                 Some((rgba, w, h)) => {
                     let texture = upload(&self.device, &self.queue, &rgba, w, h);
                     let view = texture.create_view(&Default::default());
                     let bind_group =
                         bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                    GpuTexture { texture, view, bind_group, w, h }
+                    GpuTexture {
+                        texture,
+                        view,
+                        bind_group,
+                        w,
+                        h,
+                    }
                 }
                 None => self.load_texture(key),
             };
@@ -560,7 +585,8 @@ impl WgpuRenderer {
         let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
         let key = text::glyph_cache_key(text, px, color);
         if !self.baked.contains_key(&key) {
-            self.baked.insert(key.clone(), self.atlas.bake(text, px as f32, color));
+            self.baked
+                .insert(key.clone(), self.atlas.bake(text, px as f32, color));
             text::lru_touch(&mut self.baked_order, &key, 64);
             while self.baked_order.len() > 64 {
                 if let Some(old) = self.baked_order.pop_front() {
@@ -585,7 +611,13 @@ impl Renderer2D for WgpuRenderer {
         Ok(())
     }
 
-    fn draw_sprite_frame(&mut self, texture: &str, frame: Option<&str>, x: f64, y: f64) -> Result<()> {
+    fn draw_sprite_frame(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+    ) -> Result<()> {
         let Some(frame) = frame else {
             self.queue_list
                 .push(QueuedSprite::plain(texture.to_string(), (x, y)));
@@ -652,7 +684,14 @@ impl Renderer2D for WgpuRenderer {
             Err(e) => anyhow::bail!("surface failed: {e}"),
         };
         let view = frame.texture.create_view(&Default::default());
-        let cmd = encode_groups(&self.device, &self.pipeline, &self.textures, &groups, &order, &view);
+        let cmd = encode_groups(
+            &self.device,
+            &self.pipeline,
+            &self.textures,
+            &groups,
+            &order,
+            &view,
+        );
         self.queue.submit(std::iter::once(cmd));
         frame.present();
         Ok(())
@@ -688,24 +727,24 @@ impl OffscreenRenderer {
         let width = width.max(1);
         let height = height.max(1);
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            },
-        ))
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
         .context("no suitable GPU adapter")?;
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor::default(),
-            None,
-        ))
-        .context("cannot request GPU device")?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .context("cannot request GPU device")?;
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("pite offscreen target"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -749,32 +788,46 @@ impl OffscreenRenderer {
                 let texture = upload(&self.device, &self.queue, &rgba, w, h);
                 let view = texture.create_view(&Default::default());
                 let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture { texture, view, bind_group, w, h }
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w,
+                    h,
+                }
             }
             None => {
                 tracing::warn!(texture = key, "cannot load texture, using fallback");
                 let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
                 let view = texture.create_view(&Default::default());
-                let bind_group =
-                    bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture { texture, view, bind_group, w: 8, h: 8 }
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w: 8,
+                    h: 8,
+                }
             }
         }
     }
 
     fn texture_for(&mut self, key: &str) -> &GpuTexture {
         if !self.textures.contains_key(key) {
-            let baked = self
-                .baked
-                .get(key)
-                .map(|b| (b.rgba.clone(), b.w, b.h));
+            let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
             let entry = match baked {
                 Some((rgba, w, h)) => {
                     let texture = upload(&self.device, &self.queue, &rgba, w, h);
                     let view = texture.create_view(&Default::default());
                     let bind_group =
                         bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                    GpuTexture { texture, view, bind_group, w, h }
+                    GpuTexture {
+                        texture,
+                        view,
+                        bind_group,
+                        w,
+                        h,
+                    }
                 }
                 None => self.load_texture(key),
             };
@@ -790,7 +843,8 @@ impl OffscreenRenderer {
         let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
         let key = text::glyph_cache_key(text, px, color);
         if !self.baked.contains_key(&key) {
-            self.baked.insert(key.clone(), self.atlas.bake(text, px as f32, color));
+            self.baked
+                .insert(key.clone(), self.atlas.bake(text, px as f32, color));
             text::lru_touch(&mut self.baked_order, &key, 64);
             while self.baked_order.len() > 64 {
                 if let Some(old) = self.baked_order.pop_front() {
@@ -815,7 +869,14 @@ impl OffscreenRenderer {
             .collect();
         let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
         let view = self.target.create_view(&Default::default());
-        encode_groups(&self.device, &self.pipeline, &self.textures, &groups, &order, &view)
+        encode_groups(
+            &self.device,
+            &self.pipeline,
+            &self.textures,
+            &groups,
+            &order,
+            &view,
+        )
     }
 
     pub fn render_to_rgba(&mut self) -> Result<Vec<u8>> {
@@ -863,11 +924,13 @@ impl OffscreenRenderer {
                 let Some(tex) = self.textures.get(key) else {
                     continue;
                 };
-                let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("pite offscreen verts"),
-                    contents: bytemuck::cast_slice(verts),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+                let buf = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("pite offscreen verts"),
+                        contents: bytemuck::cast_slice(verts),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
                 pass.set_bind_group(0, &tex.bind_group, &[]);
                 pass.set_vertex_buffer(0, buf.slice(..));
                 pass.draw(0..verts.len() as u32, 0..1);
@@ -894,7 +957,11 @@ impl OffscreenRenderer {
                     rows_per_image: Some(h),
                 },
             },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
         );
         self.queue.submit(std::iter::once(encoder.finish()));
         let (tx, rx) = std::sync::mpsc::channel();
@@ -932,7 +999,13 @@ impl Renderer2D for OffscreenRenderer {
         Ok(())
     }
 
-    fn draw_sprite_frame(&mut self, texture: &str, frame: Option<&str>, x: f64, y: f64) -> Result<()> {
+    fn draw_sprite_frame(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+    ) -> Result<()> {
         let Some(frame) = frame else {
             self.queue_list
                 .push(QueuedSprite::plain(texture.to_string(), (x, y)));
@@ -1036,13 +1109,13 @@ mod tests {
     #[test]
     fn sprite_renders_green_pixel_offscreen() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let Some(adapter) = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
-            },
-        )) else {
+            }))
+        else {
             eprintln!("SKIP: no fallback GPU adapter on this machine");
             return;
         };
@@ -1061,7 +1134,11 @@ mod tests {
 
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("pite test target"),
-            size: wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1071,12 +1148,30 @@ mod tests {
         });
         let target_view = target.create_view(&Default::default());
         let quad = [
-            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
-            SpriteVertex { pos: [1.0, 1.0], uv: [1.0, 0.0] },
-            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
-            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
-            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
-            SpriteVertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
+            SpriteVertex {
+                pos: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            SpriteVertex {
+                pos: [1.0, 1.0],
+                uv: [1.0, 0.0],
+            },
+            SpriteVertex {
+                pos: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            SpriteVertex {
+                pos: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            SpriteVertex {
+                pos: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            SpriteVertex {
+                pos: [-1.0, -1.0],
+                uv: [0.0, 1.0],
+            },
         ];
         let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("pite test verts"),
@@ -1091,7 +1186,12 @@ mod tests {
                     view: &target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1125,7 +1225,11 @@ mod tests {
                     rows_per_image: Some(64),
                 },
             },
-            wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
         );
         queue.submit(std::iter::once(encoder.finish()));
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1170,8 +1274,10 @@ mod tests {
         r.draw_sprite("../examples/minimal-2d/assets/player.png", 0.0, 0.0)
             .expect("queue sprite");
         let rgba = r.render_to_rgba().expect("offscreen readback");
-        let seen: std::collections::HashSet<[u8; 4]> =
-            rgba.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect();
+        let seen: std::collections::HashSet<[u8; 4]> = rgba
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2], c[3]])
+            .collect();
         assert!(
             seen.contains(&[74, 222, 128, 255]),
             "authored green must survive the round-trip, saw {:?}",
@@ -1212,13 +1318,13 @@ mod tests {
     #[test]
     fn baked_text_renders_bright_pixels_offscreen() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let Some(adapter) = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
-            },
-        )) else {
+            }))
+        else {
             eprintln!("SKIP: no fallback GPU adapter on this machine");
             return;
         };
@@ -1236,7 +1342,11 @@ mod tests {
 
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("pite text test target"),
-            size: wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1246,12 +1356,30 @@ mod tests {
         });
         let target_view = target.create_view(&Default::default());
         let quad = [
-            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
-            SpriteVertex { pos: [1.0, 1.0], uv: [1.0, 0.0] },
-            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
-            SpriteVertex { pos: [-1.0, 1.0], uv: [0.0, 0.0] },
-            SpriteVertex { pos: [1.0, -1.0], uv: [1.0, 1.0] },
-            SpriteVertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
+            SpriteVertex {
+                pos: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            SpriteVertex {
+                pos: [1.0, 1.0],
+                uv: [1.0, 0.0],
+            },
+            SpriteVertex {
+                pos: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            SpriteVertex {
+                pos: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            SpriteVertex {
+                pos: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            SpriteVertex {
+                pos: [-1.0, -1.0],
+                uv: [0.0, 1.0],
+            },
         ];
         let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("pite text test verts"),
@@ -1266,7 +1394,12 @@ mod tests {
                     view: &target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.2, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.2,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1300,7 +1433,11 @@ mod tests {
                     rows_per_image: Some(64),
                 },
             },
-            wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
         );
         queue.submit(std::iter::once(encoder.finish()));
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1380,13 +1517,19 @@ mod atlas_draw_tests {
         let verts = &groups["sheet.png"];
         let width_ndc = verts[1].pos[0] - verts[0].pos[0];
         // 32px frame in a 200px-wide view, doubled because NDC spans both edges.
-        assert!((width_ndc - 2.0 * 32.0 / 200.0).abs() < 1e-6, "got {width_ndc}");
+        assert!(
+            (width_ndc - 2.0 * 32.0 / 200.0).abs() < 1e-6,
+            "got {width_ndc}"
+        );
     }
 
     #[test]
     fn missing_sidecar_and_frame_are_loud() {
         let mut cache: HashMap<String, Atlas> = HashMap::new();
         let err = frame_uv(&mut cache, "/nowhere/sheet.png", "player").unwrap_err();
-        assert!(format!("{err:#}").contains("cannot read atlas"), "got {err:#}");
+        assert!(
+            format!("{err:#}").contains("cannot read atlas"),
+            "got {err:#}"
+        );
     }
 }

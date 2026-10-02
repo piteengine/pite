@@ -62,10 +62,7 @@ impl ScriptHost {
     }
 
     pub fn register(&self, node: impl Into<String>, instance: Py<PyAny>) {
-        self.instances
-            .lock()
-            .unwrap()
-            .insert(node.into(), instance);
+        self.instances.lock().unwrap().insert(node.into(), instance);
     }
 
     pub fn unregister(&self, node: &str) {
@@ -83,7 +80,9 @@ impl ScriptHost {
     pub fn resolve(&self, caller: &str, path: &str) -> Option<String> {
         let tree = self.tree.lock().unwrap();
         if let Some(abs) = path.strip_prefix('/') {
-            return tree.get(&NodeId::from(abs.to_string())).map(|n| n.id.to_string());
+            return tree
+                .get(&NodeId::from(abs.to_string()))
+                .map(|n| n.id.to_string());
         }
         let mut cursor = tree.get(&NodeId::from(caller.to_string()))?.clone();
         for part in path.split('/') {
@@ -158,7 +157,12 @@ impl ScriptHost {
             }
             Ok(())
         })?;
-        self.connections.lock().unwrap().entry((source.to_string(), signal.to_string())).or_default().push((target.to_string(), handler.to_string()));
+        self.connections
+            .lock()
+            .unwrap()
+            .entry((source.to_string(), signal.to_string()))
+            .or_default()
+            .push((target.to_string(), handler.to_string()));
         Ok(())
     }
 
@@ -185,9 +189,8 @@ impl ScriptHost {
         }
         let mut values = Vec::with_capacity(args.len());
         for (i, (want, arg)) in expected.payload.iter().zip(args.iter()).enumerate() {
-            let value = coerce_payload(want, &arg).with_context(|| {
-                format!("{source}: signal {signal:?} arg {i} wants {want}")
-            })?;
+            let value = coerce_payload(want, &arg)
+                .with_context(|| format!("{source}: signal {signal:?} arg {i} wants {want}"))?;
             values.push(value);
         }
         let targets: Vec<(String, String)> = self
@@ -204,13 +207,13 @@ impl ScriptHost {
             let callable = inst.bind(py).getattr(handler.as_str()).map_err(|_| {
                 anyhow::anyhow!("{target}: handler {handler:?} missing for signal {signal:?}")
             })?;
-            let py_args: Vec<Py<PyAny>> =
-                values.iter().map(|v| v.to_object(py)).collect();
+            let py_args: Vec<Py<PyAny>> = values.iter().map(|v| v.to_object(py)).collect();
             callable
-                .call(PyTuple::new(py, py_args).map_err(|e| anyhow::anyhow!("{e}"))?, None)
-                .map_err(|e| {
-                    anyhow::anyhow!("{target}.{handler} raised: {e}")
-                })?;
+                .call(
+                    PyTuple::new(py, py_args).map_err(|e| anyhow::anyhow!("{e}"))?,
+                    None,
+                )
+                .map_err(|e| anyhow::anyhow!("{target}.{handler} raised: {e}"))?;
         }
         Ok(())
     }
@@ -226,13 +229,16 @@ impl ScriptHost {
 
     pub fn disconnect_node(&self, node: &str) {
         self.signals.lock().unwrap().remove(node);
-        self.connections.lock().unwrap().retain(|(src, _), targets| {
-            if src == node {
-                return false;
-            }
-            targets.retain(|(t, _)| t != node);
-            !targets.is_empty()
-        });
+        self.connections
+            .lock()
+            .unwrap()
+            .retain(|(src, _), targets| {
+                if src == node {
+                    return false;
+                }
+                targets.retain(|(t, _)| t != node);
+                !targets.is_empty()
+            });
     }
 }
 
@@ -299,8 +305,9 @@ impl NodeProxy {
     fn position(&self) -> PyResult<(f64, f64)> {
         use pite_core::PropValue;
         self.host.with_tree(|tree| {
-            let node =
-                tree.get(&NodeId::from(self.target.clone())).ok_or_else(|| {
+            let node = tree
+                .get(&NodeId::from(self.target.clone()))
+                .ok_or_else(|| {
                     pyo3::exceptions::PyKeyError::new_err(format!(
                         "node {:?} no longer exists",
                         self.target
@@ -318,10 +325,8 @@ impl NodeProxy {
         use pite_core::PropValue;
         self.host.with_tree_mut(|tree| {
             if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
-                node.props.insert(
-                    "position".to_string(),
-                    PropValue::Vec2(pos.0, pos.1),
-                );
+                node.props
+                    .insert("position".to_string(), PropValue::Vec2(pos.0, pos.1));
             }
         });
     }
@@ -330,8 +335,9 @@ impl NodeProxy {
     fn text(&self) -> PyResult<String> {
         use pite_core::PropValue;
         self.host.with_tree(|tree| {
-            let node =
-                tree.get(&NodeId::from(self.target.clone())).ok_or_else(|| {
+            let node = tree
+                .get(&NodeId::from(self.target.clone()))
+                .ok_or_else(|| {
                     pyo3::exceptions::PyKeyError::new_err(format!(
                         "node {:?} no longer exists",
                         self.target
@@ -349,8 +355,7 @@ impl NodeProxy {
         use pite_core::PropValue;
         self.host.with_tree_mut(|tree| {
             if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
-                node.props
-                    .insert("text".to_string(), PropValue::Str(text));
+                node.props.insert("text".to_string(), PropValue::Str(text));
             }
         });
     }

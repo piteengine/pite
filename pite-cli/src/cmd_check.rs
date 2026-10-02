@@ -69,7 +69,10 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
         warnings.extend(manifest_warnings);
         if let Some(rel) = manifest.project.icon.strip_prefix("res://") {
             if !root.join(rel).is_file() {
-                warnings.push(format!("manifest: icon {:?} missing", manifest.project.icon));
+                warnings.push(format!(
+                    "manifest: icon {:?} missing",
+                    manifest.project.icon
+                ));
             }
         }
         let registry = pite_assets::load_registry(&root).unwrap_or_default();
@@ -80,10 +83,8 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
                 Vec::new()
             }
         };
-        let by_path: std::collections::HashMap<&str, &pite_assets::ScannedFile> = scanned
-            .iter()
-            .map(|f| (f.res_path.as_str(), f))
-            .collect();
+        let by_path: std::collections::HashMap<&str, &pite_assets::ScannedFile> =
+            scanned.iter().map(|f| (f.res_path.as_str(), f)).collect();
         let by_hash: std::collections::HashMap<&str, &str> = scanned
             .iter()
             .map(|f| (f.hash.as_str(), f.res_path.as_str()))
@@ -201,7 +202,10 @@ fn check_scene_ref(
             return;
         }
     };
-    let scene_dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| root.to_path_buf());
+    let scene_dir = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.to_path_buf());
     let ids: std::collections::HashSet<&str> = doc.node.iter().map(|n| n.id.as_str()).collect();
     if !ids.contains(doc.root.as_str()) {
         errors.push(format!(
@@ -413,8 +417,17 @@ fn check_scene_ref(
             scene_dir.join(&inst.scene).to_string_lossy().to_string()
         };
         check_scene_ref(
-            root, &nested_ref, errors, warnings, cache, atlas_uses, uid_registry, by_path,
-            by_hash, visited, referenced,
+            root,
+            &nested_ref,
+            errors,
+            warnings,
+            cache,
+            atlas_uses,
+            uid_registry,
+            by_path,
+            by_hash,
+            visited,
+            referenced,
         );
     }
 }
@@ -533,16 +546,12 @@ texture = "res://assets/gone.png"
 "#;
 
     fn fixture_root(n: u32) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("pite-check-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pite-check-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("scenes")).expect("create scenes dir");
         std::fs::create_dir_all(dir.join("assets")).expect("create assets dir");
-        std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
-            FIXTURE_SCENE,
-        )
-        .expect("write fixture scene");
+        std::fs::write(dir.join("scenes").join("main.pitescene"), FIXTURE_SCENE)
+            .expect("write fixture scene");
         dir
     }
 
@@ -603,7 +612,11 @@ texture = "res://assets/gone.png"
             !errors.iter().any(|e| e.contains("asset")),
             "expected zero asset errors, got: {errors:?}"
         );
-        assert_eq!(cache.len(), 1, "check must report cache status, got: {cache:?}");
+        assert_eq!(
+            cache.len(),
+            1,
+            "check must report cache status, got: {cache:?}"
+        );
         assert!(
             cache[0].starts_with("miss "),
             "first run populates the cache, got: {cache:?}"

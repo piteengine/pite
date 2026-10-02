@@ -11,7 +11,9 @@ use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use pite_core::{global_position, NodeId, NodeTree, PropValue};
 use pite_render::{Renderer2D, WgpuRenderer};
-use pite_script::{input_mouse, input_pressed, input_released, Pyo3Backend, ScriptBackend, ScriptHost};
+use pite_script::{
+    input_mouse, input_pressed, input_released, Pyo3Backend, ScriptBackend, ScriptHost,
+};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -150,7 +152,9 @@ impl GameSession {
                     slot.errored = false;
                     tracing::info!(node = %slot.id, "script reloaded");
                 }
-                Err(e) => tracing::error!(node = %slot.id, "reload failed, keeping last good state: {e:#}"),
+                Err(e) => {
+                    tracing::error!(node = %slot.id, "reload failed, keeping last good state: {e:#}")
+                }
             }
         }
     }
@@ -215,12 +219,7 @@ impl GameSession {
                 (Some(atlas), Some(frame)) => {
                     let sidecar = self.resolve_path(&atlas);
                     let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                    r.draw_sprite_frame(
-                        &sheet.to_string_lossy(),
-                        Some(&frame),
-                        pos.0,
-                        pos.1,
-                    )?;
+                    r.draw_sprite_frame(&sheet.to_string_lossy(), Some(&frame), pos.0, pos.1)?;
                 }
                 (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
                 (None, Some(_)) => anyhow::bail!("node {id}: `frame` requires an `atlas`"),
@@ -232,30 +231,27 @@ impl GameSession {
                 }
             }
         }
-        let labels: Vec<(String, f32, [u8; 4], (f64, f64))> =
-            self.host.with_tree(|tree| {
-                tree.iter()
-                    .filter(|n| n.type_name == "Label")
-                    .filter_map(|n| {
-                        let text = match n.props.get("text") {
-                            Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
-                            _ => return None,
-                        };
-                        let size = match n.props.get("font_size") {
-                            Some(PropValue::Num(s)) => *s as f32,
-                            Some(PropValue::Int(s)) => *s as f32,
-                            _ => 16.0,
-                        };
-                        let color = match n.props.get("color") {
-                            Some(PropValue::Str(s)) => {
-                                pite_render::text::parse_color(s)
-                            }
-                            _ => [255, 255, 255, 255],
-                        };
-                        Some((text, size, color, global_position(tree, &n.id)))
-                    })
-                    .collect()
-            });
+        let labels: Vec<(String, f32, [u8; 4], (f64, f64))> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Label")
+                .filter_map(|n| {
+                    let text = match n.props.get("text") {
+                        Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                        _ => return None,
+                    };
+                    let size = match n.props.get("font_size") {
+                        Some(PropValue::Num(s)) => *s as f32,
+                        Some(PropValue::Int(s)) => *s as f32,
+                        _ => 16.0,
+                    };
+                    let color = match n.props.get("color") {
+                        Some(PropValue::Str(s)) => pite_render::text::parse_color(s),
+                        _ => [255, 255, 255, 255],
+                    };
+                    Some((text, size, color, global_position(tree, &n.id)))
+                })
+                .collect()
+        });
         for (text, size, color, pos) in labels {
             r.draw_text(&text, pos.0, pos.1, size, color)?;
         }
@@ -274,9 +270,7 @@ impl GameSession {
                             _ => 16.0,
                         };
                         let color = match n.props.get("color") {
-                            Some(PropValue::Str(s)) => {
-                                pite_render::text::parse_color(s)
-                            }
+                            Some(PropValue::Str(s)) => pite_render::text::parse_color(s),
                             _ => [51, 65, 85, 255],
                         };
                         let (w, h) = button_size(n);
@@ -353,11 +347,8 @@ impl GameSession {
             tree.iter()
                 .filter_map(|node| {
                     let script = node.script.as_ref()?;
-                    let path = resolve_script(
-                        &script.path,
-                        &self.scene_dir,
-                        self.project_dir.as_deref(),
-                    )?;
+                    let path =
+                        resolve_script(&script.path, &self.scene_dir, self.project_dir.as_deref())?;
                     Some((node.id.clone(), path, script.class_name.clone()))
                 })
                 .collect()
@@ -366,10 +357,7 @@ impl GameSession {
             if let Some(mut slot) = olds.remove(&id.to_string()) {
                 if slot.file != path {
                     slot.file = path;
-                    if let Err(e) = slot
-                        .backend
-                        .load(&slot.file.to_string_lossy(), &class)
-                    {
+                    if let Err(e) = slot.backend.load(&slot.file.to_string_lossy(), &class) {
                         tracing::error!(node = %id, "cannot reload script: {e:#}");
                         slot.errored = true;
                     }
@@ -422,7 +410,11 @@ impl GameSession {
             self.host.unregister(&id);
             self.host.disconnect_node(&id);
         }
-        tracing::info!(nodes = self.tree_len(), scripts = self.slots.len(), "scene ready");
+        tracing::info!(
+            nodes = self.tree_len(),
+            scripts = self.slots.len(),
+            "scene ready"
+        );
         Ok(())
     }
 
@@ -493,7 +485,8 @@ impl GameSession {
             if let Some((x, y)) = slot.backend.position() {
                 self.host.with_tree_mut(|tree| {
                     if let Some(node) = tree.get_mut(&slot.id) {
-                        node.props.insert("position".to_string(), PropValue::Vec2(x, y));
+                        node.props
+                            .insert("position".to_string(), PropValue::Vec2(x, y));
                     }
                 });
             }
@@ -601,12 +594,7 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
@@ -714,9 +702,7 @@ pub fn run_with_options(options: &RunOptions) -> Result<()> {
         last_frame: Instant::now(),
         render_errors: 0,
     };
-    event_loop
-        .run_app(&mut app)
-        .context("event loop failed")?;
+    event_loop.run_app(&mut app).context("event loop failed")?;
     Ok(())
 }
 
@@ -931,13 +917,15 @@ mod tests {
     }
 
     fn btn_text(session: &GameSession) -> String {
-        session.host.with_tree(|t| match t.get(&NodeId::from("btn".to_string())) {
-            Some(n) => match n.props.get("text") {
-                Some(PropValue::Str(s)) => s.clone(),
-                _ => String::new(),
-            },
-            None => String::from("<gone>"),
-        })
+        session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from("btn".to_string())) {
+                Some(n) => match n.props.get("text") {
+                    Some(PropValue::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                None => String::from("<gone>"),
+            })
     }
 
     fn click(session: &mut GameSession, down: (f64, f64), up: (f64, f64)) {
@@ -1137,14 +1125,7 @@ mod tests {
             Ok(())
         }
 
-        fn draw_rect(
-            &mut self,
-            _x: f64,
-            _y: f64,
-            _w: f64,
-            _h: f64,
-            _color: [u8; 4],
-        ) -> Result<()> {
+        fn draw_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64, _color: [u8; 4]) -> Result<()> {
             Ok(())
         }
 
@@ -1185,11 +1166,13 @@ mod tests {
             .collect();
         assert!(
             frames.contains(&Some("player")),
-            "player must draw from the sheet, got {:?}", recorder.calls
+            "player must draw from the sheet, got {:?}",
+            recorder.calls
         );
         assert!(
             frames.contains(&Some("enemy")),
-            "instanced enemy must draw from the sheet, got {:?}", recorder.calls
+            "instanced enemy must draw from the sheet, got {:?}",
+            recorder.calls
         );
         let sheets: std::collections::HashSet<&String> =
             recorder.calls.iter().map(|(tex, _, _)| tex).collect();
@@ -1211,7 +1194,8 @@ mod tests {
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"both\"\ntype = \"Sprite2D\"\nname = \"Both\"\nparent = \"root\"\n\n[node.props]\ntexture = \"res://a.png\"\natlas = \"res://sheet.atlas.json\"\nframe = \"player\"\n",
         )
         .unwrap();
-        let mut session = GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
+        let mut session =
+            GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
         let mut recorder = RecordingRenderer::default();
         let err = session
             .draw_into(&mut recorder)
@@ -1248,7 +1232,8 @@ mod tests {
             "import pite\n\n\nclass Probe(pite.Label):\n    def _process(self, delta):\n        self.text = \"bundled\"\n",
         )
         .unwrap();
-        let mut session = GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
+        let mut session =
+            GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
         session.update(0.016);
         let text = session
             .host
