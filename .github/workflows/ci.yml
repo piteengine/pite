@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install the Rust toolchain with rustfmt
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -32,9 +32,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Rust toolchain
@@ -57,9 +57,9 @@ jobs:
     needs: build
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Rust toolchain
@@ -82,9 +82,9 @@ jobs:
     needs: build
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Rust toolchain
@@ -109,9 +109,9 @@ jobs:
     needs: build
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Rust toolchain
@@ -134,9 +134,9 @@ jobs:
     needs: build
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Rust toolchain
