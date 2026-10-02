@@ -318,8 +318,8 @@ mod tests {
     fn play_stop_state_through_mock() {
         let _guard = SERIAL.lock().unwrap();
         set_backend(Box::new(MockBackend::new()));
-        let (_dir, path) = fixture_wav("mock", 100);
-        set_project_dir(Some(_dir.clone()));
+        let (dir, _) = fixture_wav("mock", 100);
+        set_project_dir(Some(dir.clone()));
         let id = play_file("res://blip.wav", 0.8).unwrap();
         assert!(voice_playing(id));
         set_voice_volume(id, 0.5);
@@ -327,7 +327,7 @@ mod tests {
         assert!(!voice_playing(id));
         assert!(!voice_playing(4242));
         set_backend(Box::new(WavBackend::new()));
-        std::fs::remove_dir_all(&_dir).ok();
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
