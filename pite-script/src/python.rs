@@ -41,13 +41,10 @@ struct PyNode2D {
 #[pymethods]
 impl PyNode2D {
     #[new]
-    fn new() -> (Self, PyNode) {
-        (
-            Self {
-                position: (0.0, 0.0),
-            },
-            PyNode::new(),
-        )
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new()).add_subclass(PyNode2D {
+            position: (0.0, 0.0),
+        })
     }
 }
 
@@ -101,8 +98,8 @@ struct PyTimer {
 #[pymethods]
 impl PyTimer {
     #[new]
-    fn new() -> (Self, PyNode) {
-        (Self { wait_time: 1.0 }, PyNode::new())
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new()).add_subclass(PyTimer { wait_time: 1.0 })
     }
 }
 
@@ -115,13 +112,10 @@ struct PyLabel {
 #[pymethods]
 impl PyLabel {
     #[new]
-    fn new() -> (Self, PyNode) {
-        (
-            Self {
-                text: String::new(),
-            },
-            PyNode::new(),
-        )
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new()).add_subclass(PyLabel {
+            text: String::new(),
+        })
     }
 }
 
@@ -214,7 +208,7 @@ pub(crate) fn read_payload_types(types: &[Bound<'_, PyAny>]) -> PyResult<Vec<Str
     Ok(out)
 }
 
-#[pyclass(name = "Signal")]
+#[pyclass(skip_from_py_object, name = "Signal")]
 #[derive(Clone)]
 pub(crate) struct PySignalDecl {
     #[pyo3(get)]
