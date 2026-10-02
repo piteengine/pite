@@ -51,5 +51,5 @@ thiserror = "2"
 toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-wgpu = "23"
+wgpu = "30"
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11"] }
