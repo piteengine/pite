@@ -1,0 +1,36 @@
+{
+  "palette": {
+    "primary": "#0b9387",
+    "light": "#2bd3bf",
+    "dark": "#124d49",
+    "veryLight": "#cbfaf0",
+    "white": "#f7f7f9",
+    "black": "#101010"
+  },
+  "usage": {
+    "largeText": {
+      "primary": ["veryLight", "white", "black"],
+      "light": ["dark", "black"],
+      "dark": ["light", "veryLight", "white"],
+      "veryLight": ["primary", "dark", "black"],
+      "white": ["primary", "dark", "black"],
+      "black": ["primary", "light", "veryLight", "white"]
+    },
+    "smallText": {
+      "primary": ["black"],
+      "light": ["dark", "black"],
+      "dark": ["light", "veryLight", "white"],
+      "veryLight": ["dark", "black"],
+      "white": ["dark", "black"],
+      "black": ["primary", "light", "veryLight", "white"]
+    },
+    "iconsAndUI": {
+      "primary": ["veryLight", "white", "black"],
+      "light": ["dark", "black"],
+      "dark": ["light", "veryLight", "white"],
+      "veryLight": ["primary", "dark", "black"],
+      "white": ["primary", "dark", "black"],
+      "black": ["primary", "light", "veryLight", "white"]
+    }
+  }
+}

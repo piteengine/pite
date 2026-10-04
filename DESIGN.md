@@ -5,28 +5,28 @@ and its editor. This is the single source of truth for visual decisions.
 
 ## 1. Logo
 
-Canonical mark: [`assets/logo.svg`](assets/logo.svg) — a hexagonal "P" monogram on a
-512×512 grid. Single path, `fill-rule="evenodd"`, no strokes, no gradients. It
+Main mark: [`assets/logo.svg`](assets/logo.svg) — a hexagonal "P" monogram on a
+512×512 grid, scaled to fill the viewport edge-to-edge vertically (no top/bottom
+padding). Single path, `fill-rule="evenodd"`, no strokes, no gradients. It
 recolors cleanly via the `fill` attribute, which is how all variants are derived.
 
 | File | Fill | Use |
 |------|------|-----|
-| `assets/logo.svg` | `#111111` | Neutral / print / single-color contexts |
-| `assets/logo-light.svg` | `#0D9488` (Primary) | Light backgrounds: README, docs, website |
-| `assets/logo-dark.svg` | `#5EEAD4` (Light) | Dark backgrounds: editor header, splash, dark docs |
-| `assets/logo-white.svg` | `#FFFFFF` | Single-color light mark for dark/photographic backgrounds |
-| `assets/logo-profile.svg` | `#5EEAD4` on `#042F2E` | Backgrounded variant (rounded square): profiles, avatars, social |
-| `assets/tray-icon.svg` | `#5EEAD4` on `#042F2E` | Duplicate of the profile variant, sized for system-tray use |
+| `assets/logo.svg` | `#0b9387` | Main brand mark: light backgrounds — README, docs, website |
+| `assets/logo-black.svg` | `#101010` | Neutral / print / single-color contexts |
+| `assets/logo-white.svg` | `#f7f7f9` | Single-color light mark for dark/photographic backgrounds |
+| `assets/logo-profile.svg` | `#2bd3bf` on `#042F2E` | Backgrounded variant (rounded square): profiles, avatars, social |
+| `assets/tray-icon.svg` | `#0b9387` | Background-free mark for system-tray use (same artwork as `logo.svg`) |
 | `assets/tray-icon-16/22/24/32.png` | — | Pre-rendered tray sizes (RGBA PNG) |
-| `assets/icon.png` | — | 256 px render of the profile variant; editor window icon (see §6.1) |
+| `assets/icon.png` | — | 256 px render of `logo.svg`; editor + game window icon (see §6.1) |
 | `assets/logo-showcase.svg` | various | Color exploration sheet — not for production use |
 
 ### Usage rules
 
 - **Do not** stretch, outline, rotate, add shadows, or place on low-contrast
   backgrounds. Minimum legible size: 16 px.
-- **Light background →** `logo-light.svg` (`#0D9488`).
-  **Dark background →** `logo-dark.svg` (`#5EEAD4`). Never use `#0D9488` on
+- **Light background →** `logo.svg` (`#0b9387`).
+  **Dark background →** `logo-white.svg` (`#f7f7f9`). Never use `#0b9387` on
   `#042F2E` — contrast is too low; that pairing is reserved for fills/borders.
 - The mark is monochromatic by design. For tinted contexts (e.g. error states),
   any showcase color may be used at full opacity only.
@@ -36,13 +36,16 @@ recolors cleanly via the `fill` attribute, which is how all variants are derived
 
 ## 2. Core palette — Pite Teal
 
+Canonical tokens: [`palette.json`](palette.json) (plus `usage` allow lists).
+The table mirrors it — do not add new hexes here, update `palette.json` first.
+
 | Name | Hex | RGB | Role |
 |------|-----|-----|------|
-| Primary | `#0D9488` | 13, 148, 136 | Brand identity. Links, selection, active states, logo on light |
-| Light | `#5EEAD4` | 94, 234, 212 | Inverted variant. Logo on dark, highlights on dark |
-| Dark | `#134E4A` | 19, 78, 74 | Deep tone. Panels on dark backgrounds |
+| Primary | `#0b9387` | 11, 147, 135 | Brand identity. Links, selection, active states, logo on light |
+| Light | `#2bd3bf` | 43, 211, 191 | Inverted variant. Logo on dark, highlights on dark |
+| Dark | `#124d49` | 18, 77, 73 | Deep tone. Panels on dark backgrounds |
 | Background | `#042F2E` | 4, 47, 46 | Dark theme background |
-| Pale | `#CCFBF1` | 204, 251, 241 | Soft / subtle tone. Secondary text on dark |
+| Pale | `#cbfaf0` | 203, 250, 240 | Soft / subtle tone. Secondary text on dark |
 
 ## 3. Theme tokens
 
@@ -51,8 +54,8 @@ recolors cleanly via the `fill` attribute, which is how all variants are derived
 | Token | Hex | Used for |
 |-------|-----|----------|
 | `background` | `#FFFFFF` | App / page background |
-| `logo` | `#0D9488` | Logo mark (`assets/logo-light.svg`) |
-| `accent` | `#5EEAD4` | Accent fills, hovers, highlights |
+| `logo` | `#0b9387` | Logo mark (`assets/logo.svg`) |
+| `accent` | `#2bd3bf` | Accent fills, hovers, highlights |
 | `text` | `#111827` | Primary text |
 
 ### Dark theme
@@ -60,8 +63,8 @@ recolors cleanly via the `fill` attribute, which is how all variants are derived
 | Token | Hex | Used for |
 |-------|-----|----------|
 | `background` | `#042F2E` | App / page background |
-| `logo` | `#5EEAD4` | Logo mark (`assets/logo-dark.svg`) |
-| `accent` | `#0D9488` | Accent fills, selection, borders |
+| `logo` | `#f7f7f9` | Logo mark (`assets/logo-white.svg`) |
+| `accent` | `#0b9387` | Accent fills, selection, borders |
 | `text` | `#F0FDFA` | Primary text |
 
 ## 4. Editor mapping (`pite-editor/src/theme.rs`)
@@ -72,14 +75,18 @@ stroke — never full fills):
 
 | Constant | Value | Used for |
 |----------|-------|----------|
-| `ACCENT` | `#0D9488` (13, 148, 136) | Selection stroke, hyperlinks, active widget stroke |
+| `ACCENT` | `#0b9387` (11, 147, 135) | Selection stroke, hyperlinks, active widget stroke |
 | `BG` | `#0B0E11` (11, 14, 17) | Window, code-box (`extreme_bg_color` feeds `TextEdit`), viewport fallback backdrop |
 | `PANEL` | `#14181D` (20, 24, 29) | Panels — a subtle lift above `BG` so structure reads without color |
 | `PANEL_STROKE` | `#2A3138` (42, 49, 56) | Neutral gray widget/panel strokes |
 | `TEXT` | `#E6E9EC` (230, 233, 236) | Primary text |
 | `FAINT` | `#9AA3AD` (154, 163, 173) | Weak/secondary text |
 
-Selection fill is `ACCENT` at alpha 50 (`from_rgba_premultiplied(13, 148, 136, 50)`).
+Selection fill is `ACCENT` at alpha 50 (`from_rgba_premultiplied(11, 147, 135, 50)`).
+Accent usage follows the `palette.json` allow lists: accent text
+(hyperlinks) sits on near-black surfaces only (`BG`/`PANEL`/`INACTIVE`,
+contrast ≥ 4.5 — matching `smallText: primary → black`); accent strokes and
+fills on any surface stay ≥ 3.0 (`iconsAndUI` range).
 Widget state fills: noninteractive `PANEL`, inactive/open `#171C22` (23, 28, 34),
 hovered `#1F262E` (31, 38, 46), active `#1E3A35` (30, 58, 53, a dark teal tint).
 Corner radii stay 8 (window) / 6 (widgets, menu). The viewport fallback painter
@@ -107,8 +114,8 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
 ## 6. Open branding work
 
 1. **Window icons.** Editor: wired — `pite-editor/src/app.rs` sets
-   `ViewportBuilder::with_icon` from `assets/icon.png` (256 px render of the
-   profile variant) via `eframe::icon_data::from_png_bytes`. This replaces the
+   `ViewportBuilder::with_icon` from `assets/icon.png` (256 px render of
+   `logo.svg`) via `eframe::icon_data::from_png_bytes`. This replaces the
    default egui "e" fallback icon in taskbar / alt-tab / tray.
    Game window: wired — `pite-runtime/src/lib.rs` sets
    `.with_window_icon(...)` from the same `assets/icon.png`, decoded at startup
@@ -117,7 +124,7 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
    System tray: no tray integration exists yet — `assets/tray-icon.svg` +
    `tray-icon-{16,22,24,32}.png` are ready for whenever a tray crate is wired.
 2. **Editor header wordmark.** `TopBottomPanel::top("transport")` in `app.rs` has no
-   logo — render `logo-dark.svg` (as PNG texture via `egui::Image`) next to the
+   logo — render `logo-white.svg` (as PNG texture via `egui::Image`) next to the
    transport controls.
 3. **Renderer clear color.** `pite-render` clears to `(0.07, 0.07, 0.10)`; align the
    launch/splash backdrop with `#042F2E` → `(0.016, 0.184, 0.180)`.

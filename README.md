@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo-light.svg" width="128" alt="Pite logo" />
+  <img src="assets/logo.svg" width="128" alt="Pite logo" />
 </p>
 
 # Pite
