@@ -50,7 +50,7 @@ parent = "root"
 [node.props]
 color = "#4ADE80"
 font_size = 20.0
-position = [500.0, 200.0]
+position = [100.0, 450.0]
 size = [140.0, 44.0]
 text = "HIT"
 
