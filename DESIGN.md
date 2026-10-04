@@ -82,7 +82,12 @@ stroke — never full fills):
 | `TEXT` | `#E6E9EC` (230, 233, 236) | Primary text |
 | `FAINT` | `#9AA3AD` (154, 163, 173) | Weak/secondary text |
 
-Selection fill is `ACCENT` at alpha 50 (`from_rgba_premultiplied(11, 147, 135, 50)`).
+Selection fill is solid palette `dark` (`#124d49`) with near-white (`TEXT`)
+glyphs — the allow-listed `dark → white` pair (simulated 7.9–9.0). egui paints
+selected text in rows, tabs, and `TextEdit` with `selection.stroke.color` on
+that fill. Darker than the old tint wash so regions read clearly, quieter
+than solid primary; teal-on-teal (3.6–4.1) and black-on-tint (1.35) were
+measured and rejected.
 Accent usage follows the `palette.json` allow lists: accent text
 (hyperlinks) sits on near-black surfaces only (`BG`/`PANEL`/`INACTIVE`,
 contrast ≥ 4.5 — matching `smallText: primary → black`); accent strokes and

@@ -84,8 +84,12 @@ fn visuals() -> egui::Visuals {
     visuals.panel_fill = PANEL;
     visuals.window_stroke = egui::Stroke::new(1.0_f32, PANEL_STROKE);
     visuals.hyperlink_color = ACCENT;
-    visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(11, 147, 135, 50);
-    visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    // Selection = palette `dark` fill with near-white glyphs (simulated 7.9;
+    // the allow-listed `dark -> white` pair). Solid `dark` beats the old
+    // 20%-tint wash for region visibility while staying quieter than solid
+    // primary; egui paints selected glyphs with `selection.stroke.color`.
+    visuals.selection.bg_fill = egui::Color32::from_rgb(18, 77, 73);
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, TEXT);
     visuals.widgets.noninteractive = widget(PANEL);
     visuals.widgets.inactive = widget(INACTIVE);
     visuals.widgets.hovered = widget(HOVERED);
@@ -109,6 +113,6 @@ mod tests {
         assert!(style.visuals.dark_mode);
         assert_eq!(style.visuals.window_fill, PANEL);
         assert_eq!(style.text_styles[&egui::TextStyle::Body].size, 15.0);
-        assert_eq!(style.visuals.selection.stroke.color, ACCENT);
+        assert_eq!(style.visuals.selection.stroke.color, TEXT);
     }
 }
