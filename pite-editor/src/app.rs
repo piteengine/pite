@@ -66,6 +66,19 @@ fn viewport_cursor(rect: egui::Rect, view: (u32, u32), pointer: egui::Pos2) -> O
     let y = (pointer.y - rect.min.y) as f64 / rect.height() as f64 * view.1 as f64;
     Some((x, y))
 }
+/// Largest (width, height) with `view`'s aspect that fits inside `avail`.
+/// "Contain", not "fill": whichever axis binds first decides the scale, so
+/// the viewport grows and shrinks on both axes instead of blowing past the
+/// panel on the height axis when the editor is wide.
+fn fit_view(avail: egui::Vec2, view: (u32, u32)) -> egui::Vec2 {
+    let aspect = (view.0 as f32 / view.1.max(1) as f32).max(0.0001);
+    let avail = egui::Vec2::new(avail.x.max(1.0), avail.y.max(1.0));
+    if avail.x / avail.y > aspect {
+        egui::Vec2::new(avail.y * aspect, avail.y)
+    } else {
+        egui::Vec2::new(avail.x, avail.x / aspect)
+    }
+}
 use pite_core::{NodeId, PropValue};
 use pite_render::{OffscreenRenderer, Renderer2D};
 use pite_runtime::GameSession;
@@ -1204,15 +1217,27 @@ impl EditorApp {
             self.log(err);
         }
         let textured = self.viewport.is_some() && self.viewport_tex.is_some();
-        let width = ui.available_width().max(1.0);
-        let height = width * view_h as f32 / view_w as f32;
-        let (resp, painter) =
-            ui.allocate_painter(egui::Vec2::new(width, height), egui::Sense::hover());
+        // Reserve a row for the caption below the viewport, so a viewport that
+        // exactly fills the panel doesn't push the label off the bottom edge.
+        let caption_h =
+            ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+        let avail = egui::Vec2::new(
+            ui.available_width(),
+            (ui.available_height() - caption_h).max(1.0),
+        );
+        let fitted = fit_view(avail, (view_w, view_h));
+        // Center the fitted rect in the space we measured: allocate the full
+        // avail, then paint into a centered sub-rect, so the viewport reads as
+        // framed content instead of content pinned to the top-left corner.
+        let (outer, _outer_painter) = ui.allocate_painter(avail, egui::Sense::hover());
+        let view_rect = egui::Rect::from_center_size(outer.rect.center(), fitted);
+        let resp = ui.interact(view_rect, ui.id().with("viewport"), egui::Sense::hover());
+        let painter = ui.painter_at(view_rect);
         self.viewport_hovered = resp.hovered();
-        self.viewport_rect = Some(resp.rect);
+        self.viewport_rect = Some(view_rect);
         if textured {
             if let Some(handle) = self.viewport_tex.as_ref() {
-                egui::Image::from_texture(handle).paint_at(ui, resp.rect);
+                egui::Image::from_texture(handle).paint_at(ui, view_rect);
             }
         } else {
             let nodes: Vec<(String, String, (f64, f64), String, (f64, f64))> =
@@ -1235,8 +1260,8 @@ impl EditorApp {
                         })
                         .collect()
                 });
-            let center = resp.rect.center();
-            painter.rect_filled(resp.rect, 0.0, crate::theme::BG);
+            let center = view_rect.center();
+            painter.rect_filled(view_rect, 0.0, crate::theme::BG);
             for (id, type_name, (x, y), text, (w, h)) in nodes {
                 let p = center + egui::Vec2::new(x as f32, y as f32);
                 let color = if type_name == "Sprite2D" {
@@ -1491,5 +1516,39 @@ mod tests {
             viewport_cursor(flat, (800, 600), egui::Pos2::new(10.0, 10.0)),
             None
         );
+    }
+
+    #[test]
+    fn viewport_fits_available_space_on_both_axes() {
+        let view = (800, 600); // 4:3
+        // Wide panel: height binds, width shrinks to match.
+        let wide = fit_view(egui::Vec2::new(2000.0, 400.0), view);
+        assert!((wide.y - 400.0).abs() < 0.01, "got {wide:?}");
+        assert!((wide.x - 400.0 * 4.0 / 3.0).abs() < 0.01, "got {wide:?}");
+        // Tall panel: width binds, height shrinks to match.
+        let tall = fit_view(egui::Vec2::new(400.0, 2000.0), view);
+        assert!((tall.x - 400.0).abs() < 0.01, "got {tall:?}");
+        assert!((tall.y - 300.0).abs() < 0.01, "got {tall:?}");
+        // Never exceeds the panel on either axis, at any panel shape.
+        for (ax, ay) in [(2000.0, 400.0), (400.0, 2000.0), (800.0, 600.0), (1.0, 1.0)] {
+            let f = fit_view(egui::Vec2::new(ax, ay), view);
+            assert!(f.x <= ax + 0.01 && f.y <= ay + 0.01, "{f:?} exceeds {ax}x{ay}");
+        }
+        // Degenerate input stays positive.
+        let tiny = fit_view(egui::Vec2::ZERO, view);
+        assert!(tiny.x > 0.0 && tiny.y > 0.0);
+    }
+
+    #[test]
+    fn viewport_is_centered_in_its_panel() {
+        // 4:3 scene, panel wider than tall: fitted box is height-bound and must
+        // sit centered horizontally, with equal margins on both sides.
+        let avail = egui::Vec2::new(1000.0, 300.0);
+        let fitted = fit_view(avail, (800, 600));
+        let outer = egui::Rect::from_min_size(egui::Pos2::ZERO, avail);
+        let view = egui::Rect::from_center_size(outer.center(), fitted);
+        assert!((view.left() - (outer.right() - view.right())).abs() < 0.01);
+        assert!(view.width() <= outer.width() + 0.01);
+        assert!(view.height() <= outer.height() + 0.01);
     }
 }
