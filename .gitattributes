@@ -1,0 +1,41 @@
+# Normalize all text files to LF in the repository.
+* text=auto eol=lf
+
+# Explicitly mark text file types (belt-and-suspenders with text=auto).
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.py    text eol=lf
+*.pyi   text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.xml   text eol=lf
+*.svg   text eol=lf
+*.sh    text eol=lf
+
+# Windows launchers must keep CRLF so cmd.exe reads them correctly.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary files: never touch, never diff.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.wav   binary
+*.ogg   binary
+*.mp3   binary
+*.flac  binary
+*.ttf   binary
+*.otf   binary
+*.zip   binary
+*.tar   binary
+*.gz    binary
+
+# Keep generated caches out of language stats and diffs.
+_cache/**  binary
+dist/**    binary
