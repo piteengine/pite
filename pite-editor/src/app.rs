@@ -1226,14 +1226,7 @@ impl EditorApp {
             self.log(err);
         }
         let textured = self.viewport.is_some() && self.viewport_tex.is_some();
-        // Reserve a row for the caption below the viewport, so a viewport that
-        // exactly fills the panel doesn't push the label off the bottom edge.
-        let caption_h =
-            ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
-        let avail = egui::Vec2::new(
-            ui.available_width(),
-            (ui.available_height() - caption_h).max(1.0),
-        );
+        let avail = ui.available_size();
         let fitted = fit_view(avail, (view_w, view_h));
         // Center the fitted rect in the space we measured: allocate the full
         // avail, then paint into a centered sub-rect, so the viewport reads as
@@ -1297,16 +1290,6 @@ impl EditorApp {
                 );
             }
         }
-        let selected = self.selected.clone().unwrap_or_default();
-        ui.label(format!(
-            "{} nodes{}",
-            self.session.tree_len(),
-            if selected.is_empty() {
-                String::new()
-            } else {
-                format!(" — selected {selected}")
-            }
-        ));
     }
 
     fn asset_files(&self) -> Vec<PathBuf> {
