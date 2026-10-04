@@ -481,6 +481,8 @@ impl eframe::App for EditorApp {
 
         egui::Panel::left("left")
             .default_size(240.0)
+            .min_size(240.0)
+            .max_size(360.0)
             .resizable(true)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -556,28 +558,35 @@ impl eframe::App for EditorApp {
             });
 
         egui::Panel::right("inspector")
-            .default_size(280.0)
-            .min_size(200.0)
+            .default_size(240.0)
+            .min_size(240.0)
+            .max_size(360.0)
             .resizable(true)
             .show(ui, |ui| {
-                ui.heading("Inspector");
-                match self.selected.clone() {
-                    Some(id) => self.show_inspector(ui, &id),
-                    None => {
-                        ui.label("Select a node.");
+                egui::ScrollArea::vertical()
+                .id_salt("inspector")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.heading("Inspector");
+                    match self.selected.clone() {
+                        Some(id) => self.show_inspector(ui, &id),
+                        None => {
+                            ui.label("Select a node.");
+                        }
                     }
-                }
+                })
             });
 
         egui::Panel::bottom("console")
-            .min_size(100.0)
+            .default_size(120.0)
+            .min_size(120.0)
+            .max_size(240.0)
             .resizable(true)
             .show(ui, |ui| {
                 ui.heading("Console");
                 egui::ScrollArea::vertical()
                     .id_salt("console")
                     .auto_shrink([false, false])
-                    .max_height(200.0)
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         for line in &self.console {
