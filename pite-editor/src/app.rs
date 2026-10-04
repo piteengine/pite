@@ -564,17 +564,17 @@ impl eframe::App for EditorApp {
             .resizable(true)
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
-                .id_salt("inspector")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.heading("Inspector");
-                    match self.selected.clone() {
-                        Some(id) => self.show_inspector(ui, &id),
-                        None => {
-                            ui.label("Select a node.");
+                    .id_salt("inspector")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.heading("Inspector");
+                        match self.selected.clone() {
+                            Some(id) => self.show_inspector(ui, &id),
+                            None => {
+                                ui.label("Select a node.");
+                            }
                         }
-                    }
-                })
+                    })
             });
 
         egui::Panel::bottom("console")
@@ -1512,7 +1512,7 @@ mod tests {
 
     #[test]
     fn viewport_fits_available_space_on_both_axes() {
-        let view = (800, 600); // 4:3
+        let view = (800, 600);
         // Wide panel: height binds, width shrinks to match.
         let wide = fit_view(egui::Vec2::new(2000.0, 400.0), view);
         assert!((wide.y - 400.0).abs() < 0.01, "got {wide:?}");
@@ -1524,7 +1524,10 @@ mod tests {
         // Never exceeds the panel on either axis, at any panel shape.
         for (ax, ay) in [(2000.0, 400.0), (400.0, 2000.0), (800.0, 600.0), (1.0, 1.0)] {
             let f = fit_view(egui::Vec2::new(ax, ay), view);
-            assert!(f.x <= ax + 0.01 && f.y <= ay + 0.01, "{f:?} exceeds {ax}x{ay}");
+            assert!(
+                f.x <= ax + 0.01 && f.y <= ay + 0.01,
+                "{f:?} exceeds {ax}x{ay}"
+            );
         }
         // Degenerate input stays positive.
         let tiny = fit_view(egui::Vec2::ZERO, view);
