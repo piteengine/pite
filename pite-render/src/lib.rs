@@ -432,11 +432,12 @@ fn encode_groups(
     encoder.finish()
 }
 
-pub struct WgpuRenderer {
-    surface: wgpu::Surface<'static>,
+/// The GPU objects, caches, sprite queue and camera that the surface and
+/// offscreen paths share. Only submission (and readback) differs between them,
+/// so both renderers hold one of these instead of copying the state.
+struct SharedQueue {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
     tex_layout: wgpu::BindGroupLayout,
@@ -448,6 +449,187 @@ pub struct WgpuRenderer {
     sprite_atlases: std::collections::HashMap<String, Atlas>,
     cam: (f64, f64),
     zoom: f64,
+}
+
+impl SharedQueue {
+    fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        pipeline: wgpu::RenderPipeline,
+        sampler: wgpu::Sampler,
+        tex_layout: wgpu::BindGroupLayout,
+    ) -> Result<Self> {
+        Ok(Self {
+            device,
+            queue,
+            pipeline,
+            sampler,
+            tex_layout,
+            textures: std::collections::HashMap::new(),
+            baked: std::collections::HashMap::new(),
+            baked_order: std::collections::VecDeque::new(),
+            atlas: text::TextAtlas::new()?,
+            queue_list: Vec::new(),
+            sprite_atlases: std::collections::HashMap::new(),
+            cam: (0.0, 0.0),
+            zoom: 1.0,
+        })
+    }
+
+    fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
+        self.cam = (x, y);
+        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+    }
+
+    fn load_texture(&self, key: &str) -> GpuTexture {
+        match image::open(key).map(|img| img.to_rgba8()).ok() {
+            Some(rgba) => {
+                let (w, h) = (rgba.width(), rgba.height());
+                let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                let view = texture.create_view(&Default::default());
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w,
+                    h,
+                }
+            }
+            None => {
+                tracing::warn!(texture = key, "cannot load texture, using fallback");
+                let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
+                let view = texture.create_view(&Default::default());
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w: 8,
+                    h: 8,
+                }
+            }
+        }
+    }
+
+    fn texture_for(&mut self, key: &str) -> &GpuTexture {
+        if !self.textures.contains_key(key) {
+            let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
+            let entry = match baked {
+                Some((rgba, w, h)) => {
+                    let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                    let view = texture.create_view(&Default::default());
+                    let bind_group =
+                        bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                    GpuTexture {
+                        texture,
+                        view,
+                        bind_group,
+                        w,
+                        h,
+                    }
+                }
+                None => self.load_texture(key),
+            };
+            self.textures.insert(key.to_string(), entry);
+        }
+        &self.textures[key]
+    }
+
+    fn queue_sprite(&mut self, texture: &str, world: (f64, f64)) {
+        self.queue_list
+            .push(QueuedSprite::plain(texture.to_string(), world));
+    }
+
+    fn queue_sprite_frame(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        world: (f64, f64),
+    ) -> Result<()> {
+        let Some(frame) = frame else {
+            self.queue_sprite(texture, world);
+            return Ok(());
+        };
+        let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
+        self.queue_list.push(QueuedSprite {
+            tex_key: texture.to_string(),
+            world,
+            size_world: None,
+            size_px: Some(size_px),
+            uv,
+        });
+        Ok(())
+    }
+
+    fn queue_rect(&mut self, world: (f64, f64), w: f64, h: f64, color: [u8; 4]) {
+        let key = format!(
+            "rect\0{}\0{}\0{}\0{}",
+            color[0], color[1], color[2], color[3]
+        );
+        if !self.baked.contains_key(&key) {
+            self.baked.insert(
+                key.clone(),
+                text::BakedText {
+                    rgba: vec![color[0], color[1], color[2], color[3]],
+                    w: 1,
+                    h: 1,
+                },
+            );
+            text::lru_touch(&mut self.baked_order, &key, 64);
+        }
+        self.queue_list.push(QueuedSprite {
+            size_world: Some((w.max(1.0), h.max(1.0))),
+            ..QueuedSprite::plain(key, world)
+        });
+    }
+
+    fn draw_text_queued(&mut self, text: &str, world: (f64, f64), size: f32, color: [u8; 4]) {
+        if text.is_empty() {
+            return;
+        }
+        let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
+        let key = text::glyph_cache_key(text, px, color);
+        if !self.baked.contains_key(&key) {
+            self.baked
+                .insert(key.clone(), self.atlas.bake(text, px as f32, color));
+            text::lru_touch(&mut self.baked_order, &key, 64);
+            while self.baked_order.len() > 64 {
+                if let Some(old) = self.baked_order.pop_front() {
+                    self.baked.remove(&old);
+                    self.textures.remove(&old);
+                }
+            }
+        }
+        self.queue_list.push(QueuedSprite::plain(key, world));
+    }
+
+    /// Drain the queue, resolve every queued texture once, and build the
+    /// vertex groups plus the first-seen draw order for a `size`-sized target.
+    fn build(
+        &mut self,
+        size: (u32, u32),
+    ) -> (
+        std::collections::HashMap<String, Vec<SpriteVertex>>,
+        Vec<String>,
+    ) {
+        let sprites = std::mem::take(&mut self.queue_list);
+        for sprite in &sprites {
+            self.texture_for(&sprite.tex_key);
+        }
+        let sizes: std::collections::HashMap<String, (u32, u32)> = self
+            .textures
+            .iter()
+            .map(|(k, t)| (k.clone(), (t.w, t.h)))
+            .collect();
+        build_groups(sprites, &sizes, self.cam, self.zoom, size)
+    }
+}
+
+pub struct WgpuRenderer {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    shared: SharedQueue,
 }
 
 impl WgpuRenderer {
@@ -491,128 +673,39 @@ impl WgpuRenderer {
         surface.configure(&device, &config);
 
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
-        let renderer = Self {
+        let shared = SharedQueue::new(device, queue, pipeline, sampler, tex_layout)?;
+        Ok(Self {
             surface,
-            device,
-            queue,
             config,
-            pipeline,
-            sampler,
-            tex_layout,
-            textures: std::collections::HashMap::new(),
-            baked: std::collections::HashMap::new(),
-            baked_order: std::collections::VecDeque::new(),
-            atlas: text::TextAtlas::new()?,
-            queue_list: Vec::new(),
-            sprite_atlases: std::collections::HashMap::new(),
-            cam: (0.0, 0.0),
-            zoom: 1.0,
-        };
-        Ok(renderer)
+            shared,
+        })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;
             self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
+            self.surface.configure(&self.shared.device, &self.config);
         }
     }
 
     pub fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.cam = (x, y);
-        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+        self.shared.set_camera(x, y, zoom);
     }
 
     pub fn size(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
     }
-
-    fn load_texture(&self, key: &str) -> GpuTexture {
-        match image::open(key).map(|img| img.to_rgba8()).ok() {
-            Some(rgba) => {
-                let (w, h) = (rgba.width(), rgba.height());
-                let texture = upload(&self.device, &self.queue, &rgba, w, h);
-                let view = texture.create_view(&Default::default());
-                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture {
-                    texture,
-                    view,
-                    bind_group,
-                    w,
-                    h,
-                }
-            }
-            None => {
-                tracing::warn!(texture = key, "cannot load texture, using fallback");
-                let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
-                let view = texture.create_view(&Default::default());
-                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture {
-                    texture,
-                    view,
-                    bind_group,
-                    w: 8,
-                    h: 8,
-                }
-            }
-        }
-    }
-
-    fn texture_for(&mut self, key: &str) -> &GpuTexture {
-        if !self.textures.contains_key(key) {
-            let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
-            let entry = match baked {
-                Some((rgba, w, h)) => {
-                    let texture = upload(&self.device, &self.queue, &rgba, w, h);
-                    let view = texture.create_view(&Default::default());
-                    let bind_group =
-                        bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                    GpuTexture {
-                        texture,
-                        view,
-                        bind_group,
-                        w,
-                        h,
-                    }
-                }
-                None => self.load_texture(key),
-            };
-            self.textures.insert(key.to_string(), entry);
-        }
-        &self.textures[key]
-    }
-
-    fn draw_text_queued(&mut self, text: &str, world: (f64, f64), size: f32, color: [u8; 4]) {
-        if text.is_empty() {
-            return;
-        }
-        let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
-        let key = text::glyph_cache_key(text, px, color);
-        if !self.baked.contains_key(&key) {
-            self.baked
-                .insert(key.clone(), self.atlas.bake(text, px as f32, color));
-            text::lru_touch(&mut self.baked_order, &key, 64);
-            while self.baked_order.len() > 64 {
-                if let Some(old) = self.baked_order.pop_front() {
-                    self.baked.remove(&old);
-                    self.textures.remove(&old);
-                }
-            }
-        }
-        self.queue_list.push(QueuedSprite::plain(key, world));
-    }
 }
 
 impl Renderer2D for WgpuRenderer {
     fn begin_frame(&mut self) -> Result<()> {
-        self.queue_list.clear();
+        self.shared.queue_list.clear();
         Ok(())
     }
 
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
-        self.queue_list
-            .push(QueuedSprite::plain(texture.to_string(), (x, y)));
+        self.shared.queue_sprite(texture, (x, y));
         Ok(())
     }
 
@@ -623,67 +716,27 @@ impl Renderer2D for WgpuRenderer {
         x: f64,
         y: f64,
     ) -> Result<()> {
-        let Some(frame) = frame else {
-            self.queue_list
-                .push(QueuedSprite::plain(texture.to_string(), (x, y)));
-            return Ok(());
-        };
-        let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
-        self.queue_list.push(QueuedSprite {
-            tex_key: texture.to_string(),
-            world: (x, y),
-            size_world: None,
-            size_px: Some(size_px),
-            uv,
-        });
-        Ok(())
+        self.shared.queue_sprite_frame(texture, frame, (x, y))
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
-        let key = format!(
-            "rect\0{}\0{}\0{}\0{}",
-            color[0], color[1], color[2], color[3]
-        );
-        if !self.baked.contains_key(&key) {
-            self.baked.insert(
-                key.clone(),
-                text::BakedText {
-                    rgba: vec![color[0], color[1], color[2], color[3]],
-                    w: 1,
-                    h: 1,
-                },
-            );
-            text::lru_touch(&mut self.baked_order, &key, 64);
-        }
-        self.queue_list.push(QueuedSprite {
-            size_world: Some((w.max(1.0), h.max(1.0))),
-            ..QueuedSprite::plain(key, (x, y))
-        });
+        self.shared.queue_rect((x, y), w, h, color);
         Ok(())
     }
 
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
-        self.draw_text_queued(text, (x, y), size, color);
+        self.shared.draw_text_queued(text, (x, y), size, color);
         Ok(())
     }
 
     fn end_frame(&mut self) -> Result<()> {
         let size = (self.config.width, self.config.height);
-        let sprites = std::mem::take(&mut self.queue_list);
-        for sprite in &sprites {
-            self.texture_for(&sprite.tex_key);
-        }
-        let sizes: std::collections::HashMap<String, (u32, u32)> = self
-            .textures
-            .iter()
-            .map(|(k, t)| (k.clone(), (t.w, t.h)))
-            .collect();
-        let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        let (groups, order) = self.shared.build(size);
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface.configure(&self.device, &self.config);
+                self.surface.configure(&self.shared.device, &self.config);
                 return Ok(());
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
@@ -693,41 +746,28 @@ impl Renderer2D for WgpuRenderer {
         };
         let view = frame.texture.create_view(&Default::default());
         let cmd = encode_groups(
-            &self.device,
-            &self.pipeline,
-            &self.textures,
+            &self.shared.device,
+            &self.shared.pipeline,
+            &self.shared.textures,
             &groups,
             &order,
             &view,
         );
-        self.queue.submit(std::iter::once(cmd));
-        self.queue.present(frame);
+        self.shared.queue.submit(std::iter::once(cmd));
+        self.shared.queue.present(frame);
         Ok(())
     }
 
     fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.cam = (x, y);
-        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+        self.shared.set_camera(x, y, zoom);
     }
 }
 
 pub struct OffscreenRenderer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
     target: wgpu::Texture,
     width: u32,
     height: u32,
-    pipeline: wgpu::RenderPipeline,
-    sampler: wgpu::Sampler,
-    tex_layout: wgpu::BindGroupLayout,
-    textures: std::collections::HashMap<String, GpuTexture>,
-    baked: std::collections::HashMap<String, text::BakedText>,
-    baked_order: std::collections::VecDeque<String>,
-    atlas: text::TextAtlas,
-    queue_list: Vec<QueuedSprite>,
-    sprite_atlases: std::collections::HashMap<String, Atlas>,
-    cam: (f64, f64),
-    zoom: f64,
+    shared: SharedQueue,
 }
 
 impl OffscreenRenderer {
@@ -761,23 +801,12 @@ impl OffscreenRenderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        let shared = SharedQueue::new(device, queue, pipeline, sampler, tex_layout)?;
         Ok(Self {
-            device,
-            queue,
             target,
             width,
             height,
-            pipeline,
-            sampler,
-            tex_layout,
-            textures: std::collections::HashMap::new(),
-            baked: std::collections::HashMap::new(),
-            baked_order: std::collections::VecDeque::new(),
-            atlas: text::TextAtlas::new()?,
-            queue_list: Vec::new(),
-            sprite_atlases: std::collections::HashMap::new(),
-            cam: (0.0, 0.0),
-            zoom: 1.0,
+            shared,
         })
     }
 
@@ -786,102 +815,17 @@ impl OffscreenRenderer {
     }
 
     pub fn set_camera_size(&mut self, x: f64, y: f64, zoom: f64) {
-        self.cam = (x, y);
-        self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
-    }
-
-    fn load_texture(&self, key: &str) -> GpuTexture {
-        match image::open(key).map(|img| img.to_rgba8()).ok() {
-            Some(rgba) => {
-                let (w, h) = (rgba.width(), rgba.height());
-                let texture = upload(&self.device, &self.queue, &rgba, w, h);
-                let view = texture.create_view(&Default::default());
-                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture {
-                    texture,
-                    view,
-                    bind_group,
-                    w,
-                    h,
-                }
-            }
-            None => {
-                tracing::warn!(texture = key, "cannot load texture, using fallback");
-                let texture = upload(&self.device, &self.queue, &[255, 0, 255, 255], 1, 1);
-                let view = texture.create_view(&Default::default());
-                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                GpuTexture {
-                    texture,
-                    view,
-                    bind_group,
-                    w: 8,
-                    h: 8,
-                }
-            }
-        }
-    }
-
-    fn texture_for(&mut self, key: &str) -> &GpuTexture {
-        if !self.textures.contains_key(key) {
-            let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
-            let entry = match baked {
-                Some((rgba, w, h)) => {
-                    let texture = upload(&self.device, &self.queue, &rgba, w, h);
-                    let view = texture.create_view(&Default::default());
-                    let bind_group =
-                        bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                    GpuTexture {
-                        texture,
-                        view,
-                        bind_group,
-                        w,
-                        h,
-                    }
-                }
-                None => self.load_texture(key),
-            };
-            self.textures.insert(key.to_string(), entry);
-        }
-        &self.textures[key]
-    }
-
-    fn draw_text_queued(&mut self, text: &str, world: (f64, f64), size: f32, color: [u8; 4]) {
-        if text.is_empty() {
-            return;
-        }
-        let px = ((size as f64 * self.zoom).round().max(1.0)) as u32;
-        let key = text::glyph_cache_key(text, px, color);
-        if !self.baked.contains_key(&key) {
-            self.baked
-                .insert(key.clone(), self.atlas.bake(text, px as f32, color));
-            text::lru_touch(&mut self.baked_order, &key, 64);
-            while self.baked_order.len() > 64 {
-                if let Some(old) = self.baked_order.pop_front() {
-                    self.baked.remove(&old);
-                    self.textures.remove(&old);
-                }
-            }
-        }
-        self.queue_list.push(QueuedSprite::plain(key, world));
+        self.shared.set_camera(x, y, zoom);
     }
 
     fn render_queued_to_target(&mut self) -> wgpu::CommandBuffer {
         let size = (self.width, self.height);
-        let sprites = std::mem::take(&mut self.queue_list);
-        for sprite in &sprites {
-            self.texture_for(&sprite.tex_key);
-        }
-        let sizes: std::collections::HashMap<String, (u32, u32)> = self
-            .textures
-            .iter()
-            .map(|(k, t)| (k.clone(), (t.w, t.h)))
-            .collect();
-        let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        let (groups, order) = self.shared.build(size);
         let view = self.target.create_view(&Default::default());
         encode_groups(
-            &self.device,
-            &self.pipeline,
-            &self.textures,
+            &self.shared.device,
+            &self.shared.pipeline,
+            &self.shared.textures,
             &groups,
             &order,
             &view,
@@ -892,18 +836,12 @@ impl OffscreenRenderer {
         let (w, h) = (self.width, self.height);
         let padded_bytes_per_row: u32 = ((w * 4 + 255) / 256) * 256;
         let buffer_size: u64 = padded_bytes_per_row as u64 * h as u64;
-        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let mut encoder = self
+            .shared
+            .device
+            .create_command_encoder(&Default::default());
         let size = (w, h);
-        let sprites = std::mem::take(&mut self.queue_list);
-        for sprite in &sprites {
-            self.texture_for(&sprite.tex_key);
-        }
-        let sizes: std::collections::HashMap<String, (u32, u32)> = self
-            .textures
-            .iter()
-            .map(|(k, t)| (k.clone(), (t.w, t.h)))
-            .collect();
-        let (groups, order) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        let (groups, order) = self.shared.build(size);
         let view = self.target.create_view(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -927,27 +865,28 @@ impl OffscreenRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&self.shared.pipeline);
             for key in &order {
                 let Some(verts) = groups.get(key) else {
                     continue;
                 };
-                let Some(tex) = self.textures.get(key) else {
+                let Some(tex) = self.shared.textures.get(key) else {
                     continue;
                 };
-                let buf = self
-                    .device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("pite offscreen verts"),
-                        contents: bytemuck::cast_slice(verts),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+                let buf =
+                    self.shared
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("pite offscreen verts"),
+                            contents: bytemuck::cast_slice(verts),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
                 pass.set_bind_group(0, &tex.bind_group, &[]);
                 pass.set_vertex_buffer(0, buf.slice(..));
                 pass.draw(0..verts.len() as u32, 0..1);
             }
         }
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let readback = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pite offscreen readback"),
             size: buffer_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
@@ -974,12 +913,13 @@ impl OffscreenRenderer {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.shared.queue.submit(std::iter::once(encoder.finish()));
         let (tx, rx) = std::sync::mpsc::channel();
         readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device
+        self.shared
+            .device
             .poll(wgpu::PollType::wait_indefinitely())
             .context("offscreen readback poll failed")?;
         rx.recv()
@@ -1005,13 +945,12 @@ impl OffscreenRenderer {
 
 impl Renderer2D for OffscreenRenderer {
     fn begin_frame(&mut self) -> Result<()> {
-        self.queue_list.clear();
+        self.shared.queue_list.clear();
         Ok(())
     }
 
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
-        self.queue_list
-            .push(QueuedSprite::plain(texture.to_string(), (x, y)));
+        self.shared.queue_sprite(texture, (x, y));
         Ok(())
     }
 
@@ -1022,58 +961,27 @@ impl Renderer2D for OffscreenRenderer {
         x: f64,
         y: f64,
     ) -> Result<()> {
-        let Some(frame) = frame else {
-            self.queue_list
-                .push(QueuedSprite::plain(texture.to_string(), (x, y)));
-            return Ok(());
-        };
-        let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
-        self.queue_list.push(QueuedSprite {
-            tex_key: texture.to_string(),
-            world: (x, y),
-            size_world: None,
-            size_px: Some(size_px),
-            uv,
-        });
-        Ok(())
+        self.shared.queue_sprite_frame(texture, frame, (x, y))
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
-        let key = format!(
-            "rect\0{}\0{}\0{}\0{}",
-            color[0], color[1], color[2], color[3]
-        );
-        if !self.baked.contains_key(&key) {
-            self.baked.insert(
-                key.clone(),
-                text::BakedText {
-                    rgba: vec![color[0], color[1], color[2], color[3]],
-                    w: 1,
-                    h: 1,
-                },
-            );
-            text::lru_touch(&mut self.baked_order, &key, 64);
-        }
-        self.queue_list.push(QueuedSprite {
-            size_world: Some((w.max(1.0), h.max(1.0))),
-            ..QueuedSprite::plain(key, (x, y))
-        });
+        self.shared.queue_rect((x, y), w, h, color);
         Ok(())
     }
 
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
-        self.draw_text_queued(text, (x, y), size, color);
+        self.shared.draw_text_queued(text, (x, y), size, color);
         Ok(())
     }
 
     fn end_frame(&mut self) -> Result<()> {
         let cmd = self.render_queued_to_target();
-        self.queue.submit(std::iter::once(cmd));
+        self.shared.queue.submit(std::iter::once(cmd));
         Ok(())
     }
 
     fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.set_camera_size(x, y, zoom);
+        self.shared.set_camera(x, y, zoom);
     }
 }
 
