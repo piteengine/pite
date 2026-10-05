@@ -6,15 +6,6 @@ pub struct Vec2 {
     pub y: f64,
 }
 
-/// Axis-aligned rectangle, e.g. for the `query_overlap` seam.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Rect {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-}
-
 /// A node's global position is its local
 /// `position` plus every ancestor's, up to the root. Nodes without a
 /// `position` prop contribute nothing. Moving a parent carries children.
