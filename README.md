@@ -39,18 +39,12 @@ Exported runs never watch files (`--no-reload` is baked into the launcher).
 
 ## Status
 
-`v0.1-m3` (tagged): `v0.1-m2`'s playable 2D loop (sprites through
-`Camera2D`, typed signals, `Label`/`Button`, WAV playback, hot reload, scene
-cache, asset pipeline with uids, locked `pite.toml` schema, Python language
-server) plus a correctness pass — Windows export proved on Windows, a slimmer
-stdlib zip, the export no longer dropping atlas textures, editor/runtime
-colour-space parity, fixed sprite quad geometry, a project-sized viewport, and
-script markers in the scene tree. Unreleased since: real input edges and
-physical mouse coords, engine-owned `Button.pressed`, a real audio device sink,
-orphan-asset warnings in `check`, editor transport buttons with Play-mode
-viewport input, a file-tree Assets panel, and the teal brand palette — plus a
-viewport repair batch, split CI jobs, major dependency bumps, SPDX headers, and
-an internal shrink sweep.
+`v0.1-m4` (tagged): `v0.1-m3`'s corrected renderer and exporter plus a hardened
+playable loop — real input edges and physical mouse coords, engine-owned
+`Button.pressed`, audible audio through the default device, orphan-asset
+warnings in `check`, editor transport buttons with Play-mode viewport input, a
+file-tree Assets panel, and the teal brand palette — with split CI, major
+dependency bumps, and a logging/docs cleanup (`tracing` everywhere).
 See [`CHANGELOG.md`](CHANGELOG.md) for the release-by-release record.
 
 ## Workspace
