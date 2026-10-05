@@ -689,10 +689,6 @@ impl WgpuRenderer {
         }
     }
 
-    pub fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.shared.set_camera(x, y, zoom);
-    }
-
     pub fn size(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
     }
@@ -812,10 +808,6 @@ impl OffscreenRenderer {
 
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
-    }
-
-    pub fn set_camera_size(&mut self, x: f64, y: f64, zoom: f64) {
-        self.shared.set_camera(x, y, zoom);
     }
 
     fn render_queued_to_target(&mut self) -> wgpu::CommandBuffer {
