@@ -16,11 +16,8 @@ pub struct TextAtlas {
 
 impl TextAtlas {
     pub fn new() -> Result<Self> {
-        Self::from_bytes(FONT_BYTES)
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let font = FontArc::try_from_vec(bytes.to_vec()).context("cannot parse bundled font")?;
+        let font =
+            FontArc::try_from_vec(FONT_BYTES.to_vec()).context("cannot parse bundled font")?;
         Ok(Self { font })
     }
 
