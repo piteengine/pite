@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-scene`: TOML schema, instantiation, validation, migration.
 //!
 //! Depends on `pite-core` only. TOML is canonical; binary is a later

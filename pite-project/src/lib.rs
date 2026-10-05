@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-project`: `pite.toml` manifest, `res://` paths, templates.
 
 use std::collections::HashMap;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl;
 //! future backends (or a mock for tests) plug in without touching runtime.
 

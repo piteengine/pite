@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Real audio output through the OS default device (cpal).
 //!
 //! Written against the cpal 0.17 docs without a local build (this container

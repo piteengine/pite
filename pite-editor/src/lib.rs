@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-editor`: `Panel` trait plus panel registry.
 //! New panels register without editing dock layout code.
 //! The eframe shell provides viewport, tree, inspector, assets, console

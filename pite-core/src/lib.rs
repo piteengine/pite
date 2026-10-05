@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Core scene-graph primitives: node handles, the node tree, props, the node type
 //! registry and lifecycle dispatch.
 //!

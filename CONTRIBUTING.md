@@ -1,5 +1,14 @@
 # Contributing
 
+Yes, we want your contributions - code, docs, examples, bug reports, ideas. Newcomers are welcome, and we help you get your first change merged.
+
+## How to help
+
+- **Issues:** found a bug or have an idea? Open an issue. Include what you did, what you expected, and what happened. Logs and repro steps help a lot.
+- **Pull requests:** want to fix or build something? Open a PR. One focused change per PR, conventional commits (`feat:`, `fix:`, `docs:`, `chore:`). Small PRs merge faster than big ones.
+- **Discussions:** not sure where to start, or just want to talk design? Open a discussion. No question is too small.
+- **Stuck?** Ask in your issue, PR, or discussion. We answer and unblock.
+
 ## Rhythm
 
 - One focused change per commit; keep unrelated changes in separate commits.
@@ -31,8 +40,16 @@ WINIT_UNIX_BACKEND=x11 cargo run -p pite-cli -- edit
 
 ## License
 
-All contributions are dual-licensed MIT + Apache-2.0. New source files start with:
+All contributions are dual-licensed MIT + Apache-2.0. New Rust source files start with:
 
 ```
 // SPDX-License-Identifier: MIT OR Apache-2.0
 ```
+
+New Python files shipped with the engine start with:
+
+```
+# SPDX-License-Identifier: MIT OR Apache-2.0
+```
+
+Example game scripts (`examples/`) stay header-free so new projects scaffold clean.

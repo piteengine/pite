@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 /// 2D vector shared by value (composition, not inheritance).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec2 {

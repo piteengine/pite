@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::node::NodeId;
 
 /// Lifecycle dispatch seam (`_ready`, `_process`, `_draw`).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 mod cmd_check;
 mod cmd_edit;
 mod cmd_export;

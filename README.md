@@ -4,26 +4,38 @@
 
 # Pite
 
-A game engine inspired by Godot, written in Rust — scene tree, first-class GUI editor, Python scripting.
+Pite - accessible, handy game engine: Rust core + visual editor + Python scripting, all together.
+
+Build games from scenes and nodes (not ECS) - edit visually, script in Python.
 
 ## Quickstart
 
 ```sh
-cargo run -p pite-cli -- new hello --template minimal-2d
-cargo run -p pite-cli -- run --scene examples/minimal-2d/scenes/main.pitescene
-cargo run -p pite-cli -- check
-cargo run -p pite-cli -- edit --scene examples/minimal-2d/scenes/main.pitescene
+cargo install --path pite-cli
+
+pite new hello --template minimal-2d
+pite run --scene examples/minimal-2d/scenes/main.pitescene
+pite check
+pite edit --scene examples/minimal-2d/scenes/main.pitescene
 ```
 
-`new` scaffolds a project, `run` plays a scene, `check` validates it, `edit` opens the editor.
+Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `check` validates it, `edit` opens the editor.
 
 ## Export
 
 ```sh
-cargo run -p pite-cli -- export linux
+pite export linux
 ```
 
-`export linux|windows` writes a runnable directory (`dist/<name>-platform>/`) with the engine binary, a `run` launcher, and only the referenced game content (`game/`). Extra files ride along via `[export] include` in `pite.toml` (all export settings default; old projects export untouched). **Python is bundled**: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`, never vendored in the repo) and ships the interpreter library plus a stdlib zip under `python/` — `site-packages` is not shipped, because `pite` is a native module registered from Rust. The launcher sets what the platform needs (`LD_LIBRARY_PATH` + `PYTHONPATH` on Linux; on Windows the interpreter DLL goes next to the binary plus a `python312._pth` naming the stdlib zip, because Windows ignores `PYTHONPATH` once that file exists), so the exported game runs on a machine with no Python installed. Offline? Export fails loudly and tells you to pass `--no-bundle-python`, which keeps the old requirement of system Python 3.12 (`PITE_PYTHON` overrides detection; `--skip-python-check` skips that gate). Exported runs never watch files (`--no-reload` is baked into the launcher).
+`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the engine binary, a `run` launcher, and only the referenced game content (`game/`).
+
+Extra files ride along via `[export] include` in `pite.toml`. All export settings have defaults, so old projects export untouched.
+
+Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`, never vendored in the repo) and ships the interpreter plus a stdlib zip under `python/`. The exported game runs with no system Python installed.
+
+Offline? Export fails loudly and tells you to pass `--no-bundle-python`, which falls back to system Python 3.12 (`PITE_PYTHON` overrides detection, `--skip-python-check` skips that gate).
+
+Exported runs never watch files (`--no-reload` is baked into the launcher).
 
 ## Status
 
@@ -62,6 +74,14 @@ See [`CHANGELOG.md`](CHANGELOG.md) for the release-by-release record.
 | [`docs/editor.md`](docs/editor.md) | Panels, viewport, save, tree ops |
 | [`docs/manifest.md`](docs/manifest.md) | `pite.toml` fields, defaults, `check` rules |
 | [`docs/lsp.md`](docs/lsp.md) | Pinned pyright server, completion/hover/diagnostics |
+
+## Contributing
+
+We accept contributions, and we help newcomers. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+- Found a bug or have an idea? Open an issue.
+- Want to fix or build something? Open a PR.
+- Not sure where to start, or just want to talk? Join the discussions.
 
 ## License
 

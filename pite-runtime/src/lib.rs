@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-runtime`: thin orchestrator wiring scene + render + script.
 //! Opens a window, loads the scene file into a node tree, runs the loop.
 

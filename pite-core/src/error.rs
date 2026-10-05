@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use thiserror::Error;
 
 /// Errors produced by the core tree and its registries.

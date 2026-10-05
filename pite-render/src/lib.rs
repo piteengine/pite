@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-render`: `Renderer2D` trait. wgpu is the only impl;
 //! the viewport talks to the trait so batching/3D later doesn't touch
 //! tree or editor code.

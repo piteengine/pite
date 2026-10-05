@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use std::collections::HashMap;
 
 /// Typed prop values. New props don't change the tree struct (§12).

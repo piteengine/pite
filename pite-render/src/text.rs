@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use ab_glyph::{Font, FontArc, PxScale};
 use anyhow::{Context, Result};
 
