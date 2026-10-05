@@ -587,7 +587,7 @@ texture = "res://assets/gone.png"
     #[test]
     fn missing_asset_is_error() {
         let root = fixture_root(1);
-        let registry = pite_assets::UidRegistry::new();
+        let registry = pite_assets::UidRegistry::default();
         let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
         let by_hash: HashMap<&str, &str> = HashMap::new();
         let (errors, _, _) = run_ref(&root, &registry, &by_path, &by_hash);
@@ -605,7 +605,7 @@ texture = "res://assets/gone.png"
         let root = fixture_root(2);
         std::fs::write(root.join("assets").join("gone.png"), b"fake-png-bytes")
             .expect("write fixture asset");
-        let registry = pite_assets::UidRegistry::new();
+        let registry = pite_assets::UidRegistry::default();
         let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
         let by_hash: HashMap<&str, &str> = HashMap::new();
         let (errors, cache, _) = run_ref(&root, &registry, &by_path, &by_hash);
@@ -644,7 +644,7 @@ texture = "res://assets/gone.png"
         let by_path: HashMap<&str, &pite_assets::ScannedFile> =
             files.iter().map(|f| (f.res_path.as_str(), f)).collect();
         let by_hash: HashMap<&str, &str> = HashMap::new();
-        let registry = pite_assets::UidRegistry::new();
+        let registry = pite_assets::UidRegistry::default();
         let (_, _, referenced) = run_ref(&root, &registry, &by_path, &by_hash);
         assert!(
             referenced.contains("res://assets/gone.png"),
@@ -692,7 +692,7 @@ texture = "res://assets/gone.png"
         let by_path: HashMap<&str, &pite_assets::ScannedFile> =
             files.iter().map(|f| (f.res_path.as_str(), f)).collect();
         let by_hash: HashMap<&str, &str> = HashMap::new();
-        let registry = pite_assets::UidRegistry::new();
+        let registry = pite_assets::UidRegistry::default();
         let (_, _, referenced) = run_ref(&root, &registry, &by_path, &by_hash);
         assert!(
             referenced.contains("res://assets/hit.wav"),

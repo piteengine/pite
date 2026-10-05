@@ -86,10 +86,6 @@ pub struct UidRegistry {
 }
 
 impl UidRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn register(&mut self, path: impl Into<String>, uid: impl Into<String>) {
         let path = path.into();
         let uid = uid.into();
@@ -260,17 +256,17 @@ pub fn load_registry(root: &Path) -> Result<UidRegistry> {
     let path = root.join(MANIFEST_FILE);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(UidRegistry::new()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(UidRegistry::default()),
         Err(err) => {
             return Err(err).with_context(|| format!("read {}", path.display()));
         }
     };
     if text.trim().is_empty() {
-        return Ok(UidRegistry::new());
+        return Ok(UidRegistry::default());
     }
     let doc: ManifestDoc =
         toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
-    let mut reg = UidRegistry::new();
+    let mut reg = UidRegistry::default();
     for entry in doc.asset {
         reg.by_path.insert(entry.path.clone(), entry);
     }
@@ -295,7 +291,7 @@ pub fn save_registry(root: &Path, reg: &UidRegistry) -> Result<()> {
 /// disk but shadowed by an unclaimed file with equal (hash, size) is a
 /// `rename` (uid travels); otherwise `removed` / `added` (fresh uid).
 pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, ScanReport) {
-    let mut next = UidRegistry::new();
+    let mut next = UidRegistry::default();
     let mut added = Vec::new();
     let mut renamed = Vec::new();
     let mut removed = Vec::new();
