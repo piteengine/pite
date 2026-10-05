@@ -4,11 +4,14 @@
 
 - Input edges (`pite-runtime`): `GameSession::frame()` retires edge input after scripts consume it — `pite.pressed()`/`released()` and button clicks now work in the real loop, not just in tests. Mouse coordinates are physical pixels (no scale-factor division), fixing clicks on scaled displays.
 - `Button.pressed` is declared by the engine for every `Button` node — scripts just connect, no `pressed = pite.signal()` needed.
-- Audio device sink (`pite-audio/device.rs`, cpal 0.17): real output through the default device with silent-simulation fallback where none exists. Proven on Windows: compiles, 9/9 tests green incl. real device open, hit sound audible in `pite run`.
+- Audio device sink (`pite-audio/device.rs`): real output through the default device with silent-simulation fallback where none exists. Proven on Windows: compiles, 9/9 tests green incl. real device open, hit sound audible in `pite run`.
 - `pite check` warns about orphan assets: scanned png/wav files no reachable scene references (`asset "res://…" is never referenced by a reachable scene`). Reachable-only by design — uninstantiated scenes and loose scripts stay silent. Atlas sheets count as referenced through their sidecar.
-- Editor: play/pause/stop icon buttons beside the menus (mirroring the `Run` menu), filename-only scene label; Play mode forwards viewport keyboard/mouse into the running scene's scripts.
+- Editor: play/pause/stop icon buttons beside the menus (mirroring the `Run` menu), a scene path bar under the tabs; Play mode forwards viewport keyboard/mouse into the running scene's scripts.
 - Editor Assets is a real file tree: collapsible folders with a static folder glyph, per-type file icons (script, scene, gear, image, speaker, `?` for unknown) in the hand-drawn vector style, plain-text rows, full-panel scroll. `dist/`, `target/`, `.git/`, dotfiles, and the scene binary cache stay hidden.
 - CI is split into named jobs (format, build, unit tests, LSP smoke, bundling smoke, `pite check`) with a shared cargo cache and branch concurrency; the export tests share one serialization lock so the offline-probe test can no longer redirect the bundling download mid-flight, and the downloader retries transient network errors.
+- Editor repair batch: the viewport is contained and centered in its panel instead of overflowing it, the dogfood HIT button sits fully inside the game window, panels are size-bounded with a scrolling inspector, and the node-count caption is gone. Line endings renormalized to LF, workspace `cargo fmt` clean.
+- Brand: `palette.json` is canonical — logo, tray icons, and the editor accent follow the new teal palette, with a solid-dark selection fill after teal-on-teal measured 3.6–4.1 contrast.
+- Dependencies: wgpu 23→30, eframe 0.32→0.36, pyo3 0.26→0.29, toml 0.8→1.1, cpal 0.17→0.18, pollster 0.3→1.0; hand-rolled SHA-256 in export replaced with sha2/crc32fast/zip. New source files carry SPDX headers.
 
 ## v0.1-m3
 

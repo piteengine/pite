@@ -1,6 +1,6 @@
 # Scene format (`.pitescene`)
 
-Canonical, human-editable TOML. Text is the source of truth; there is no binary format. Node ids are human strings (`D7`), never UUIDs.
+Canonical, human-editable TOML. Text is the source of truth; no binary format is authored (the runtime keeps its own cache, see below). Node ids are human strings (`D7`), never UUIDs.
 
 ```toml
 format_version = 1
@@ -78,4 +78,4 @@ Saving preserves `[[instance]]` entries rather than inlining the subtree, and re
 ## Buttons
 
 - `Button` draws a `color` box (`size = [w, h]` in world units, default `[120, 40]`) centered on the node's global position, with its `text` captioned on top like a `Label`.
-- Clicks are press-inside plus release-inside (mouse position maps through the camera). The engine fires the node's `pressed` signal — declare `pressed = pite.signal()` in the script and connect it like any signal; buttons without a declared `pressed` ignore clicks.
+- Clicks are press-inside plus release-inside (mouse position maps through the camera). The engine declares and fires the node's `pressed` signal itself — just connect it like any signal, no declaration needed (re-declaring is harmless).

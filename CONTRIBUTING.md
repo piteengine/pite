@@ -18,14 +18,16 @@ Yes, we want your contributions - code, docs, examples, bug reports, ideas. Newc
 ## CI (must be green)
 
 ```sh
+cargo fmt --all -- --check
 cargo build --workspace --locked
 cargo test --workspace
+PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
 cargo run -p pite-cli -- check
 ```
 
 ## Local environment notes
 
-- Script builds need CPython 3.12 with dev headers. Point PyO3 at it and make the shared lib discoverable:
+- Script builds need CPython 3.12 with dev headers, plus ALSA headers for the audio dependency (`libasound2-dev`, `pkg-config` on Debian/Ubuntu — without them the build fails). Point PyO3 at it and make the shared lib discoverable:
 
 ```sh
 export PYO3_PYTHON=/path/to/python3.12

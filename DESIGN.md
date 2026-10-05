@@ -28,11 +28,8 @@ recolors cleanly via the `fill` attribute, which is how all variants are derived
 - **Light background →** `logo.svg` (`#0b9387`).
   **Dark background →** `logo-white.svg` (`#f7f7f9`). Never use `#0b9387` on
   `#042F2E` — contrast is too low; that pairing is reserved for fills/borders.
-- The mark is monochromatic by design. For tinted contexts (e.g. error states),
-  any showcase color may be used at full opacity only.
 - egui cannot render SVG natively. In-app surfaces (window icon, editor header)
   need PNG renditions — export from the SVG at 16 / 32 / 64 / 128 / 256 px.
-  Window-icon wiring is still open (see §6).
 
 ## 2. Core palette — Pite Teal
 
@@ -49,23 +46,9 @@ The table mirrors it — do not add new hexes here, update `palette.json` first.
 
 ## 3. Theme tokens
 
-### Light theme
-
-| Token | Hex | Used for |
-|-------|-----|----------|
-| `background` | `#FFFFFF` | App / page background |
-| `logo` | `#0b9387` | Logo mark (`assets/logo.svg`) |
-| `accent` | `#2bd3bf` | Accent fills, hovers, highlights |
-| `text` | `#111827` | Primary text |
-
-### Dark theme
-
-| Token | Hex | Used for |
-|-------|-----|----------|
-| `background` | `#042F2E` | App / page background |
-| `logo` | `#f7f7f9` | Logo mark (`assets/logo-white.svg`) |
-| `accent` | `#0b9387` | Accent fills, selection, borders |
-| `text` | `#F0FDFA` | Primary text |
+Light-theme surface tokens live with the open light-theme item (§6.4) — only
+the dark editor mapping below is implemented. Backgrounds use palette
+`Background` (`#042F2E`); the mark on dark is `logo-white.svg` (`#f7f7f9`).
 
 ## 4. Editor mapping (`pite-editor/src/theme.rs`)
 
@@ -128,10 +111,11 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
    a corrupt PNG logs nothing and the window still opens).
    System tray: no tray integration exists yet — `assets/tray-icon.svg` +
    `tray-icon-{16,22,24,32}.png` are ready for whenever a tray crate is wired.
-2. **Editor header wordmark.** `TopBottomPanel::top("transport")` in `app.rs` has no
+2. **Editor header wordmark.** `Panel::top("menu")` in `app.rs` has no
    logo — render `logo-white.svg` (as PNG texture via `egui::Image`) next to the
    transport controls.
 3. **Renderer clear color.** `pite-render` clears to `(0.07, 0.07, 0.10)`; align the
    launch/splash backdrop with `#042F2E` → `(0.016, 0.184, 0.180)`.
-4. **Light-theme editor.** Tokens are specified (§3) but only the dark theme is
-   implemented.
+4. **Light-theme editor.** Only the dark theme is implemented. Light surfaces:
+   background `#FFFFFF`, mark `logo.svg` (`#0b9387`), accent fills `#2bd3bf`,
+   primary text `#111827`.

@@ -12,15 +12,15 @@ selection, links, and the active widget stroke.
 ## Viewport
 
 The viewport shows the real game frame: `EditorApp` owns a lazily created
-`pite_render::OffscreenRenderer` (fixed offscreen `640x400`, egui scales the
-image) and renders via `session.draw_into(&mut renderer)` — the same
-camera/viewport traversal the game window uses — then `render_to_rgba()` into
-an `egui::TextureHandle` (`ColorImage::from_rgba_unmultiplied`, `NEAREST`).
-Node captions overlay the texture as before. The texture re-renders only while
-`playing` or when a `viewport_dirty` flag is set (add/delete/move/prop/save
+`pite_render::OffscreenRenderer` (sized from the manifest's `window_width` /
+`window_height`, egui scales the image) and renders via
+`session.draw_into(&mut renderer)` — the same camera/viewport traversal the
+game window uses — then `render_to_rgba()` into an `egui::TextureHandle`
+(`ColorImage::from_rgba_unmultiplied`, `NEAREST`). The texture re-renders only
+while `playing` or when a `viewport_dirty` flag is set (add/delete/move/prop/save
 ops); otherwise the last handle is reused. When no GPU is available the
-renderer stays `None` forever and the old dots painter remains as fallback
-(muted overlay colors).
+renderer stays `None` forever and a dots painter remains as fallback (muted
+overlay colors, node captions only on this path).
 
 While playing, keyboard and mouse over the viewport reach the running scene:
 `pump_game_input` forwards egui key/mouse state into the script input state
@@ -52,22 +52,17 @@ cycle is byte-identical and diffs stay readable.
 Header `Add` opens an inline add-child form: a ComboBox over the registered
 types (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`),
 a name field, `Add`/`Cancel`. The new node goes under the selected node, or
-the root when nothing is selected. Header `Del` deletes the selected node; the
-root is protected and the attempt is logged. Rows are drag-and-droppable via a
-dedicated grip handle left of the label: only the 12 px handle arms a drag, so
-click-to-select, double-click expand, and right-click never fight it. The grip
-dots paint on row hover only (allocation stays hover-sensitive); they are
-centered on the label's vertical middle after layout, so they track the text
-exactly. Right-click on a row opens a context menu: Delete, Move up / Move down
+the root when nothing is selected. Rows are drag-and-droppable via a dedicated
+12 px grip handle left of the label, so click-to-select, double-click expand,
+and right-click never fight it. Right-click on a row opens a context menu:
+Delete (the root is protected and the attempt is logged), Move up / Move down
 (sibling reorder), Expand / Collapse (branches).
 
-Drop targeting is positional with a live preview: the top and bottom edges of
-a row both mean *insert before* (same parent, top underline), the middle band
-means *move under* (row outline). There is deliberately no insert-after drop —
-use the context menu's Move down. Dropping on empty tree space appends under
-the root. Root takes only "under". Root has no handle and refuses moves;
-cycles fail in the console. Header keeps only the Add icon — Delete lives in
-the context menu.
+Drop targeting is positional with a live preview: row edges mean *insert
+before*, the middle band means *move under* — there is deliberately no
+insert-after drop, use Move down. Dropping on empty tree space appends under
+the root. Root takes only "under", has no handle, and refuses moves; cycles
+fail in the console. The header keeps only the Add icon.
 
 Branch rows are a bare `selectable_label(name (type))`: single click selects,
 double-click expands/collapses children (indented beneath while the parent's
@@ -90,23 +85,28 @@ nothing is auto-inserted:
 | future variants | compile error here by design (no silent fallback) |
 
 Title line and script section (label + `Open script`) are unchanged. The
-inspector panel keeps its 280 px default width but is resizable.
+inspector panel is 240 px by default, bounded 240–360.
 
 ## Console
 
-Bottom panel, resizable with `min_height` 100, `ScrollArea` with `max_height`
-200, `auto_shrink([false, false])` so the log list always spans the full width
-and the scrollbar sits at the far right end, plus `stick_to_bottom(true)` so
-the latest log line stays visible. Side panels carry `min_width` (inspector
-200) so nothing collapses to a sliver.
+Bottom panel, 120 px by default and bounded 120–240, with a vertical
+`ScrollArea` (`auto_shrink([false, false])`, `stick_to_bottom(true)`) so the
+latest log line stays visible. Side panels bottom out at 240 px so nothing
+collapses to a sliver.
 
 ## Error gutter
 
 Above the code editor, one `line N: msg` monospace warning-colored button per
 mark. Clicking does nothing (jump is out of scope). Marks come from
-`ops::gutter_marks` over `session.errors()` entries that mention the open
-file's name (`File "...", line N` → 1-based line + the exception line).
+`ops::gutter_marks` over the open file's `session.errors()` entries.
 No gutter when no file is open or no entries carry a line number.
+
+## Assets
+
+The `Assets` panel is a real file tree: collapsible folders, per-type file
+icons, click a file to open it in the `Code` tab (scenes open in the tree
+instead). `dist/`, `target/`, `.git/`, dotfiles, and the scene binary cache
+stay hidden.
 
 Headless logic lives in `pite-editor/src/ops.rs` (no egui) with unit tests:
 add/remove round-trip, root removal refused, reparent cycle refused, prop

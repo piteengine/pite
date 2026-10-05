@@ -25,3 +25,4 @@ platforms = ["linux"]
 - `window_width` / `window_height` must be positive; `python` must be non-empty; `icon` is empty (no icon) or `res://…` (absolute paths are forbidden, a missing file warns).
 - Unknown fields (`custom`, `project.nickname`, `export.bundle`) survive a parse→write round-trip and warn in `pite check`; deprecated fields would warn with their replacement (none today).
 - Export copies the manifest verbatim and reads only `name`, `main_scene`, `binary_name`, `platforms`, `include`.
+- `pite check --strict` promotes warnings to failures; `pite check --json` emits a machine-readable report (`schema_version: 2`).

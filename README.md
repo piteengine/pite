@@ -27,7 +27,7 @@ Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `
 pite export linux
 ```
 
-`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the engine binary, a `run` launcher, and only the referenced game content (`game/`).
+`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the engine binary (under `bin/`), a `run` launcher, a `README.txt`, and only the referenced game content (`game/`).
 
 Extra files ride along via `[export] include` in `pite.toml`. All export settings have defaults, so old projects export untouched.
 
@@ -39,13 +39,18 @@ Exported runs never watch files (`--no-reload` is baked into the launcher).
 
 ## Status
 
-`v0.1-m2` (tagged): a playable 2D loop, not a scaffold. Textured sprites
-render through `Camera2D` with key-driven movement and parent-carried
-transforms; typed signals (`pite.signal(int)`) connect nodes; `Label` and
-`Button` draw and click; `pite.play("…")` runs WAVs; scenes hot-reload while you
-type. Around that: a binary scene cache (`_cache/`, content-hash keyed, version
-stamped), an asset pipeline with uid tracking (`pite reimport`), a locked
-`pite.toml` schema, and an external Python language server in the code pane.
+`v0.1-m3` (tagged): `v0.1-m2`'s playable 2D loop (sprites through
+`Camera2D`, typed signals, `Label`/`Button`, WAV playback, hot reload, scene
+cache, asset pipeline with uids, locked `pite.toml` schema, Python language
+server) plus a correctness pass — Windows export proved on Windows, a slimmer
+stdlib zip, the export no longer dropping atlas textures, editor/runtime
+colour-space parity, fixed sprite quad geometry, a project-sized viewport, and
+script markers in the scene tree. Unreleased since: real input edges and
+physical mouse coords, engine-owned `Button.pressed`, a real audio device sink,
+orphan-asset warnings in `check`, editor transport buttons with Play-mode
+viewport input, a file-tree Assets panel, and the teal brand palette — plus a
+viewport repair batch, split CI jobs, major dependency bumps, SPDX headers, and
+an internal shrink sweep.
 See [`CHANGELOG.md`](CHANGELOG.md) for the release-by-release record.
 
 ## Workspace
@@ -60,7 +65,7 @@ See [`CHANGELOG.md`](CHANGELOG.md) for the release-by-release record.
 | `pite-scene` | TOML scenes, instantiation, validation, binary cache |
 | `pite-editor` | eframe/egui panels on the same tree, LSP client |
 | `pite-assets` | `Importer` trait, uid registry |
-| `pite-audio` | WAV decode + playback state machine |
+| `pite-audio` | WAV decode, default-device output, silent-simulation fallback |
 | `pite-project` | `pite.toml`, `res://` paths, templates |
 | `pite-export` | Desktop export (binary + resolved content) |
 

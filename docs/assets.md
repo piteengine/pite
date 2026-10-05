@@ -6,11 +6,11 @@ stability across renames comes from a uid sidecar, not from the reference syntax
 
 ## Manifest (`assets.pite.toml`)
 
-`pite reimport` scans the project root (png + wav only, hidden dirs / `target/` /
-`dist/` skipped) and writes `assets.pite.toml`: `[[asset]]` entries of
-`{ path, uid, hash, size }`, sorted by path. The uid is opaque and assigned once;
-the content hash lets a rename be recognized when the path changes. The manifest
-is a local import cache — gitignored, never exported.
+`pite reimport` scans the project root (png + wav only; `target/`, `dist/`,
+`.git/`, hidden dirs, and dotfiles skipped) and writes `assets.pite.toml`:
+`[[asset]]` entries of `{ path, uid, hash, size }`, sorted by path. The uid is
+opaque and assigned once. The manifest is a local import cache — gitignored,
+never exported.
 
 ## `pite check`
 

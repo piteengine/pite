@@ -1,6 +1,6 @@
 [package]
 name = "pite-cli"
-description = "The `pite` binary: new / run / check."
+description = "The `pite` binary: new / run / check / reimport / edit / export."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "pite-script"
-description = "ScriptBackend trait plus PyO3 stub for Pite."
+description = "ScriptBackend trait plus embedded PyO3 Python bridge for Pite."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
