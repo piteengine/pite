@@ -83,17 +83,20 @@ struct RawAtlas {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RawFrame {
-    Rect { x: u32, y: u32, w: u32, h: u32 },
-    Array([u32; 4]),
+struct RawFrame {
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
 }
 
 impl From<RawFrame> for AtlasFrame {
     fn from(raw: RawFrame) -> Self {
-        match raw {
-            RawFrame::Rect { x, y, w, h } => AtlasFrame { x, y, w, h },
-            RawFrame::Array([x, y, w, h]) => AtlasFrame { x, y, w, h },
+        AtlasFrame {
+            x: raw.x,
+            y: raw.y,
+            w: raw.w,
+            h: raw.h,
         }
     }
 }
@@ -177,13 +180,13 @@ mod tests {
         "size": [64, 32],
         "frames": {
             "player": { "x": 0, "y": 0, "w": 32, "h": 32 },
-            "enemy": [32, 0, 32, 32],
+            "enemy": { "x": 32, "y": 0, "w": 32, "h": 32 },
             "coin": { "x": 0, "y": 16, "w": 16, "h": 16 }
         }
     }"#;
 
     #[test]
-    fn parses_named_frames_in_both_forms() {
+    fn parses_named_frames() {
         let atlas = parse_atlas(SHEET).unwrap();
         assert_eq!(atlas.texture, "sheet.png");
         assert_eq!(atlas.size, (64, 32));

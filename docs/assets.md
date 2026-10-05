@@ -50,12 +50,12 @@ the sheet as `<sheet>.atlas.json`:
   "size": [64, 32],
   "frames": {
     "player": { "x": 0, "y": 0, "w": 32, "h": 32 },
-    "enemy": [32, 0, 32, 32]
+    "enemy": { "x": 32, "y": 0, "w": 32, "h": 32 }
   }
 }
 ```
 
-`size` is the sheet in pixels; a frame is `[x, y, w, h]` (object or array).
+`size` is the sheet in pixels; a frame is `{x, y, w, h}`.
 Frames must fit the sheet, and a sheet with no frames is an error.
 
 A `Sprite2D` draws either a plain texture or one atlas frame:
