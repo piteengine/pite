@@ -140,11 +140,11 @@ impl AudioEngine {
         // device exists (CI, containers) so games still run everywhere.
         let backend: Box<dyn AudioBackend> = match CpalBackend::new() {
             Ok(device) => {
-                eprintln!("audio: playing through the default output device");
+                tracing::info!("audio: playing through the default output device");
                 Box::new(device)
             }
             Err(e) => {
-                eprintln!("audio: no output device ({e:#}); simulating playback");
+                tracing::warn!("audio: no output device ({e:#}); simulating playback");
                 Box::new(WavBackend::new())
             }
         };

@@ -2826,6 +2826,7 @@ dependencies = [
  "anyhow",
  "cpal",
  "hound",
+ "tracing",
 ]
 
 [[package]]
@@ -2870,7 +2871,6 @@ dependencies = [
  "pite-script",
  "serde_json",
  "toml",
- "tracing",
 ]
 
 [[package]]
@@ -2940,6 +2940,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "toml",
+ "tracing",
 ]
 
 [[package]]

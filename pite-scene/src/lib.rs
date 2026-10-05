@@ -167,7 +167,7 @@ pub fn load_cached(path: &Path) -> Result<(SceneDoc, CacheStatus, Option<String>
 pub fn load_scene_cached(path: &Path) -> Result<SceneDoc> {
     let (doc, _, warning) = load_cached(path)?;
     if let Some(w) = warning {
-        eprintln!("warning: {w}");
+        tracing::warn!("{w}");
     }
     Ok(doc)
 }

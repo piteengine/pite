@@ -1,6 +1,6 @@
 [package]
 name = "pite-editor"
-description = "eframe/egui editor app: Panel trait plus registry stub."
+description = "eframe/egui editor app: viewport, tree, inspector, console, code pane."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,4 +18,3 @@ pite-runtime.workspace = true
 pite-script.workspace = true
 pite-scene.workspace = true
 toml.workspace = true
-tracing.workspace = true

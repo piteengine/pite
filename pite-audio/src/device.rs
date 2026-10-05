@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Real audio output through the OS default device (cpal).
 //!
-//! Written against the cpal 0.17 docs without a local build (this container
+//! Written against the cpal docs without a local build (this container
 //! has no ALSA headers, no crates access, and no audio device). The cpal
 //! surface used is deliberately small and long-stable: `default_host`,
 //! `default_output_device`, `default_output_config`, `build_output_stream`,
@@ -133,7 +133,7 @@ impl CpalBackend {
             voices: HashMap::new(),
             next_id: 0,
         }));
-        let err_fn = |err| eprintln!("audio output stream error: {err}");
+        let err_fn = |err| tracing::error!("audio output stream error: {err}");
         let stream = match format {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 config.clone(),
