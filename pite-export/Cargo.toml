@@ -9,7 +9,10 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+crc32fast.workspace = true
+sha2.workspace = true
 toml.workspace = true
+zip.workspace = true
 pite-project.workspace = true
 pite-render.workspace = true
 pite-scene.workspace = true

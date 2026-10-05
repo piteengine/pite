@@ -9,11 +9,13 @@
 //! in the repo; a checksum mismatch or an offline machine is a loud error, and
 //! `--no-bundle-python` keeps the older system-Python gate.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-
-use crate::sha256::{crc32, sha256_file};
+use sha2::{Digest, Sha256};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 /// Pinned upstream build: astral-sh/python-build-standalone, `install_only`.
 /// Checksums come from the release's `SHA256SUMS`.
@@ -121,9 +123,18 @@ pub fn ensure_archive(spec: &BundleSpec) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// SHA-256 of `bytes`, lowercase hex.
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// Checksum gate. Never warns, never repairs: a mismatch is fatal.
 pub fn verify(spec: &BundleSpec, path: &Path) -> Result<()> {
-    let actual = sha256_file(path)?;
+    let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let actual = sha256_hex(&bytes);
     if actual.eq_ignore_ascii_case(spec.sha256) {
         return Ok(());
     }
@@ -292,64 +303,24 @@ fn unpack(_spec: &BundleSpec, archive: &Path, work: &Path) -> Result<()> {
     }
 }
 
+/// Stored (uncompressed) entries in sorted order, no directory members: the
+/// shape the interpreter imports, unchanged from the hand-emitted zip.
 fn zip_dir(dir: &Path, zip_path: &Path) -> Result<()> {
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     collect(dir, dir, &mut entries)?;
     entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut out: Vec<u8> = Vec::new();
-    let mut central: Vec<u8> = Vec::new();
-    let mut count = 0u16;
+    let file = std::fs::File::create(zip_path)
+        .with_context(|| format!("cannot write {}", zip_path.display()))?;
+    let mut zip = ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
     for (name, path) in &entries {
         let data =
             std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        let crc = crc32(&data);
-        let offset = out.len() as u32;
-        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
-        out.extend_from_slice(&20u16.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes()); // stored
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&crc.to_le_bytes());
-        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(name.as_bytes());
-        out.extend_from_slice(&data);
-
-        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
-        central.extend_from_slice(&20u16.to_le_bytes());
-        central.extend_from_slice(&20u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&crc.to_le_bytes());
-        central.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        central.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        central.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u32.to_le_bytes());
-        central.extend_from_slice(&offset.to_le_bytes());
-        central.extend_from_slice(name.as_bytes());
-        count += 1;
+        zip.start_file(name, options)?;
+        zip.write_all(&data)?;
     }
-    let dir_offset = out.len() as u32;
-    let dir_size = central.len() as u32;
-    out.extend_from_slice(&central);
-    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&dir_size.to_le_bytes());
-    out.extend_from_slice(&dir_offset.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    std::fs::write(zip_path, out).with_context(|| format!("cannot write {}", zip_path.display()))
+    zip.finish().context("cannot finish the stdlib zip")?;
+    Ok(())
 }
 
 fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
@@ -396,6 +367,8 @@ pub fn launcher_env(bundle: &StagedBundle) -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
     use super::*;
 
     fn tmpdir(tag: &str) -> PathBuf {
@@ -425,6 +398,22 @@ mod tests {
     }
 
     #[test]
+    fn sha256_matches_published_vectors() {
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_hex(&b"a".repeat(1_000_000)),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
+    }
+
+    #[test]
     fn checksum_mismatch_is_loud_and_leaves_nothing_usable() {
         let dir = tmpdir("sum");
         let archive = dir.join("fake.tar.gz");
@@ -445,6 +434,31 @@ mod tests {
         let err = ensure_archive(&spec).unwrap_err().to_string();
         assert!(err.contains("--no-bundle-python"), "got: {err}");
         std::env::remove_var("PITE_TOOLCHAIN_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn stdlib_zip_is_stored_and_sorted_with_spec_crcs() {
+        let dir = tmpdir("stored");
+        let stdlib = dir.join("stdlib");
+        std::fs::create_dir_all(stdlib.join("sub")).unwrap();
+        std::fs::write(stdlib.join("b.py"), b"b = 1\n").unwrap();
+        std::fs::write(stdlib.join("sub").join("a.py"), b"a = 2\n").unwrap();
+        let zip = dir.join("python312.zip");
+        zip_dir(&stdlib, &zip).unwrap();
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert_eq!(names, ["b.py", "sub/a.py"]);
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).unwrap();
+            assert_eq!(entry.compression(), CompressionMethod::Stored);
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data).unwrap();
+            assert_eq!(entry.crc32(), crc32fast::hash(&data));
+        }
+        assert_eq!(crc32fast::hash(b"123456789"), 0xCBF43926);
         std::fs::remove_dir_all(&dir).ok();
     }
 

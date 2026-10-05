@@ -4,7 +4,6 @@
 //! CPython unless `--no-bundle-python` keeps the system-Python requirement.
 
 pub mod python_bundle;
-pub mod sha256;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
