@@ -1018,8 +1018,8 @@ mod tests {
 
     #[test]
     fn demo_textures_decode() {
-        let player = image::open("../examples/minimal-2d/assets/player.png").unwrap();
-        assert_eq!((player.width(), player.height()), (32, 32));
+        let sheet = image::open("../examples/minimal-2d/assets/sheet.png").unwrap();
+        assert_eq!((sheet.width(), sheet.height()), (64, 32));
     }
 
     #[test]
@@ -1041,9 +1041,11 @@ mod tests {
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
 
-        let rgba = image::open("../examples/minimal-2d/assets/player.png")
+        let sheet = image::open("../examples/minimal-2d/assets/sheet.png")
             .unwrap()
             .to_rgba8();
+        // The `player` frame's rect from sheet.atlas.json: (0, 0, 32, 32).
+        let rgba = image::imageops::crop_imm(&sheet, 0, 0, 32, 32).to_image();
         let sprite = upload(&device, &queue, &rgba, 32, 32);
         let sprite_view = sprite.create_view(&Default::default());
         let sprite_bg = bind_group(&device, &tex_layout, &sampler, &sprite_view);
@@ -1192,8 +1194,13 @@ mod tests {
             eprintln!("SKIP: no GPU adapter on this machine");
             return;
         };
-        r.draw_sprite("../examples/minimal-2d/assets/player.png", 0.0, 0.0)
-            .expect("queue sprite");
+        r.draw_sprite_frame(
+            "../examples/minimal-2d/assets/sheet.png",
+            Some("player"),
+            0.0,
+            0.0,
+        )
+        .expect("queue sprite");
         let rgba = r.render_to_rgba().expect("offscreen readback");
         let seen: std::collections::HashSet<[u8; 4]> = rgba
             .chunks_exact(4)
@@ -1212,8 +1219,13 @@ mod tests {
             eprintln!("SKIP: no GPU adapter on this machine");
             return;
         };
-        r.draw_sprite("../examples/minimal-2d/assets/player.png", 0.0, 0.0)
-            .expect("queue sprite");
+        r.draw_sprite_frame(
+            "../examples/minimal-2d/assets/sheet.png",
+            Some("player"),
+            0.0,
+            0.0,
+        )
+        .expect("queue sprite");
         let rgba = r.render_to_rgba().expect("offscreen readback");
         let clear = (75u8, 75u8, 89u8);
         let mut min = (200usize, 200usize);
