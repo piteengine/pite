@@ -324,8 +324,9 @@ fn unpack(_spec: &BundleSpec, archive: &Path, work: &Path) -> Result<()> {
     }
 }
 
-/// Stored (uncompressed) entries in sorted order, no directory members: the
-/// shape the interpreter imports, unchanged from the hand-emitted zip.
+/// Deflated entries in sorted order, no directory members: the shape the
+/// interpreter imports. Compression roughly thirds the stdlib (~9 MB raw)
+/// and `zipimport` reads deflated entries, so nothing else changes.
 fn zip_dir(dir: &Path, zip_path: &Path) -> Result<()> {
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     collect(dir, dir, &mut entries)?;
@@ -333,7 +334,7 @@ fn zip_dir(dir: &Path, zip_path: &Path) -> Result<()> {
     let file = std::fs::File::create(zip_path)
         .with_context(|| format!("cannot write {}", zip_path.display()))?;
     let mut zip = ZipWriter::new(file);
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     for (name, path) in &entries {
         let data =
             std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
@@ -459,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn stdlib_zip_is_stored_and_sorted_with_spec_crcs() {
+    fn stdlib_zip_is_deflated_and_sorted_with_spec_crcs() {
         let dir = tmpdir("stored");
         let stdlib = dir.join("stdlib");
         std::fs::create_dir_all(stdlib.join("sub")).unwrap();
@@ -474,7 +475,7 @@ mod tests {
         assert_eq!(names, ["b.py", "sub/a.py"]);
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).unwrap();
-            assert_eq!(entry.compression(), CompressionMethod::Stored);
+            assert_eq!(entry.compression(), CompressionMethod::Deflated);
             let mut data = Vec::new();
             entry.read_to_end(&mut data).unwrap();
             assert_eq!(entry.crc32(), crc32fast::hash(&data));
