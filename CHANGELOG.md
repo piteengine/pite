@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1-m5
+
+Export slimming and Godot-style player templates: release exports drop from 247 MB to 52 MB on Linux and 75 MB to 20 MB on Windows (measured on `minimal-2d`), and export now ships a lean `pite-player` instead of the full editor binary, with per-platform templates published by CI so any machine can export for the other.
+
+- Stripped debug symbols from the staged `libpython` (`1fa9fc9`): upstream ships the Linux `.so` unstripped (205 MB → 37 MB), best-effort at stage time, Windows DLL untouched.
+- Windows interpreter ships once (`7696103`): the DLL lived in both `bin/` and `python/lib/`; only the `bin/` copy is loaded, so the staged copy is dropped.
+- Deflated stdlib zip (`8954359`): `Stored` → `Deflated` (9.7 MB → 2.5 MB); `zipimport` reads it, proven by boot checks.
+- Stripped engine binary at export (`d668775`): the release binary carries its symbol table (34 MB → 25 MB), stripped on the staged copy only.
+- `pite-player` crate (`36bbb18`): bare `--scene` CLI, always no-reload, no editor; `res://` resolution shared with `pite run` via `pite_runtime::resolve_scene_arg`.
+- Template resolution (`1e9125e`): export ships `--binary`, else a `pite-player` sibling, else a pinned release template; the full-`pite` fallback and its cross-compile bail are gone, launchers invoke the player directly.
+- Release workflow (`27aec15`): tags build both players natively, attach them plus `SHA256SUMS` to the GitHub Release; template tag is pinned per milestone.
+
 ## v0.1-m4
 
 Playable-loop hardening: real input edges and physical mouse coords, engine-owned `Button.pressed`, audible audio through the default device, orphan-asset warnings, editor transport with Play-mode viewport input, and a file-tree Assets panel — plus split CI, major dependency bumps, the teal brand, and a logging/docs cleanup (`tracing` everywhere, stale claims fixed). 150 green.

@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
-/// Release tag carrying the templates. Exact match with the editor version:
-/// a stale template would boot scenes the editor no longer writes.
-pub const TEMPLATE_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Release tag carrying the templates, bumped each milestone. Pinned like
+/// the Python builds: an exact match is the whole version-skew policy — a
+/// stale template would boot scenes the editor no longer writes.
+pub const TEMPLATE_TAG: &str = "v0.1-m5";
 
 const RELEASE_BASE: &str = "https://github.com/piteengine/pite/releases/download";
 
@@ -59,7 +60,7 @@ fn cached_path(spec: &PlayerSpec) -> PathBuf {
     crate::python_bundle::toolchain_dir()
         .join("player")
         .join(spec.platform)
-        .join(TEMPLATE_VERSION)
+        .join(TEMPLATE_TAG)
         .join(spec.file)
 }
 
@@ -71,7 +72,7 @@ pub fn ensure_cached(spec: &PlayerSpec) -> Result<PathBuf> {
             "no published player template for {} {} yet (first tagged release \
              publishes it); pass --binary with a locally built pite-player instead",
             spec.platform,
-            TEMPLATE_VERSION
+            TEMPLATE_TAG
         );
     }
     let path = cached_path(spec);
@@ -83,7 +84,7 @@ pub fn ensure_cached(spec: &PlayerSpec) -> Result<PathBuf> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
-    let url = format!("{RELEASE_BASE}/v{TEMPLATE_VERSION}/{}", spec.file);
+    let url = format!("{RELEASE_BASE}/{TEMPLATE_TAG}/{}", spec.file);
     super::python_bundle::download(&url, &path)?;
     if let Err(e) = verify(spec, &path) {
         let _ = std::fs::remove_file(&path);
