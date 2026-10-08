@@ -1,4 +1,4 @@
-name: Release players
+name: Release engine and players
 
 on:
   push:
@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  player:
-    name: Build player (${{ matrix.platform }})
+  build:
+    name: Build engine (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -17,12 +17,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            artifact: pite-player-linux
-            binary: pite-player
+            suffix: ""
           - os: windows-latest
             platform: windows
-            artifact: pite-player-windows.exe
-            binary: pite-player.exe
+            suffix: ".exe"
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
@@ -35,7 +33,7 @@ jobs:
       - name: Share the cargo cache across jobs
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: player
+          shared-key: release
       - name: Install ALSA headers (cpal device output)
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
@@ -44,40 +42,54 @@ jobs:
         run: |
           echo "PYO3_PYTHON=$(which python3.12 2>/dev/null || which python)" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
-      - name: Build the player binary (locked deps)
+      - name: Build the engine and player (locked deps)
         shell: bash
-        run: cargo build --release --locked -p pite-player
-      - name: Stage the template under its release name
+        run: cargo build --release --locked -p pite-cli -p pite-player
+      - name: Stage the release files under platform names
         shell: bash
         run: |
-          mkdir -p templates
-          cp "target/release/${{ matrix.binary }}" "templates/${{ matrix.artifact }}"
-      - name: Upload the template
+          mkdir -p dist
+          cp "target/release/pite${{ matrix.suffix }}" "dist/pite-${{ matrix.platform }}${{ matrix.suffix }}"
+          cp "target/release/pite-player${{ matrix.suffix }}" "dist/pite-player-${{ matrix.platform }}${{ matrix.suffix }}"
+      - name: Upload the release files
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
-          path: templates/${{ matrix.artifact }}
+          name: dist-${{ matrix.platform }}
+          path: dist/
           if-no-files-found: error
 
   publish:
-    name: Publish templates to the release
+    name: Publish the release files
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: player
+    needs: build
     permissions:
       contents: write
     steps:
-      - name: Download the templates
+      - name: Check out the repo (gh needs the git context)
+        uses: actions/checkout@v7
+      - name: Download the release files
         uses: actions/download-artifact@v7
         with:
-          path: templates
-          merge-multiple: true
-      - name: Publish the templates and checksums
+          path: dist
+      - name: Assemble the engine bundles (engine + both players each)
+        shell: bash
+        run: |
+          mkdir -p bundle/linux bundle/windows
+          cp dist/dist-linux/pite-linux bundle/linux/pite
+          cp dist/dist-linux/pite-player-linux bundle/linux/pite-player
+          cp dist/dist-windows/pite-player-windows.exe bundle/linux/pite-player.exe
+          cp dist/dist-windows/pite-windows.exe bundle/windows/pite.exe
+          cp dist/dist-windows/pite-player-windows.exe bundle/windows/pite-player.exe
+          cp dist/dist-linux/pite-player-linux bundle/windows/pite-player
+          tar -czf "dist/pite-${{ github.ref_name }}-linux.tar.gz" -C bundle/linux pite pite-player pite-player.exe
+          zip -j "dist/pite-${{ github.ref_name }}-windows.zip" bundle/windows/pite.exe bundle/windows/pite-player.exe bundle/windows/pite-player
+      - name: Publish the bundles and checksums
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          (cd templates && sha256sum pite-player-linux pite-player-windows.exe > SHA256SUMS)
-          cat templates/SHA256SUMS
+          (cd dist && sha256sum pite-*.tar.gz pite-*.zip > SHA256SUMS)
+          cat dist/SHA256SUMS
           gh release view "${{ github.ref_name }}" >/dev/null 2>&1 \
             || gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
-          gh release upload "${{ github.ref_name }}" templates/pite-player-linux templates/pite-player-windows.exe templates/SHA256SUMS --clobber
+          gh release upload "${{ github.ref_name }}" dist/pite-*.tar.gz dist/pite-*.zip dist/SHA256SUMS --clobber
