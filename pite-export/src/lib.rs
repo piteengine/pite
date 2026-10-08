@@ -207,19 +207,23 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     let staged = match &python {
         PythonChoice::Bundled { zip } => {
             let spec = python_bundle::pinned(&opts.platform).expect("checked above");
-            let staged = python_bundle::stage(&spec, zip, &out.join("python"))
+            let mut staged = python_bundle::stage(&spec, zip, &out.join("python"))
                 .context("cannot stage the bundled Python")?;
             if opts.platform == "windows" {
                 // Windows resolves DLLs from the exe's own directory before
-                // PATH, so the interpreter DLL sits next to the binary.
+                // PATH, so the interpreter DLL lives next to the binary and
+                // the staged copy is dropped instead of shipped twice.
                 let dll = staged
                     .lib
                     .file_name()
                     .expect("lib file has a name")
                     .to_string_lossy()
                     .into_owned();
-                std::fs::copy(&staged.lib, bin_dir.join(&dll))
+                let dest = bin_dir.join(&dll);
+                std::fs::copy(&staged.lib, &dest)
                     .context("cannot place the interpreter DLL next to the binary")?;
+                std::fs::remove_file(&staged.lib)?;
+                staged.lib = dest;
             }
             if let Some(pth) = spec.pth_name {
                 let pth_body = windows_pth(&bin_dir, &staged)?;
@@ -962,6 +966,10 @@ def _once():
         assert!(
             out.join("bin").join(dll).is_file(),
             "interpreter must sit next to the exe, not in python/lib"
+        );
+        assert!(
+            !out.join("python/lib").join(dll).exists(),
+            "interpreter must not ship twice"
         );
         let pth = out
             .join("bin")
