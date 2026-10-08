@@ -2889,6 +2889,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pite-player"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "pite-runtime",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "pite-project"
 version = "0.1.0"
 dependencies = [

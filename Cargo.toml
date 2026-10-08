@@ -12,6 +12,7 @@ members = [
     "pite-script",
     "pite-audio",
     "pite-export",
+    "pite-player",
 ]
 exclude = ["examples", "python"]
 
@@ -35,6 +36,7 @@ pite-scene = { path = "pite-scene", version = "0.1.0" }
 pite-script = { path = "pite-script", version = "0.1.0" }
 pite-audio = { path = "pite-audio", version = "0.1.0" }
 pite-export = { path = "pite-export", version = "0.1.0" }
+pite-player = { path = "pite-player", version = "0.1.0" }
 
 # external
 anyhow = "1"

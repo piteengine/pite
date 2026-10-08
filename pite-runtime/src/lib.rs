@@ -671,6 +671,20 @@ impl App {
     }
 }
 
+/// Resolve a scene argument to an absolute path. `res://` resolves against
+/// the enclosing project root, everything else against the current dir.
+/// Shared by `pite run` and `pite-player` so both accept the same paths.
+pub fn resolve_scene_arg(scene: &str) -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    if let Some(rel) = scene.strip_prefix("res://") {
+        let root = pite_project::find_project_root(&cwd)
+            .with_context(|| "scene uses res:// but no pite.toml found above cwd")?;
+        return Ok(root.join(rel));
+    }
+    let p = PathBuf::from(scene);
+    Ok(if p.is_absolute() { p } else { cwd.join(p) })
+}
+
 pub fn run_scene(scene: &Path, no_reload: bool) -> Result<()> {
     run_with_options(&RunOptions {
         scene: scene.to_path_buf(),
