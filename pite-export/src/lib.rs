@@ -3,6 +3,7 @@
 //! referenced game content into a runnable directory, together with a pinned
 //! CPython unless `--no-bundle-python` keeps the system-Python requirement.
 
+pub mod player;
 pub mod python_bundle;
 
 use std::collections::HashSet;
@@ -144,19 +145,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         }
         PythonChoice::System
     };
-    let binary_src = match &opts.binary {
-        Some(p) => p.clone(),
-        None => std::env::current_exe().context("cannot locate engine binary")?,
-    };
-    if !binary_src.is_file() {
-        anyhow::bail!("engine binary not found: {}", binary_src.display());
-    }
-    if opts.platform == "windows" && std::env::consts::OS != "windows" && opts.binary.is_none() {
-        anyhow::bail!(
-            "cross-compiling a windows binary is out of scope: build on Windows \
-             (`cargo build --release -p pite-cli`) and pass it with --binary"
-        );
-    }
+    let binary_src = select_binary(opts)?;
 
     let out = opts.out_dir.clone().unwrap_or_else(|| {
         root.join("dist")
@@ -301,7 +290,7 @@ fn unix_launcher(
                  export LD_LIBRARY_PATH\n\
                  PYTHONPATH=\"$HERE/{zip_rel}\"\n\
                  export PYTHONPATH\n\
-                 exec \"$HERE/bin/{bin}\" run --scene \"$HERE/game/{main_rel}\" --no-reload \"$@\"\n",
+                 exec \"$HERE/bin/{bin}\" --scene \"$HERE/game/{main_rel}\" \"$@\"\n",
                 lib_rel = rel_to(out, lib_dir),
                 zip_rel = rel_to(out, &bundle.stdlib_zip),
             )
@@ -316,7 +305,7 @@ fn unix_launcher(
              echo \"This export has no bundled interpreter; install CPython 3.12 or set PITE_PYTHON.\" >&2\n\
              exit 1\n\
              fi\n\
-             exec \"$HERE/bin/{bin}\" run --scene \"$HERE/game/{main_rel}\" --no-reload \"$@\"\n"
+              exec \"$HERE/bin/{bin}\" --scene \"$HERE/game/{main_rel}\" \"$@\"\n"
         ),
     }
 }
@@ -362,7 +351,7 @@ fn windows_launcher(
         Some(_) => format!(
             "@echo off\r\n\
              set HERE=%~dp0\r\n\
-             \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
+             \"%HERE%bin\\{bin}\" --scene \"%HERE%game/{main_rel}\" %*\r\n"
         ),
         None => format!(
             "@echo off\r\n\
@@ -374,8 +363,51 @@ fn windows_launcher(
              echo This export has no bundled interpreter; install CPython 3.12 or set PITE_PYTHON. 1>&2\r\n\
              exit /b 1\r\n\
              )\r\n\
-             \"%HERE%bin\\{bin}\" run --scene \"%HERE%game/{main_rel}\" --no-reload %*\r\n"
+             \"%HERE%bin\\{bin}\" --scene \"%HERE%game/{main_rel}\" %*\r\n"
         ),
+    }
+}
+
+/// Which binary an export ships, in priority order: an explicit `--binary`,
+/// a `pite-player` sibling of the running `pite` for same-platform exports,
+/// else the pinned release template (what makes cross-platform export work
+/// with no compiler installed). The full `pite` binary is never shipped:
+/// it carries the editor.
+fn select_binary(opts: &ExportOptions) -> Result<PathBuf> {
+    select_binary_from(opts, std::env::current_exe().ok())
+}
+
+fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(p) = &opts.binary {
+        if !p.is_file() {
+            anyhow::bail!("engine binary not found: {}", p.display());
+        }
+        return Ok(p.clone());
+    }
+    if opts.platform == std::env::consts::OS {
+        if let Some(dir) = current_exe.as_ref().and_then(|e| e.parent()) {
+            let sibling = dir.join(player::bin_name(&opts.platform));
+            if sibling.is_file() {
+                return Ok(sibling);
+            }
+        }
+        anyhow::bail!(
+            "export needs a pite-player binary beside {} (`cargo build -p pite-player`), \
+             or pass --binary with a player binary",
+            current_exe
+                .as_deref()
+                .unwrap_or(Path::new("pite"))
+                .display()
+        )
+    } else {
+        let spec = player::pinned(&opts.platform).with_context(|| {
+            format!(
+                "no pinned player template for {}; pass --binary with a locally built \
+                 pite-player instead",
+                opts.platform
+            )
+        })?;
+        player::ensure_cached(&spec)
     }
 }
 
@@ -657,7 +689,8 @@ def _once():
         assert!(!game_has(out, "assets/orphan.png"));
         assert!(out.join("bin").join("fixt").is_file());
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
-        assert!(sh.contains("--no-reload"));
+        assert!(sh.contains("--scene"));
+        assert!(!sh.contains(" run --scene"));
         assert!(sh.contains("game/scenes/main.pitescene"));
         assert!(out.join("README.txt").is_file());
         std::fs::remove_dir_all(&dir).ok();
@@ -991,6 +1024,92 @@ def _once():
             "staging dir must be cleaned up"
         );
         std::fs::remove_dir_all(&report.out_dir).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn bin_opts(platform: &str, binary: Option<PathBuf>) -> ExportOptions {
+        ExportOptions {
+            platform: platform.to_string(),
+            out_dir: None,
+            binary,
+            skip_python_check: true,
+            bundle_python: false,
+        }
+    }
+
+    fn sel_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "pite-sel-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn explicit_binary_wins_over_sibling() {
+        let dir = sel_dir("explicit");
+        let fake_exe = dir.join("pite");
+        let explicit = dir.join("custom-player");
+        let sibling = dir.join(player::bin_name(std::env::consts::OS));
+        for p in [&fake_exe, &explicit, &sibling] {
+            std::fs::write(p, "x").unwrap();
+        }
+        let got = select_binary_from(
+            &bin_opts(std::env::consts::OS, Some(explicit.clone())),
+            Some(fake_exe),
+        )
+        .unwrap();
+        assert_eq!(got, explicit);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sibling_player_serves_native_export() {
+        let dir = sel_dir("sibling");
+        let fake_exe = dir.join("pite");
+        let sibling = dir.join(player::bin_name(std::env::consts::OS));
+        std::fs::write(&fake_exe, "x").unwrap();
+        std::fs::write(&sibling, "x").unwrap();
+        let got =
+            select_binary_from(&bin_opts(std::env::consts::OS, None), Some(fake_exe)).unwrap();
+        assert_eq!(got, sibling);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_sibling_fails_with_build_hint() {
+        let dir = sel_dir("nosibling");
+        let fake_exe = dir.join("pite");
+        std::fs::write(&fake_exe, "x").unwrap();
+        let err = select_binary_from(&bin_opts(std::env::consts::OS, None), Some(fake_exe))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("pite-player"), "got: {err}");
+        assert!(err.contains("--binary"), "got: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn foreign_platform_skips_sibling_for_template() {
+        let foreign = if std::env::consts::OS == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
+        let dir = sel_dir("foreign");
+        let fake_exe = dir.join("pite");
+        let decoy = dir.join(player::bin_name(foreign));
+        std::fs::write(&fake_exe, "x").unwrap();
+        std::fs::write(&decoy, "x").unwrap();
+        let err = select_binary_from(&bin_opts(foreign, None), Some(fake_exe))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no published player template"), "got: {err}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

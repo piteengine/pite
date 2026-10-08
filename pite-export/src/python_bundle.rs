@@ -124,7 +124,7 @@ pub fn ensure_archive(spec: &BundleSpec) -> Result<PathBuf> {
 }
 
 /// SHA-256 of `bytes`, lowercase hex.
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -153,7 +153,7 @@ pub fn verify(spec: &BundleSpec, path: &Path) -> Result<()> {
     )
 }
 
-fn download(url: &str, dest: &Path) -> Result<()> {
+pub(crate) fn download(url: &str, dest: &Path) -> Result<()> {
     let tool = downloader()?;
     let result = std::process::Command::new(&tool)
         .args([
