@@ -239,6 +239,7 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
         .into_owned();
     let lib = lib_dir.join(&lib_name);
     std::fs::copy(&lib_src, &lib).with_context(|| format!("cannot copy {}", lib_src.display()))?;
+    strip_debug(&lib);
 
     let stdlib_dir = work.join(ARCHIVE_ROOT).join(&spec.stdlib);
     if !stdlib_dir.is_dir() {
@@ -256,6 +257,26 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
         lib,
         stdlib_zip,
     })
+}
+
+/// Upstream ships the Linux shared library unstripped with debug info
+/// (~205 MB); the debug symbols never execute, so drop them best-effort
+/// (~36 MB after). Non-ELF files (e.g. the already-stripped Windows DLL)
+/// and machines without `strip` keep the copy as-is: a missed strip only
+/// costs bytes, never correctness.
+fn strip_debug(lib: &Path) {
+    let mut magic = [0u8; 4];
+    let is_elf = std::fs::File::open(lib)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
+        .is_ok()
+        && magic == [0x7f, b'E', b'L', b'F'];
+    if !is_elf {
+        return;
+    }
+    let _ = std::process::Command::new("strip")
+        .arg("--strip-unneeded")
+        .arg(lib)
+        .output();
 }
 
 /// Directories never shipped. `pite` registers its module from Rust, so an
