@@ -3,7 +3,6 @@
 //! referenced game content into a runnable directory, together with a pinned
 //! CPython unless `--no-bundle-python` keeps the system-Python requirement.
 
-pub mod player;
 pub mod python_bundle;
 
 use std::collections::HashSet;
@@ -368,13 +367,21 @@ fn windows_launcher(
     }
 }
 
-/// Which binary an export ships, in priority order: an explicit `--binary`,
-/// a `pite-player` sibling of the running `pite` for same-platform exports,
-/// else the pinned release template (what makes cross-platform export work
-/// with no compiler installed). The full `pite` binary is never shipped:
-/// it carries the editor.
+/// Which binary an export ships: an explicit `--binary`, else a `pite-player`
+/// sibling named for the target platform. Every engine bundle ships both
+/// players, so cross-platform export needs no download and no compiler.
+/// The full `pite` binary is never shipped: it carries the editor.
 fn select_binary(opts: &ExportOptions) -> Result<PathBuf> {
     select_binary_from(opts, std::env::current_exe().ok())
+}
+
+/// Player binary file name on its own platform.
+fn player_bin_name(platform: &str) -> &'static str {
+    if platform == "windows" {
+        "pite-player.exe"
+    } else {
+        "pite-player"
+    }
 }
 
 fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Result<PathBuf> {
@@ -384,31 +391,21 @@ fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Res
         }
         return Ok(p.clone());
     }
-    if opts.platform == std::env::consts::OS {
-        if let Some(dir) = current_exe.as_ref().and_then(|e| e.parent()) {
-            let sibling = dir.join(player::bin_name(&opts.platform));
-            if sibling.is_file() {
-                return Ok(sibling);
-            }
+    if let Some(dir) = current_exe.as_ref().and_then(|e| e.parent()) {
+        let sibling = dir.join(player_bin_name(&opts.platform));
+        if sibling.is_file() {
+            return Ok(sibling);
         }
-        anyhow::bail!(
-            "export needs a pite-player binary beside {} (`cargo build -p pite-player`), \
-             or pass --binary with a player binary",
-            current_exe
-                .as_deref()
-                .unwrap_or(Path::new("pite"))
-                .display()
-        )
-    } else {
-        let spec = player::pinned(&opts.platform).with_context(|| {
-            format!(
-                "no pinned player template for {}; pass --binary with a locally built \
-                 pite-player instead",
-                opts.platform
-            )
-        })?;
-        player::ensure_cached(&spec)
     }
+    anyhow::bail!(
+        "export needs a pite-player binary for {} next to {} (engine bundles ship both \
+         players), or pass --binary with a player binary",
+        opts.platform,
+        current_exe
+            .as_deref()
+            .unwrap_or(Path::new("pite"))
+            .display()
+    )
 }
 
 /// Path of `target` relative to the export root, with `/` separators.
@@ -1055,7 +1052,7 @@ def _once():
         let dir = sel_dir("explicit");
         let fake_exe = dir.join("pite");
         let explicit = dir.join("custom-player");
-        let sibling = dir.join(player::bin_name(std::env::consts::OS));
+        let sibling = dir.join(player_bin_name(std::env::consts::OS));
         for p in [&fake_exe, &explicit, &sibling] {
             std::fs::write(p, "x").unwrap();
         }
@@ -1072,7 +1069,7 @@ def _once():
     fn sibling_player_serves_native_export() {
         let dir = sel_dir("sibling");
         let fake_exe = dir.join("pite");
-        let sibling = dir.join(player::bin_name(std::env::consts::OS));
+        let sibling = dir.join(player_bin_name(std::env::consts::OS));
         std::fs::write(&fake_exe, "x").unwrap();
         std::fs::write(&sibling, "x").unwrap();
         let got =
@@ -1095,7 +1092,9 @@ def _once():
     }
 
     #[test]
-    fn foreign_platform_skips_sibling_for_template() {
+    fn foreign_platform_uses_bundled_sibling() {
+        // Engine bundles ship both players, so a foreign-named sibling next
+        // to the exe is picked with no download and no compiler involved.
         let foreign = if std::env::consts::OS == "windows" {
             "linux"
         } else {
@@ -1103,13 +1102,11 @@ def _once():
         };
         let dir = sel_dir("foreign");
         let fake_exe = dir.join("pite");
-        let decoy = dir.join(player::bin_name(foreign));
+        let sibling = dir.join(player_bin_name(foreign));
         std::fs::write(&fake_exe, "x").unwrap();
-        std::fs::write(&decoy, "x").unwrap();
-        let err = select_binary_from(&bin_opts(foreign, None), Some(fake_exe))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("no published player template"), "got: {err}");
+        std::fs::write(&sibling, "x").unwrap();
+        let got = select_binary_from(&bin_opts(foreign, None), Some(fake_exe)).unwrap();
+        assert_eq!(got, sibling);
         std::fs::remove_dir_all(&dir).ok();
     }
 
