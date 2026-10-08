@@ -10,16 +10,31 @@ Build games from scenes and nodes (not ECS) - edit visually, script in Python.
 
 ## Quickstart
 
-```sh
-cargo install --path pite-cli
+Install the engine bundle (engine + both player binaries, so any machine
+exports for either platform) — latest stable, verified on download:
 
+Linux Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/piteengine/pite/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1 | iex
+```
+
+Then:
+
+```sh
 pite new hello --template minimal-2d
 pite run --scene examples/minimal-2d/scenes/main.pitescene
 pite check
 pite edit --scene examples/minimal-2d/scenes/main.pitescene
 ```
 
-Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `check` validates it, `edit` opens the editor.
+Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `check` validates it, `edit` opens the editor. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
 
 ### Export
 
@@ -27,7 +42,7 @@ Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `
 pite export linux
 ```
 
-`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files. The player is resolved as `--binary`, else a `pite-player` sibling of `pite`, else a pinned release template (checksum-verified, cached under `~/.cache/pite/toolchains`) — so any platform can export for the other with no compiler installed.
+`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship both players, so any machine exports for either platform with no download and no compiler.
 
 Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`) and ships in the exported game. The exported game runs with no system Python installed. Passing `--no-bundle-python` falls back to end-user's system Python 3.12 (`PITE_PYTHON` overrides detection).
 
@@ -61,7 +76,7 @@ TOML for scenes provides inspectable changes, real Git history, editable meaning
 
 - **Godot:** Pite isn't trying to replace Godot. If Godot fits your game, use Godot. Pite exists for the cases where it doesn't — and for the people who want a smaller, Python-native alternative. If you make indie games for windows, you can use Pite to reach 20MB (*) exports (usually under 30MB with a real game) without any additional config.
 
-(*) Measured on the `minimal-2d` template on Windows 11, x86_64, release build. Same hello-world in Godot exports to ~70MB.
+(*) Measured on the `minimal-2d` template, release build, x86_64: 20 MB on Windows 11, 52 MB on Linux. Same hello-world in Godot exports to ~70MB.
 
 - **Bevy:** Its ECS is main thing it gives to you and this is full abstraction, there is no scripting, no editor, etc. Bevy is for people who want to write their game in Rust, ECS-first, without an editor. Pite is for people who want to write their game in Python, scene-first, with an editor.
 
@@ -87,14 +102,18 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 
 ## Status
 
-4th milestone of v0.1 is done:
-- Renderer stability
-- Exporter test on Linux & Windows
-- Input handling API for Python scripts
-- Working audio player
-- Orphan-asset warnings in `pite check`
-- Playable running preview inside editor
-- File-tree for Assets panel
+5th milestone of v0.1 is done:
+- Export slimming: Linux 247→52 MB, Windows 75→20 MB (`minimal-2d`, release)
+- Lean `pite-player` binary ships in exports instead of the full editor binary
+- Per-platform player templates published by CI: any machine exports for the other
+- Previous milestones:
+  - Renderer stability
+  - Exporter test on Linux & Windows
+  - Input handling API for Python scripts
+  - Working audio player
+  - Orphan-asset warnings in `pite check`
+  - Playable running preview inside editor
+  - File-tree for Assets panel
 
 See [`CHANGELOG.md`](CHANGELOG.md) for full history and status.
 

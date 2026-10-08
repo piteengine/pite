@@ -11,8 +11,8 @@ Export slimming and Godot-style player templates: release exports drop from 247 
 - Deflated stdlib zip (`8954359`): `Stored` → `Deflated` (9.7 MB → 2.5 MB); `zipimport` reads it, proven by boot checks.
 - Stripped engine binary at export (`d668775`): the release binary carries its symbol table (34 MB → 25 MB), stripped on the staged copy only.
 - `pite-player` crate (`36bbb18`): bare `--scene` CLI, always no-reload, no editor; `res://` resolution shared with `pite run` via `pite_runtime::resolve_scene_arg`.
-- Template resolution (`1e9125e`): export ships `--binary`, else a `pite-player` sibling, else a pinned release template; the full-`pite` fallback and its cross-compile bail are gone, launchers invoke the player directly.
-- Release workflow (`27aec15`): tags build both players natively, attach them plus `SHA256SUMS` to the GitHub Release; template tag is pinned per milestone.
+- Template resolution (`1e9125e`): export ships `--binary`, else a `pite-player` sibling named for the target platform; the full-`pite` fallback and its cross-compile bail are gone, launchers invoke the player directly. No downloads: every engine bundle ships both players.
+- Release workflow (`27aec15`): tags build the engine and both players natively per platform and publish two bundles plus `SHA256SUMS` to the GitHub Release. `install.sh` / `install.ps1` fetch and verify them.
 
 ## v0.1-m4
 
