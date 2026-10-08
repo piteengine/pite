@@ -1,0 +1,83 @@
+name: Release players
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  player:
+    name: Build player (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact: pite-player-linux
+            binary: pite-player
+          - os: windows-latest
+            platform: windows
+            artifact: pite-player-windows.exe
+            binary: pite-player.exe
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v7
+      - name: Set up system Python 3.12 (link target for embedded builds)
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Share the cargo cache across jobs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: player
+      - name: Install ALSA headers (cpal device output)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Export the Python env for embedded builds
+        shell: bash
+        run: |
+          echo "PYO3_PYTHON=$(which python3.12 2>/dev/null || which python)" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
+      - name: Build the player binary (locked deps)
+        shell: bash
+        run: cargo build --release --locked -p pite-player
+      - name: Stage the template under its release name
+        shell: bash
+        run: |
+          mkdir -p templates
+          cp "target/release/${{ matrix.binary }}" "templates/${{ matrix.artifact }}"
+      - name: Upload the template
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: templates/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish templates to the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: player
+    permissions:
+      contents: write
+    steps:
+      - name: Download the templates
+        uses: actions/download-artifact@v7
+        with:
+          path: templates
+          merge-multiple: true
+      - name: Publish the templates and checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (cd templates && sha256sum pite-player-linux pite-player-windows.exe > SHA256SUMS)
+          cat templates/SHA256SUMS
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 \
+            || gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
+          gh release upload "${{ github.ref_name }}" templates/pite-player-linux templates/pite-player-windows.exe templates/SHA256SUMS --clobber

@@ -27,7 +27,7 @@ Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `
 pite export linux
 ```
 
-`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the engine binary, a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files.
+`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files. The player is resolved as `--binary`, else a `pite-player` sibling of `pite`, else a pinned release template (checksum-verified, cached under `~/.cache/pite/toolchains`) — so any platform can export for the other with no compiler installed.
 
 Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`) and ships in the exported game. The exported game runs with no system Python installed. Passing `--no-bundle-python` falls back to end-user's system Python 3.12 (`PITE_PYTHON` overrides detection).
 
@@ -59,7 +59,7 @@ TOML for scenes provides inspectable changes, real Git history, editable meaning
 
 ### Why Pite instead of other game engines? 
 
-- **Godot:** Pite isn't trying to replace Godot. If Godot fits your game, use Godot. Pite exists for the cases where it doesn't — and for the people who want a smaller, Python-native alternative. If you make indie games for windows, you can use Pite to reach 17MB (*) exports (usually under 30MB with a real game) without any additional config.
+- **Godot:** Pite isn't trying to replace Godot. If Godot fits your game, use Godot. Pite exists for the cases where it doesn't — and for the people who want a smaller, Python-native alternative. If you make indie games for windows, you can use Pite to reach 20MB (*) exports (usually under 30MB with a real game) without any additional config.
 
 (*) Measured on the `minimal-2d` template on Windows 11, x86_64, release build. Same hello-world in Godot exports to ~70MB.
 
@@ -103,6 +103,7 @@ See [`CHANGELOG.md`](CHANGELOG.md) for full history and status.
 | Crate | Role |
 |---|---|
 | `pite-cli` | `pite` binary: new / run / check / reimport / edit / export |
+| `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
 | `pite-render` | `Renderer2D` trait (wgpu seam) |
