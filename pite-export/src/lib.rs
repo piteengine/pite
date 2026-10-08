@@ -198,6 +198,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
 
     let bin_dest = bin_dir.join(&bin_name);
     std::fs::copy(&binary_src, &bin_dest)?;
+    python_bundle::strip_debug(&bin_dest);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

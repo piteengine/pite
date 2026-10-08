@@ -259,12 +259,12 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
     })
 }
 
-/// Upstream ships the Linux shared library unstripped with debug info
-/// (~205 MB); the debug symbols never execute, so drop them best-effort
-/// (~36 MB after). Non-ELF files (e.g. the already-stripped Windows DLL)
-/// and machines without `strip` keep the copy as-is: a missed strip only
-/// costs bytes, never correctness.
-fn strip_debug(lib: &Path) {
+/// Drop debug symbols from a staged file best-effort. Upstream ships the
+/// Linux shared library unstripped (~205 MB → ~36 MB after), and the engine
+/// binary carries its symbol table too (~34 MB → ~25 MB). Non-ELF files
+/// (e.g. the already-stripped Windows DLL/exe) and machines without `strip`
+/// keep the copy as-is: a missed strip only costs bytes, never correctness.
+pub(crate) fn strip_debug(lib: &Path) {
     let mut magic = [0u8; 4];
     let is_elf = std::fs::File::open(lib)
         .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
