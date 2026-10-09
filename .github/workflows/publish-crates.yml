@@ -13,8 +13,10 @@
 name: Publish crates to crates.io
 
 on:
+  # Strict x.y.z only — milestone tags like v0.1-m5 must NOT fire this:
+  # the tag≡version check would fail them loudly every time.
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]
   workflow_dispatch:
 
 permissions:
@@ -43,18 +45,12 @@ jobs:
 
       - name: Publish pite-core
         shell: bash
-        run: cargo publish -p pite-core
+        run: ./scripts/publish-crate.sh pite-core
 
       - name: Publish pite-project
         shell: bash
-        run: cargo publish -p pite-project
+        run: ./scripts/publish-crate.sh pite-project
 
       - name: Publish pite-scene (waits for live core)
         shell: bash
-        run: |
-          # scene verifies against the index, which lags the core upload.
-          for i in $(seq 1 10); do
-            cargo publish -p pite-scene && break
-            echo "attempt $i: core not in index yet — waiting 60s"
-            sleep 60
-          done
+        run: ./scripts/publish-crate.sh pite-scene --wait-for pite-core
