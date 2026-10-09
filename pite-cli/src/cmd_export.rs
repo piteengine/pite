@@ -23,14 +23,13 @@ pub fn run(
         }
         None => cwd,
     };
-    let root = pite_project::find_project_root(&start).unwrap_or_else(|| {
-        let dogfood = start.join("examples").join("minimal-2d");
-        if dogfood.join(pite_project::MANIFEST_FILE).is_file() {
-            dogfood
-        } else {
-            start.clone()
-        }
-    });
+    let root = pite_project::find_project_root(&start).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no {} found above {}; run inside a project or pass --path",
+            pite_project::MANIFEST_FILE,
+            start.display()
+        )
+    })?;
     let report = pite_export::export_project(
         &root,
         &pite_export::ExportOptions {
