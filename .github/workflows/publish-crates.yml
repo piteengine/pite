@@ -36,6 +36,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Tag must equal workspace version (lockstep)
+        # Tag pushes only — manual dispatches have no tag to compare.
+        if: github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME#v}"
