@@ -1,5 +1,5 @@
 [project]
 name = "minimal-2d"
-pite_version = "0.1"
+pite_version = "0.1.0"
 main_scene = "res://scenes/main.pitescene"
 python = "3.12"
