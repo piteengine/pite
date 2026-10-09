@@ -3,7 +3,7 @@ use std::fmt;
 
 use crate::Props;
 
-/// Handle to a node inside a [`NodeTree`].
+/// Handle to a node inside a [`NodeTree`](crate::NodeTree).
 ///
 /// Ids are human-readable strings: they survive edits, read well
 /// in diffs, and can be crossed to Python without an integer translation table.
