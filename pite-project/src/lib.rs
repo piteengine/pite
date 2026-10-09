@@ -78,16 +78,11 @@ fn default_window_height() -> u32 {
     600
 }
 
-fn default_platforms() -> Vec<String> {
-    vec!["linux".to_string()]
-}
-
-/// Export settings. Everything defaults; old projects without this
-/// table export with `platforms = ["linux"]` under the project name.
+/// Export settings. Everything defaults. `platforms` was removed in 0.1.1
+/// (export never read it); manifests that still carry it parse untouched
+/// and warn via `validate_manifest`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportConfig {
-    #[serde(default = "default_platforms")]
-    pub platforms: Vec<String>,
     #[serde(default)]
     pub binary_name: Option<String>,
     #[serde(default)]
@@ -99,7 +94,6 @@ pub struct ExportConfig {
 impl Default for ExportConfig {
     fn default() -> Self {
         Self {
-            platforms: default_platforms(),
             binary_name: None,
             include: Vec::new(),
             extra: HashMap::new(),
@@ -135,6 +129,13 @@ pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) 
     }
     unknown.sort();
     for field in unknown {
+        if field == "export.platforms" {
+            warnings.push(
+                "manifest: export.platforms is deprecated and ignored (removed in 0.1.1)"
+                    .to_string(),
+            );
+            continue;
+        }
         match deprecated_replacement(&field) {
             Some(use_instead) => warnings.push(format!(
                 "manifest: {field:?} is deprecated, use {use_instead:?}"
@@ -199,7 +200,11 @@ window_width = 800
 window_height = 600
 "#;
 
-pub const TEMPLATE_SCENE: &str = r#"format_version = 1
+/// Fresh `main.pitescene` for `create_project`. The format version comes
+/// from the `pite-scene` const so scaffolds track format bumps.
+pub fn template_scene() -> String {
+    format!(
+        r#"format_version = {}
 root = "root"
 
 [[node]]
@@ -228,7 +233,10 @@ parent = "root"
 
 [node.props]
 position = [100.0, 200.0]
-"#;
+"#,
+        pite_scene::FORMAT_VERSION
+    )
+}
 
 pub const TEMPLATE_SCRIPT: &str = r#"import pite
 
@@ -255,7 +263,7 @@ class Player(pite.Node2D):
 "#;
 
 /// Valid 1x1 RGBA PNG backing the `res://assets/player.png` reference in
-/// [`TEMPLATE_SCENE`], so fresh scaffolds pass `pite check`.
+/// [`template_scene()`], so fresh scaffolds pass `pite check`.
 const TEMPLATE_PLAYER_PNG: &[u8] = &[
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
     0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 255, 127, 0,
@@ -281,7 +289,7 @@ pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf
         dir.join(MANIFEST_FILE),
         TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
     )?;
-    std::fs::write(dir.join("scenes").join("main.pitescene"), TEMPLATE_SCENE)?;
+    std::fs::write(dir.join("scenes").join("main.pitescene"), template_scene())?;
     std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
     std::fs::write(dir.join("assets").join("player.png"), TEMPLATE_PLAYER_PNG)?;
     Ok(dir)
