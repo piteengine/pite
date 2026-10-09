@@ -1,0 +1,60 @@
+# Publish the three public crates to crates.io — separate from release.yml
+# so engine bundles and registry publishes re-run independently.
+#
+# RELEASE FLOW (crates.io has no pre-registration for non-existent crates):
+# 1. FIRST release is manual: `cargo login`, then publish core → project →
+#    scene from a clean tree, in order (scene verifies against the live index).
+# 2. Afterwards, configure a trusted publisher on each crate (repository
+#    piteengine/pite, workflow file publish-crates.yml) + confirm 2FA/owners.
+# 3. From the SECOND release on, pushing a `v*` tag publishes automatically,
+#    no tokens involved.
+# The tag MUST equal the workspace version (v0.2.0 ↔ 0.2.0) — lockstep (§0.4).
+# The version check below fails the run loudly otherwise.
+name: Publish crates to crates.io
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # trusted publishing (OIDC) — no registry token in secrets
+
+jobs:
+  publish:
+    name: Publish pite crates (core → project → scene)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v7
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Tag must equal workspace version (lockstep)
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "tag: $tag / workspace: $ver"
+          test "$tag" = "$ver" || { echo "tag v$tag != workspace $ver — bump Cargo.toml first"; exit 1; }
+
+      - name: Publish pite-core
+        shell: bash
+        run: cargo publish -p pite-core
+
+      - name: Publish pite-project
+        shell: bash
+        run: cargo publish -p pite-project
+
+      - name: Publish pite-scene (waits for live core)
+        shell: bash
+        run: |
+          # scene verifies against the index, which lags the core upload.
+          for i in $(seq 1 10); do
+            cargo publish -p pite-scene && break
+            echo "attempt $i: core not in index yet — waiting 60s"
+            sleep 60
+          done
