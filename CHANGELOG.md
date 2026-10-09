@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Registry debut: `pite-core`, `pite-project`, and `pite-scene` 0.1.0 are live on crates.io, versioned lockstep with the engine. First release published manually; later `v*` tags publish automatically via trusted publishing (`publish-crates.yml`, idempotent — already-live versions skip).
+
 ## v0.1-m5
 
 Export slimming and Godot-style player templates: release exports drop from 247 MB to 52 MB on Linux and 75 MB to 20 MB on Windows (measured on `minimal-2d`), and export now ships a lean `pite-player` instead of the full editor binary, with per-platform templates published by CI so any machine can export for the other.

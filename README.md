@@ -134,6 +134,12 @@ See [`CHANGELOG.md`](CHANGELOG.md) for full history and status.
 | `pite-project` | `pite.toml`, `res://` paths, templates |
 | `pite-export` | Desktop export (binary + resolved content) |
 
+Published on crates.io, versioned lockstep with the engine:
+
+- [`pite-core`](https://crates.io/crates/pite-core) [![crates.io](https://img.shields.io/crates/v/pite-core)](https://crates.io/crates/pite-core) [![docs.rs](https://img.shields.io/docsrs/pite-core)](https://docs.rs/pite-core)
+- [`pite-project`](https://crates.io/crates/pite-project) [![crates.io](https://img.shields.io/crates/v/pite-project)](https://crates.io/crates/pite-project) [![docs.rs](https://img.shields.io/docsrs/pite-project)](https://docs.rs/pite-project)
+- [`pite-scene`](https://crates.io/crates/pite-scene) [![crates.io](https://img.shields.io/crates/v/pite-scene)](https://crates.io/crates/pite-scene) [![docs.rs](https://img.shields.io/docsrs/pite-scene)](https://docs.rs/pite-scene)
+
 ## Docs
 
 | Doc | Covers |
