@@ -4,6 +4,8 @@
 //! Depends on `pite-core` only. TOML is canonical; binary is a later
 //! export cache, not a source format.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

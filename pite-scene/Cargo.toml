@@ -1,8 +1,17 @@
 [package]
 name = "pite-scene"
-version = "0.1.0"
-edition = "2021"
+description = "TOML scene format, instantiation, validation and binary cache for Pite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/pite-scene"
+keywords = ["game-engine", "scene", "toml", "gamedev"]
+categories = ["game-engines", "parser-implementations"]
+readme = "README.md"
+publish = true
 
 [dependencies]
 anyhow.workspace = true
@@ -10,4 +19,4 @@ thiserror.workspace = true
 serde.workspace = true
 toml.workspace = true
 tracing.workspace = true
-pite-core = { path = "../pite-core" }
+pite-core.workspace = true
