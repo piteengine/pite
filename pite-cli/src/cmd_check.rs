@@ -129,13 +129,6 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
         }
         referenced.extend(sheets);
         warnings.extend(orphan_warnings(&by_path, &referenced));
-        for p in &manifest.export.platforms {
-            if !pite_export::SUPPORTED_PLATFORMS.contains(&p.as_str()) {
-                warnings.push(format!(
-                    "manifest: unknown export platform {p:?} (supported: linux, windows)"
-                ));
-            }
-        }
     }
 
     let failed = !errors.is_empty() || (strict && !warnings.is_empty());
@@ -257,16 +250,6 @@ fn check_scene_ref(
                 ));
             }
             if let Ok(text) = std::fs::read_to_string(&script_path) {
-                let declared = declared_signals(&text);
-                for used in used_signals(&text) {
-                    if !declared.contains(used) {
-                        warnings.push(format!(
-                            "scene {}: node {:?} uses undeclared signal {used:?}",
-                            path.display(),
-                            node.id
-                        ));
-                    }
-                }
                 for asset in played_assets(&text) {
                     referenced.insert(normalize_asset_ref(asset));
                     let asset_path = if let Some(rel) = asset.strip_prefix("res://") {
@@ -459,42 +442,6 @@ fn orphan_warnings(
         .into_iter()
         .map(|p| format!("asset {p:?} is never referenced by a reachable scene"))
         .collect()
-}
-
-fn declared_signals(text: &str) -> std::collections::HashSet<String> {
-    let mut declared = std::collections::HashSet::new();
-    for line in text.lines() {
-        let Some(pos) = line.find("pite.signal(") else {
-            continue;
-        };
-        let mut lhs = line[..pos].trim_end();
-        lhs = lhs.strip_suffix(['=', ':']).map(str::trim).unwrap_or(lhs);
-        if let Some(name) = lhs.split_whitespace().last() {
-            declared.insert(name.to_string());
-        }
-    }
-    declared
-}
-
-fn used_signals(text: &str) -> Vec<&str> {
-    let mut used = Vec::new();
-    for line in text.lines() {
-        for marker in [".emit(", ".connect("] {
-            let mut rest = line;
-            while let Some(pos) = rest.find(marker) {
-                rest = &rest[pos + marker.len()..].trim_start();
-                if let Some(quoted) = rest.strip_prefix('"') {
-                    if let Some(end) = quoted.find('"') {
-                        used.push(&quoted[..end]);
-                        rest = &quoted[end + 1..];
-                        continue;
-                    }
-                }
-                break;
-            }
-        }
-    }
-    used
 }
 
 fn played_assets(text: &str) -> Vec<&str> {
