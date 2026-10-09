@@ -45,12 +45,12 @@ jobs:
 
       - name: Publish pite-core
         shell: bash
-        run: ./scripts/publish-crate.sh pite-core
+        run: bash scripts/publish-crate.sh pite-core
 
       - name: Publish pite-project
         shell: bash
-        run: ./scripts/publish-crate.sh pite-project
+        run: bash scripts/publish-crate.sh pite-project
 
       - name: Publish pite-scene (waits for live core)
         shell: bash
-        run: ./scripts/publish-crate.sh pite-scene --wait-for pite-core
+        run: bash scripts/publish-crate.sh pite-scene --wait-for pite-core
