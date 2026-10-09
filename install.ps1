@@ -1,5 +1,5 @@
 # Install Pite (engine + both players) from a release bundle, verified.
-# Usage: .\install.ps1 [-Tag v0.1-m5] [-Prefix "$env:LOCALAPPDATA\Pite"]
+# Usage: .\install.ps1 [-Tag v0.1.0] [-Prefix "$env:LOCALAPPDATA\Pite"]
 param(
   [string]$Tag = "",
   [string]$Prefix = (Join-Path $env:LOCALAPPDATA "Pite")

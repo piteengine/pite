@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.0
+
 - Registry debut: `pite-core`, `pite-project`, and `pite-scene` 0.1.0 are live on crates.io, versioned lockstep with the engine. First release published manually; later `v*` tags publish automatically via trusted publishing (`publish-crates.yml`, idempotent — already-live versions skip).
 
 ## v0.1-m5

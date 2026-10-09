@@ -1,6 +1,6 @@
 # AGENTS.md — Pite
 
-Rust workspace (resolver 2, edition 2021, rust-version 1.82). Scene-tree game engine (not ECS): Rust core + embedded Python 3.12 + eframe/egui editor. `target/`, scene `_cache/`, `assets.pite.toml` are gitignored — never commit them.
+Rust workspace (resolver 2, edition 2021, rust-version 1.85). Scene-tree game engine (not ECS): Rust core + embedded Python 3.12 + eframe/egui editor. `target/`, scene `_cache/`, `assets.pite.toml` are gitignored — never commit them.
 
 ## Commands (CI order)
 

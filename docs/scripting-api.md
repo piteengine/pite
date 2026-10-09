@@ -47,7 +47,6 @@ class Player(pite.Node2D):
 - `pite.signal(...)` takes payload types, bare or as strings (`pite.signal(int, "str")`). Both `hit = pite.signal(int)` and the annotated `hit: pite.signal(int)` form declare the same signal.
 - Emitting the wrong arity or type fails loudly; emitting an undeclared signal fails loudly. There are no untyped string signals.
 - `connect(handler)` takes a bound method of a live node; when that node drops, its connections go with it — emitting afterwards simply skips it, no crash.
-- `pite check` warns about `.emit(`/`.connect(` calls with no matching `pite.signal(` declaration in the same file.
 - `Button` clicks arrive as a zero-payload `pressed` signal fired by the engine (press-inside plus release-inside). `pressed` belongs to the `Button` type itself — just connect it, no declaration needed (re-declaring it is harmless):
 
 ```python
