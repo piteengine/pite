@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `pite-project`: `pite.toml` manifest, `res://` paths, templates.
 
+#![forbid(unsafe_code)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
