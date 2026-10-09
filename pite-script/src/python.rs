@@ -124,6 +124,8 @@ impl PyLabel {
 struct PyButton {
     #[pyo3(get, set)]
     text: String,
+    #[pyo3(get, set)]
+    size: (f64, f64),
 }
 
 #[pymethods]
@@ -136,6 +138,7 @@ impl PyButton {
             })
             .add_subclass(PyButton {
                 text: String::new(),
+                size: (0.0, 0.0),
             })
     }
 }
@@ -485,6 +488,8 @@ impl ScriptBackend for Pyo3Backend {
     fn reload(&mut self) -> Result<()> {
         let pos = self.position();
         let text = self.text();
+        let size = self.size();
+        let wait = self.wait_time();
         self.last_error = None;
         self.exec()?;
         if let Some((x, y)) = pos {
@@ -492,6 +497,12 @@ impl ScriptBackend for Pyo3Backend {
         }
         if let Some(text) = text {
             self.set_text(&text);
+        }
+        if let Some((w, h)) = size {
+            self.set_size(w, h);
+        }
+        if let Some(wait) = wait {
+            self.set_wait_time(wait);
         }
         Ok(())
     }
@@ -532,6 +543,46 @@ impl ScriptBackend for Pyo3Backend {
         Python::attach(|py| {
             if let Some(inst) = &self.instance {
                 let _ = inst.bind(py).setattr("text", text);
+            }
+        });
+    }
+
+    fn size(&self) -> Option<(f64, f64)> {
+        Python::attach(|py| {
+            self.instance
+                .as_ref()?
+                .bind(py)
+                .getattr("size")
+                .ok()?
+                .extract()
+                .ok()
+        })
+    }
+
+    fn set_size(&mut self, w: f64, h: f64) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("size", (w, h));
+            }
+        });
+    }
+
+    fn wait_time(&self) -> Option<f64> {
+        Python::attach(|py| {
+            self.instance
+                .as_ref()?
+                .bind(py)
+                .getattr("wait_time")
+                .ok()?
+                .extract()
+                .ok()
+        })
+    }
+
+    fn set_wait_time(&mut self, wait: f64) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("wait_time", wait);
             }
         });
     }
@@ -731,6 +782,33 @@ class Hud(pite.Label):
         assert_eq!(backend.text(), None);
         backend.set_text("ignored");
         backend.call_process(0.016).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const SIZER: &str = r#"
+import pite
+
+class Sizer(pite.Button):
+    def _ready(self):
+        self.size = (120.0, 40.0)
+
+    def _process(self, delta):
+        w, h = self.size
+        self.size = (w + 1.0, h)
+"#;
+
+    #[test]
+    fn button_size_syncs_both_ways() {
+        let dir = test_dir("size");
+        let file = fixture(&dir, "sizer.py", SIZER);
+        let mut backend = Pyo3Backend::new("sizer");
+        backend.load(&file, "Sizer").unwrap();
+        backend.set_size(10.0, 20.0);
+        assert_eq!(backend.size(), Some((10.0, 20.0)));
+        backend.call_ready().unwrap();
+        assert_eq!(backend.size(), Some((120.0, 40.0)));
+        backend.call_process(0.016).unwrap();
+        assert_eq!(backend.size(), Some((121.0, 40.0)));
         std::fs::remove_dir_all(&dir).ok();
     }
 

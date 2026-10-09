@@ -9,7 +9,9 @@ mod python;
 
 use anyhow::Result;
 
-pub use host::{fire_pressed, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost};
+pub use host::{
+    fire_pressed, fire_timeout, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost,
+};
 pub use input::{
     input_begin_frame, input_clear, input_held, input_mouse, input_pressed, input_released,
     input_set_key, input_set_mouse,
@@ -50,6 +52,18 @@ pub trait ScriptBackend {
     }
 
     fn set_text(&mut self, _text: &str) {}
+
+    fn size(&self) -> Option<(f64, f64)> {
+        None
+    }
+
+    fn set_size(&mut self, _w: f64, _h: f64) {}
+
+    fn wait_time(&self) -> Option<f64> {
+        None
+    }
+
+    fn set_wait_time(&mut self, _wait: f64) {}
 
     fn last_error(&self) -> Option<String> {
         None

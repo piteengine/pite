@@ -99,6 +99,7 @@ pub struct GameSession {
     watch_rx: Option<Receiver<std::result::Result<notify::Event, notify::Error>>>,
     viewport: (u32, u32),
     armed: HashSet<String>,
+    timers: std::collections::HashMap<String, f64>,
 }
 
 impl GameSession {
@@ -119,6 +120,7 @@ impl GameSession {
             watch_rx: None,
             viewport: (800, 600),
             armed: HashSet::new(),
+            timers: std::collections::HashMap::new(),
         };
         pite_script::set_current_host(session.host.clone());
         pite_audio::set_project_dir(session.project_dir.clone());
@@ -317,6 +319,15 @@ impl GameSession {
         }
     }
 
+    fn fire_timeout(&self, id: &str) {
+        if !self.host.has_signal(id, "timeout") {
+            return;
+        }
+        if let Err(e) = pite_script::fire_timeout(&self.host, id) {
+            tracing::error!(node = %id, "timeout handlers failed: {e:#}");
+        }
+    }
+
     fn rebuild(&mut self) -> Result<()> {
         let doc = pite_scene::load_scene_cached(&self.scene)
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
@@ -340,6 +351,24 @@ impl GameSession {
                 tracing::error!(node = %id, "cannot declare builtin pressed: {e:#}");
             }
         }
+        // `timeout` belongs to the Timer type itself, like `pressed` to
+        // Button: the engine fires it, so it must be declared BEFORE any
+        // `_ready` runs — scripts connect to it during `_ready`.
+        let timers: Vec<String> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Timer")
+                .map(|n| n.id.to_string())
+                .collect()
+        });
+        for id in &timers {
+            if let Err(e) = self
+                .host
+                .declare_signals(id, vec![("timeout".to_string(), Vec::new())])
+            {
+                tracing::error!(node = %id, "cannot declare builtin timeout: {e:#}");
+            }
+        }
+        self.timers.clear();
         let mut olds: HashMap<String, ScriptSlot> = HashMap::new();
         for slot in self.slots.drain(..) {
             olds.insert(slot.id.to_string(), slot);
@@ -370,6 +399,12 @@ impl GameSession {
                     if let Some(text) = seed_text(tree, &id) {
                         slot.backend.set_text(&text);
                     }
+                    if let Some((w, h)) = seed_size(tree, &id) {
+                        slot.backend.set_size(w, h);
+                    }
+                    if let Some(wait) = seed_wait(tree, &id) {
+                        slot.backend.set_wait_time(wait);
+                    }
                 });
                 self.slots.push(slot);
                 continue;
@@ -388,6 +423,12 @@ impl GameSession {
                         }
                         if let Some(text) = seed_text(tree, &id) {
                             backend.set_text(&text);
+                        }
+                        if let Some((w, h)) = seed_size(tree, &id) {
+                            backend.set_size(w, h);
+                        }
+                        if let Some(wait) = seed_wait(tree, &id) {
+                            backend.set_wait_time(wait);
                         }
                     });
                     let mut errored = false;
@@ -498,7 +539,59 @@ impl GameSession {
                     }
                 });
             }
+            if let Some((w, h)) = slot.backend.size() {
+                self.host.with_tree_mut(|tree| {
+                    if let Some(node) = tree.get_mut(&slot.id) {
+                        node.props.insert("size".to_string(), PropValue::Vec2(w, h));
+                    }
+                });
+            }
+            if let Some(wait) = slot.backend.wait_time() {
+                self.host.with_tree_mut(|tree| {
+                    if let Some(node) = tree.get_mut(&slot.id) {
+                        node.props
+                            .insert("wait_time".to_string(), PropValue::Num(wait));
+                    }
+                });
+            }
         }
+        self.tick_timers(delta);
+    }
+
+    /// Advance every Timer node; fire `timeout` on each elapsed `wait_time`
+    /// and restart the clock (looping). Non-positive waits never fire.
+    fn tick_timers(&mut self, delta: f64) {
+        let timers: Vec<(String, f64)> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Timer")
+                .filter_map(|n| {
+                    let wait = match n.props.get("wait_time") {
+                        Some(PropValue::Num(f)) => *f,
+                        Some(PropValue::Int(i)) => *i as f64,
+                        _ => return None,
+                    };
+                    (wait > 0.0).then(|| (n.id.to_string(), wait))
+                })
+                .collect()
+        });
+        for (id, wait) in &timers {
+            let fire = {
+                let elapsed = self.timers.entry(id.clone()).or_insert(0.0);
+                *elapsed += delta;
+                if *elapsed >= *wait {
+                    *elapsed = 0.0;
+                    true
+                } else {
+                    false
+                }
+            };
+            if fire {
+                self.fire_timeout(id);
+            }
+        }
+        let live: std::collections::HashSet<String> =
+            timers.into_iter().map(|(id, _)| id).collect();
+        self.timers.retain(|id, _| live.contains(id));
     }
 
     fn poll_buttons(&mut self) {
@@ -735,6 +828,21 @@ fn seed_text(tree: &NodeTree, id: &NodeId) -> Option<String> {
     }
 }
 
+fn seed_wait(tree: &NodeTree, id: &NodeId) -> Option<f64> {
+    match tree.get(id)?.props.get("wait_time") {
+        Some(PropValue::Num(f)) => Some(*f),
+        Some(PropValue::Int(i)) => Some(*i as f64),
+        _ => None,
+    }
+}
+
+fn seed_size(tree: &NodeTree, id: &NodeId) -> Option<(f64, f64)> {
+    match tree.get(id)?.props.get("size") {
+        Some(PropValue::Vec2(w, h)) => Some((*w, *h)),
+        _ => None,
+    }
+}
+
 fn resolve_script(
     script_ref: &str,
     scene_dir: &Path,
@@ -906,6 +1014,42 @@ mod tests {
         assert_eq!(hud_text(&session), "waiting");
         session.update(0.016);
         assert_eq!(hud_text(&session), "hit!");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const TICKER: &str = "import pite\n\nclass Ticker(pite.Node):\n    def _ready(self):\n        self.get_node(\".\").timeout.connect(self.on_timeout)\n    def on_timeout(self):\n        hud = self.get_node(\"../Hud\")\n        hud.text = str(int(hud.text) + 1)\n";
+
+    fn make_timer_project(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pite-sess-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"tick\"\ntype = \"Timer\"\nname = \"Tick\"\nparent = \"root\"\n\n[node.props]\nwait_time = 0.05\n\n[node.script]\npath = \"res://scripts/ticker.py\"\nclass = \"Ticker\"\n\n[[node]]\nid = \"hud\"\ntype = \"Label\"\nname = \"Hud\"\nparent = \"root\"\n\n[node.props]\ntext = \"0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("scripts").join("ticker.py"), TICKER).unwrap();
+        dir
+    }
+
+    #[test]
+    fn timer_fires_and_loops() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = make_timer_project("timer-loop");
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        assert_eq!(hud_text(&session), "0");
+        for _ in 0..3 {
+            session.update(0.016);
+        }
+        assert_eq!(hud_text(&session), "0");
+        session.update(0.016);
+        assert_eq!(hud_text(&session), "1");
+        for _ in 0..4 {
+            session.update(0.016);
+        }
+        assert_eq!(hud_text(&session), "2");
         std::fs::remove_dir_all(&dir).ok();
     }
 

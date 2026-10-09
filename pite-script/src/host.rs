@@ -361,8 +361,38 @@ impl NodeProxy {
         });
     }
 
+    #[getter]
+    fn size(&self) -> PyResult<(f64, f64)> {
+        use pite_core::PropValue;
+        self.host.with_tree(|tree| {
+            let node = tree
+                .get(&NodeId::from(self.target.clone()))
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyKeyError::new_err(format!(
+                        "node {:?} no longer exists",
+                        self.target
+                    ))
+                })?;
+            match node.props.get("size") {
+                Some(PropValue::Vec2(w, h)) => Ok((*w, *h)),
+                _ => Ok((0.0, 0.0)),
+            }
+        })
+    }
+
+    #[setter]
+    fn set_size(&self, size: (f64, f64)) {
+        use pite_core::PropValue;
+        self.host.with_tree_mut(|tree| {
+            if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
+                node.props
+                    .insert("size".to_string(), PropValue::Vec2(size.0, size.1));
+            }
+        });
+    }
+
     fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<Py<PyAny>> {
-        if name == "position" || name == "text" {
+        if name == "position" || name == "text" || name == "size" {
             return Err(pyo3::exceptions::PyAttributeError::new_err(name));
         }
         if self.host.has_signal(&self.target, &name) {
@@ -429,4 +459,8 @@ pub fn resolve_caller(caller: &str, path: &str) -> anyhow::Result<NodeProxy> {
 
 pub fn fire_pressed(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
     Python::attach(|py| host.emit(py, id, "pressed", &PyTuple::empty(py)))
+}
+
+pub fn fire_timeout(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
+    Python::attach(|py| host.emit(py, id, "timeout", &PyTuple::empty(py)))
 }

@@ -39,10 +39,12 @@ class Camera2D(Node2D): ...
 
 class Timer(Node):
     wait_time: float
+    timeout: Signal
 
 class Label(Node):
     text: str
 
 class Button(Node2D):
     text: str
+    size: tuple[float, float]
     pressed: Signal

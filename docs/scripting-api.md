@@ -20,7 +20,7 @@ class Player(pite.Node2D):
 
 - One file exports one class; attach with `path` + `class` in the scene file. `snake_case` everywhere.
 - `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
-- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float` (stored only — no runtime behaviour yet, it never fires), `Label` adds `text: str` (same two-way sync — set it and the screen updates). `Button` extends `Node2D` with `text` plus a `size` prop (`[w, h]`, default `[120, 40]`).
+- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float` and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping). Non-positive `wait_time` never fires. Connect during `_ready` like `Button.pressed` — no declaration needed, `Label` adds `text: str` (same two-way sync — set it and the screen updates). `Button` extends `Node2D` with `text` plus a `size` prop (`[w, h]`, default `[120, 40]`).
 - The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`.
 - Talk across nodes with direct calls through `get_node`, which returns a proxy to the live node:
 
