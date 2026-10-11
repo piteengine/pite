@@ -45,14 +45,38 @@ jobs:
           echo "tag: $tag / workspace: $ver"
           test "$tag" = "$ver" || { echo "tag v$tag != workspace $ver — bump Cargo.toml first"; exit 1; }
 
+      - name: Auth preflight (OIDC present? token fallback set?)
+        shell: bash
+        run: |
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "OIDC available — trusted publishing will be attempted"
+          else
+            echo "NO OIDC VARS — trusted publishing cannot work on this runner"
+          fi
+          if [ -n "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "CARGO_REGISTRY_TOKEN secret is set (fallback path)"
+          else
+            echo "no CARGO_REGISTRY_TOKEN secret (trusted publishing is the only path)"
+          fi
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -n "${CARGO_REGISTRY_TOKEN:-}" ] || {
+            echo "neither OIDC nor a token is available — check the trusted publisher on crates.io (exact workflow filename publish-crates.yml, no environment) or add a CARGO_REGISTRY_TOKEN secret"
+            exit 1
+          }
+
       - name: Publish pite-core
         shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-core
 
       - name: Publish pite-project
         shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-project
 
       - name: Publish pite-scene (waits for live core)
         shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-scene --wait-for pite-core
