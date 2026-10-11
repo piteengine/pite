@@ -30,6 +30,8 @@ self.get_node("../Player").take_damage(1)
 
 Paths resolve against node names: `..` (parent), `.` (self), `Child` (named child), `/root/…` (absolute). A miss raises `KeyError`.
 
+For the type checker `get_node` returns a plain `Node`: anything beyond the declared surface (custom signals, script methods, per-type members) is dynamically typed instead of warning, and a miss still raises at runtime.
+
 ## Signals
 
 Nodes react to each other with typed signals. Declare them as class variables; access them as members:
