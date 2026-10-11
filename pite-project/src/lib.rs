@@ -108,6 +108,19 @@ pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
     toml::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))
 }
 
+/// Write the manifest back to `dir/pite.toml`. Serializes through
+/// `toml::Value` (sorted tables) so saves are byte-stable even with unknown
+/// `extra` keys aboard; known fields land alphabetically on disk.
+pub fn save_manifest(dir: &Path, manifest: &PiteManifest) -> Result<()> {
+    let path = dir.join(MANIFEST_FILE);
+    let value =
+        toml::Value::try_from(manifest).with_context(|| "cannot encode manifest as TOML")?;
+    let mut text =
+        toml::to_string_pretty(&value).with_context(|| "cannot render manifest as TOML")?;
+    text.push('\n');
+    std::fs::write(&path, text).with_context(|| format!("cannot write {}", path.display()))
+}
+
 /// Replacement for a deprecated manifest key, if any. Empty today: the
 /// registry exists so a future rename warns instead of silently changing meaning.
 pub fn deprecated_replacement(field: &str) -> Option<&'static str> {
@@ -386,5 +399,46 @@ mod tests {
         );
         assert!(errors.iter().any(|e| e.contains("0x")), "got {errors:?}");
         assert!(errors.iter().any(|e| e.contains("icon")), "got {errors:?}");
+    }
+
+    #[test]
+    fn save_keeps_unknown_keys_and_edits() {
+        let dir = tmpdir("save");
+        std::fs::write(
+            dir.join(MANIFEST_FILE),
+            "custom = 1\n\n[project]\nname = \"x\"\nnickname = \"y\"\n",
+        )
+        .unwrap();
+        let mut manifest = load_manifest(&dir).unwrap();
+        manifest.project.name = "renamed".to_string();
+        save_manifest(&dir, &manifest).unwrap();
+        let again = load_manifest(&dir).unwrap();
+        assert_eq!(again.project.name, "renamed");
+        assert_eq!(
+            again.project.extra.get("nickname"),
+            Some(&toml::Value::String("y".to_string()))
+        );
+        assert_eq!(again.extra.get("custom"), Some(&toml::Value::Integer(1)));
+        let (errors, _) = validate_manifest(&again);
+        assert!(errors.is_empty(), "got {errors:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_is_byte_stable() {
+        let dir = tmpdir("save-stable");
+        std::fs::write(
+            dir.join(MANIFEST_FILE),
+            "zeta = 1\nalpha = 2\n\n[project]\nname = \"x\"\n",
+        )
+        .unwrap();
+        let manifest = load_manifest(&dir).unwrap();
+        save_manifest(&dir, &manifest).unwrap();
+        let first = std::fs::read_to_string(dir.join(MANIFEST_FILE)).unwrap();
+        let reloaded = load_manifest(&dir).unwrap();
+        save_manifest(&dir, &reloaded).unwrap();
+        let second = std::fs::read_to_string(dir.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(first, second, "save churned:\n{first}\n---\n{second}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

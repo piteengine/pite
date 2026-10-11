@@ -1,6 +1,6 @@
 # Editor
 
-Godot-style layout: menu bar on top (`File`, `Run`) with play / pause / stop
+Godot-style layout: menu bar on top (`File`, `Run`, `Project`) with play / pause / stop
 icon buttons beside the menus (mirroring the `Run` menu). `Scene` tree above `Assets` in the left panel;
 `Viewport` / `Code` tabs in the center; `Inspector` on the right; `Console` at
 the bottom. All toolbar glyphs are hand-drawn vector icons (`icons.rs`, painted
@@ -46,6 +46,19 @@ the format cannot express (rename, retype, reparent, add or delete inside a
 subtree, removing an inherited prop) are refused with a console error rather
 than silently dropped. Props serialize in sorted order, so a save → load → save
 cycle is byte-identical and diffs stay readable.
+
+## Project Settings
+
+`Project` > `Project Settings…` opens a window over every known manifest
+field: the `[project]` entries (name, author, main scene, Python, icon,
+window size; `pite_version` shown read-only) plus `[export]` (`binary_name`,
+extra staged files one per line). Unknown keys are never shown but survive
+saves untouched. `Save` validates through the shared `validate_manifest`
+(same errors `pite check` reports) and writes `pite.toml` via
+`pite_project::save_manifest`, which serializes through sorted tables so a
+save → load → save cycle is byte-identical. The viewport picks up a changed
+window size immediately. Failures land in the window and the console; saves
+never panic and never fail silently.
 
 ## Tree ops
 
