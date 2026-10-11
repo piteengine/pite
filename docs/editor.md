@@ -110,8 +110,9 @@ collapses to a sliver.
 ## Error gutter
 
 Above the code editor, one `line N: msg` monospace warning-colored button per
-mark. Clicking does nothing (jump is out of scope). Marks come from
-`ops::gutter_marks` over the open file's `session.errors()` entries.
+mark (deduplicated). Clicking moves the editor cursor to that line and focuses
+the pane so it scrolls there. Marks come from `ops::gutter_marks` over the
+open file's `session.errors()` entries plus `[lsp] …` server diagnostics.
 No gutter when no file is open or no entries carry a line number.
 
 ## Assets

@@ -149,6 +149,7 @@ pub struct EditorApp {
     seen_errors: HashSet<String>,
     code_file: Option<PathBuf>,
     code_text: String,
+    code_edit_id: Option<egui::Id>,
     lsp: Option<LspClient>,
     lsp_starter: Option<Receiver<LspOutcome>>,
     lsp_status: String,
@@ -202,6 +203,7 @@ impl EditorApp {
             seen_errors: HashSet::new(),
             code_file: None,
             code_text: String::new(),
+            code_edit_id: None,
             lsp: None,
             lsp_starter: None,
             lsp_status: "lsp: off".to_string(),
@@ -1132,17 +1134,24 @@ impl EditorApp {
         let mut marks = ops::gutter_marks(&self.current_file_errors());
         marks.extend(self.lsp_marks());
         marks.sort();
+        marks.dedup();
         for (line, msg) in &marks {
-            let _ = ui.small_button(
-                egui::RichText::new(format!("line {line}: {msg}"))
-                    .monospace()
-                    .color(egui::Color32::YELLOW),
-            );
+            if ui
+                .small_button(
+                    egui::RichText::new(format!("line {line}: {msg}"))
+                        .monospace()
+                        .color(egui::Color32::YELLOW),
+                )
+                .clicked()
+            {
+                self.jump_to_line(ui.ctx(), *line);
+            }
         }
         let resp = ui.add_sized(
             ui.available_size(),
             egui::TextEdit::multiline(&mut self.code_text).code_editor(),
         );
+        self.code_edit_id = Some(resp.id);
         let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
         if resp.changed() {
             self.lsp_completion_open = false;
@@ -1174,6 +1183,24 @@ impl EditorApp {
         let state = egui::widgets::text_edit::TextEditState::load(ctx, *id)?;
         let range = state.cursor.char_range()?;
         Some(lsp::byte_offset_of_char(text, range.primary.index.0))
+    }
+
+    /// Move the code editor's cursor to the start of 1-based `line` (a gutter
+    /// mark click) and focus the editor so it scrolls there.
+    fn jump_to_line(&mut self, ctx: &egui::Context, line: usize) {
+        let Some(edit_id) = self.code_edit_id else {
+            return;
+        };
+        let byte = lsp::line_start_byte(&self.code_text, line);
+        let index = self.code_text[..byte].chars().count();
+        if let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ctx, edit_id) {
+            let cursor = egui::text::CCursor::new(index);
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::one(cursor)));
+            state.store(ctx, edit_id);
+        }
+        ctx.memory_mut(|memory| memory.request_focus(edit_id));
     }
 
     fn ensure_lsp(&mut self) {

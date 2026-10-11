@@ -109,6 +109,23 @@ pub fn offset_to_position(text: &str, byte_offset: usize) -> (u32, u32) {
     (line, units)
 }
 
+/// Byte offset of the start of 1-based `line` (clamped to end of text).
+pub fn line_start_byte(text: &str, line: usize) -> usize {
+    if line <= 1 {
+        return 0;
+    }
+    let mut seen = 1usize;
+    for (b, c) in text.char_indices() {
+        if c == '\n' {
+            seen += 1;
+            if seen >= line {
+                return b + 1;
+            }
+        }
+    }
+    text.len()
+}
+
 /// Start byte offset of the identifier ending at `byte_offset`
 /// (letters, digits, `_`); completion replaces from here.
 pub fn word_start_before(text: &str, byte_offset: usize) -> usize {
@@ -233,6 +250,33 @@ pub fn find_stubs_dir(start: &Path) -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+/// Stubs baked into the editor binary (`python/pite/pite.pyi` at build
+/// time), so `import pite` resolves even where no checkout exists —
+/// installed bundles never shipped the file, and the walk-up search above
+/// finds nothing there.
+const EMBEDDED_STUBS: &str = include_str!("../../python/pite/pite.pyi");
+
+/// Write the embedded stubs into `dir`, skipping the write when the file
+/// already matches. Returns the dir for `extraPaths`.
+pub fn write_stubs_to(dir: &Path) -> Result<PathBuf> {
+    let path = dir.join(STUBS_FILE);
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    if current != EMBEDDED_STUBS {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, EMBEDDED_STUBS)?;
+    }
+    Ok(dir.to_path_buf())
+}
+
+/// Versioned scratch dir for the embedded stubs; the last resort behind
+/// `find_stubs_dir`, so a checkout's own stubs always win.
+pub fn materialized_stubs_dir() -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("pite-{}", env!("CARGO_PKG_VERSION")));
+    write_stubs_to(&dir).ok()
 }
 
 /// Frame a JSON-RPC value with `Content-Length` headers.
@@ -954,7 +998,8 @@ fn start_blocking(root_dir: Option<&Path>, script: &Path) -> LspOutcome {
     let stubs_dir = root_dir
         .and_then(find_stubs_dir)
         .or_else(|| find_stubs_dir(script))
-        .or_else(|| find_stubs_dir(Path::new(".")));
+        .or_else(|| find_stubs_dir(Path::new(".")))
+        .or_else(materialized_stubs_dir);
     if stubs_dir.is_none() {
         let w = "LSP: shipped pite.pyi stubs not found; `import pite` may not resolve.".to_string();
         warning = Some(match warning {
@@ -1266,6 +1311,7 @@ mod tests {
         let script = dir.join("scripts").join("a.py");
         assert_eq!(find_stubs_dir(&script), Some(stubs));
         assert!(find_stubs_dir(Path::new("/definitely/not/here")).is_none());
+
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1305,6 +1351,36 @@ mod tests {
         assert_eq!(word_start_before("self.position", 4), 0);
         assert_eq!(word_start_before("x = 1", 4), 4);
         assert_eq!(word_start_before("x = 1", 5), 4);
+    }
+
+    #[test]
+    fn line_starts_land() {
+        let text = "a\nbb\n\nc";
+        assert_eq!(line_start_byte(text, 0), 0);
+        assert_eq!(line_start_byte(text, 1), 0);
+        assert_eq!(line_start_byte(text, 2), 2);
+        assert_eq!(line_start_byte(text, 3), 5);
+        assert_eq!(line_start_byte(text, 4), 6);
+        assert_eq!(line_start_byte(text, 99), text.len());
+    }
+
+    #[test]
+    fn embedded_stubs_materialize_and_repair() {
+        let dir = std::env::temp_dir().join(format!("pite-lsp-stubtest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let back = write_stubs_to(&dir).unwrap();
+        assert_eq!(back, dir);
+        assert_eq!(
+            std::fs::read_to_string(dir.join(STUBS_FILE)).unwrap(),
+            EMBEDDED_STUBS
+        );
+        std::fs::write(dir.join(STUBS_FILE), "stale").unwrap();
+        write_stubs_to(&dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join(STUBS_FILE)).unwrap(),
+            EMBEDDED_STUBS
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -28,5 +28,8 @@ than the pin warn in the console but still serve.
 
 The shipped `python/pite/pite.pyi` stubs are put on the server's
 `extraPaths` (via `didChangeConfiguration` plus `workspace/configuration`
-answers), so `import pite` resolves with the full engine API. No DAP, no
-rename support — out of scope for this slice.
+answers), so `import pite` resolves with the full engine API. The editor
+first looks for a checkout's stubs beside the project; when none exist
+(installed bundles never shipped the file) it materializes the stubs baked
+into the binary to a versioned scratch dir instead, so resolution works
+everywhere. No DAP, no rename support — out of scope for this slice.
