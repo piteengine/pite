@@ -7,3 +7,4 @@ assets.pite.toml
 _cache/
 .pitetoolchain/
 examples/*/dist/
+.ruff_cache/
