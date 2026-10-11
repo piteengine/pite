@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Project Settings window (`Project` > `Project Settings…`): edits every known manifest field (`[project]` + `[export]`, `pite_version` read-only) with shared-validator checks and byte-stable saves; first-ever `pite.toml` writer (`pite_project::save_manifest`, unknown keys preserved).
+
 ## v0.1.1
 
 - `Timer` fires: engine-owned `timeout` signal ticks every elapsed `wait_time` (looping; non-positive waits never fire), with `wait_time` synced both ways like `position`/`text`. `Button.size` is script-readable/writable through the same channel (proxy, instance, seed, per-frame sync) and typed in `pite.pyi`.
