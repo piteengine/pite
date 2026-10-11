@@ -252,22 +252,26 @@ pub fn find_stubs_dir(start: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Stubs baked into the editor binary (`python/pite/pite.pyi` at build
-/// time), so `import pite` resolves even where no checkout exists —
-/// installed bundles never shipped the file, and the walk-up search above
-/// finds nothing there.
+/// Stubs baked into the editor binary (`python/pite/` at build time), so
+/// `import pite` resolves even where no checkout exists — installed bundles
+/// never shipped these files, and the walk-up search above finds nothing
+/// there. `pite.py` is the source sibling the checker needs beside `pite.pyi`
+/// (the real module is native via PyO3); types always come from the stubs.
 const EMBEDDED_STUBS: &str = include_str!("../../python/pite/pite.pyi");
+const EMBEDDED_SOURCE: &str = include_str!("../../python/pite/pite.py");
 
-/// Write the embedded stubs into `dir`, skipping the write when the file
-/// already matches. Returns the dir for `extraPaths`.
+/// Write the embedded stubs into `dir`, skipping files that already match.
+/// Returns the dir for `extraPaths`.
 pub fn write_stubs_to(dir: &Path) -> Result<PathBuf> {
-    let path = dir.join(STUBS_FILE);
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current != EMBEDDED_STUBS {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+    for (name, contents) in [(STUBS_FILE, EMBEDDED_STUBS), ("pite.py", EMBEDDED_SOURCE)] {
+        let path = dir.join(name);
+        let current = std::fs::read_to_string(&path).unwrap_or_default();
+        if current != contents {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&path, contents)?;
         }
-        std::fs::write(&path, EMBEDDED_STUBS)?;
     }
     Ok(dir.to_path_buf())
 }
@@ -379,14 +383,25 @@ pub fn did_change_configuration(stubs_dir: Option<&Path>) -> Value {
     )
 }
 
-/// Answer a server `workspace/configuration` request with the same settings.
-pub fn configuration_response(id: i64, stubs_dir: Option<&Path>) -> Value {
+/// Answer a server `workspace/configuration` pull. The answer is the
+/// requested SECTION VALUE (`result[0]` pairs with `items[0]`): for section
+/// `"python"` that is the `{"analysis": ...}` object itself — NOT wrapped in
+/// another `"python"` layer, which the server would read as a section with
+/// no `analysis` and silently drop (that exact shape starved `import pite`
+/// of its stubs). Anything else gets an empty object (defaults hold).
+pub fn configuration_response(id: i64, section: &str, stubs_dir: Option<&Path>) -> Value {
     let extra: Vec<String> = stubs_dir
         .map(|d| vec![d.to_string_lossy().into_owned()])
         .unwrap_or_default();
-    serde_json::json!({"jsonrpc": "2.0", "id": id, "result": [
-        {"python": {"analysis": {"extraPaths": extra, "typeCheckingMode": "basic"}}},
-    ]})
+    let result = if section == "python" {
+        serde_json::json!({"analysis": {
+            "extraPaths": extra,
+            "typeCheckingMode": "basic",
+        }})
+    } else {
+        serde_json::json!({})
+    };
+    serde_json::json!({"jsonrpc": "2.0", "id": id, "result": [result]})
 }
 
 pub fn did_open_notification(uri: &str, text: &str) -> Value {
@@ -800,7 +815,13 @@ impl Bridge {
     ) {
         let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
         let reply = match method {
-            "workspace/configuration" => configuration_response(id, stubs),
+            "workspace/configuration" => {
+                let section = msg
+                    .pointer("/params/items/0/section")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                configuration_response(id, section, stubs)
+            }
             _ => serde_json::json!({"jsonrpc": "2.0", "id": id, "result": null}),
         };
         let _ = tx.send(&reply);
@@ -1266,16 +1287,15 @@ mod tests {
         let mut tx = MockTransport::new();
         bridge.ingest(
             serde_json::json!({"jsonrpc": "2.0", "id": 9,
-                "method": "workspace/configuration", "params": {"items": [{}]}}),
+                "method": "workspace/configuration",
+                "params": {"items": [{"scopeUri": "file:///proj", "section": "python"}]}}),
             &mut tx,
             Some(Path::new("/stubs")),
         );
         let reply = tx.outbox.last().expect("server request answered");
         assert_eq!(reply.get("id").unwrap(), 9);
         assert_eq!(
-            reply
-                .pointer("/result/0/python/analysis/extraPaths/0")
-                .unwrap(),
+            reply.pointer("/result/0/analysis/extraPaths/0").unwrap(),
             "/stubs"
         );
     }
@@ -1299,6 +1319,21 @@ mod tests {
         assert!(version_at_least((1, 1, 411), (1, 1, 411)));
         assert!(version_at_least((1, 1, 412), (1, 1, 411)));
         assert!(!version_at_least((1, 1, 400), (1, 1, 411)));
+    }
+
+    #[test]
+    fn configuration_answers_section_values() {
+        // `workspace/configuration` pulls `items[0].section`; the answer is
+        // the section VALUE — a wrapped `{"python": ...}` reads as a section
+        // with no `analysis` and is silently dropped by the server.
+        let py = configuration_response(7, "python", Some(Path::new("/stubs")));
+        assert_eq!(
+            py.pointer("/result/0/analysis/extraPaths/0").unwrap(),
+            "/stubs"
+        );
+        assert!(py.pointer("/result/0/python").is_none());
+        let other = configuration_response(8, "pyright", Some(Path::new("/stubs")));
+        assert_eq!(other.pointer("/result/0").unwrap(), &serde_json::json!({}));
     }
 
     #[test]
@@ -1373,6 +1408,10 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.join(STUBS_FILE)).unwrap(),
             EMBEDDED_STUBS
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("pite.py")).unwrap(),
+            EMBEDDED_SOURCE
         );
         std::fs::write(dir.join(STUBS_FILE), "stale").unwrap();
         write_stubs_to(&dir).unwrap();

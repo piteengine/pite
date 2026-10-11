@@ -109,11 +109,14 @@ collapses to a sliver.
 
 ## Error gutter
 
-Above the code editor, one `line N: msg` monospace warning-colored button per
-mark (deduplicated). Clicking moves the editor cursor to that line and focuses
-the pane so it scrolls there. Marks come from `ops::gutter_marks` over the
-open file's `session.errors()` entries plus `[lsp] …` server diagnostics.
-No gutter when no file is open or no entries carry a line number.
+A real line-number gutter runs down the left of the code editor: one row per
+line, error lines in warning yellow, the rest faint gray, details on hover.
+Clicking a row moves the editor cursor there, focuses the pane, and scrolls
+it into view. Marks come from `ops::gutter_marks` over the open file's
+`session.errors()` entries plus `[lsp] …` server diagnostics. No gutter when
+no file is open. The editor itself never wraps (one text row per line) and is
+sized to its full content inside a shared scroll area, so gutter and code
+cannot drift apart; the editor never scrolls internally.
 
 ## Assets
 

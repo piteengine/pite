@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
@@ -149,7 +149,6 @@ pub struct EditorApp {
     seen_errors: HashSet<String>,
     code_file: Option<PathBuf>,
     code_text: String,
-    code_edit_id: Option<egui::Id>,
     lsp: Option<LspClient>,
     lsp_starter: Option<Receiver<LspOutcome>>,
     lsp_status: String,
@@ -203,7 +202,6 @@ impl EditorApp {
             seen_errors: HashSet::new(),
             code_file: None,
             code_text: String::new(),
-            code_edit_id: None,
             lsp: None,
             lsp_starter: None,
             lsp_status: "lsp: off".to_string(),
@@ -1135,41 +1133,119 @@ impl EditorApp {
         marks.extend(self.lsp_marks());
         marks.sort();
         marks.dedup();
-        for (line, msg) in &marks {
-            if ui
-                .small_button(
-                    egui::RichText::new(format!("line {line}: {msg}"))
-                        .monospace()
-                        .color(egui::Color32::YELLOW),
-                )
-                .clicked()
-            {
-                self.jump_to_line(ui.ctx(), *line);
-            }
+        let mut error_lines = HashSet::new();
+        let mut messages = HashMap::new();
+        for (line, msg) in marks {
+            error_lines.insert(line);
+            messages.insert(line, msg);
         }
-        let resp = ui.add_sized(
-            ui.available_size(),
-            egui::TextEdit::multiline(&mut self.code_text).code_editor(),
-        );
-        self.code_edit_id = Some(resp.id);
-        let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
-        if resp.changed() {
-            self.lsp_completion_open = false;
-            let paren_at =
-                cursor_byte.filter(|&off| self.code_text[..off].chars().next_back() == Some('('));
-            self.code_changed(paren_at);
-        }
-        if resp.has_focus() {
-            let pressed = |key| {
-                ui.ctx()
-                    .input(|i| i.modifiers.command && i.key_pressed(key))
-            };
-            if pressed(egui::Key::Space) {
-                self.request_completion_at(cursor_byte);
-            } else if pressed(egui::Key::H) {
-                self.request_hover_at(cursor_byte);
-            }
-        }
+        let line_count = self.code_text.split('\n').count().max(1);
+        let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
+        let font_id = egui::TextStyle::Monospace.resolve(ui.style());
+        let digits = line_count.to_string().len().max(2);
+        let strip_w = ui.fonts_mut(|fonts| {
+            let sample =
+                fonts.layout_no_wrap("8".repeat(digits), font_id.clone(), egui::Color32::WHITE);
+            sample.size().x + 10.0
+        });
+        // Fill the panel when the file is short: rows for the viewport
+        // height, so the editor keeps its old full-area look.
+        let min_rows = (ui.available_size().y / row_h) as usize;
+        egui::ScrollArea::vertical()
+            .id_salt("code-scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal_top(|ui| {
+                    ui.vertical(|ui| {
+                        // No gaps between rows: the placer would drift the
+                        // numbers away from the text rows down the file.
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        // Match the editor frame's top inner margin so row 1
+                        // sits level with the first text row.
+                        ui.add_space(2.0);
+                        for n in 1..=line_count {
+                            let (rect, resp) = ui.allocate_exact_size(
+                                egui::vec2(strip_w, row_h),
+                                egui::Sense::click(),
+                            );
+                            let color = if error_lines.contains(&n) {
+                                egui::Color32::YELLOW
+                            } else {
+                                crate::theme::FAINT
+                            };
+                            ui.painter().text(
+                                egui::pos2(rect.right() - 4.0, rect.center().y),
+                                egui::Align2::RIGHT_CENTER,
+                                n.to_string(),
+                                font_id.clone(),
+                                color,
+                            );
+                            let hovered = resp.hovered();
+                            let clicked = resp.clicked();
+                            if let Some(msg) = messages.get(&n) {
+                                resp.on_hover_text(msg.as_str());
+                            }
+                            if hovered {
+                                ui.set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if clicked {
+                                self.jump_to_line(ui.ctx(), n);
+                                ui.scroll_to_rect(rect, None);
+                            }
+                        }
+                    });
+                    // No wrapping: one text row per line keeps the gutter exact.
+                    let mut layouter =
+                        |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                            let _ = wrap_width;
+                            let fid = egui::TextStyle::Monospace.resolve(ui.style());
+                            let mut job = egui::text::LayoutJob::simple(
+                                text.as_str().to_string(),
+                                fid,
+                                ui.visuals().text_color(),
+                                f32::INFINITY,
+                            );
+                            job.halign = egui::Align::LEFT;
+                            job.keep_trailing_whitespace = true;
+                            ui.fonts_mut(|fonts| fonts.layout_job(job))
+                        };
+                    let resp = ui.add(
+                        egui::TextEdit::multiline(&mut self.code_text)
+                            .code_editor()
+                            // Pinned id: gutter jumps address the editor across
+                            // frames, so it must not depend on widget order.
+                            .id(egui::Id::new("code-editor"))
+                            // Full content height (+1 slack row) so the outer
+                            // scroll area owns scrolling and the gutter stays
+                            // in sync; the editor never scrolls internally.
+                            // At least the viewport height so short files still
+                            // fill the panel.
+                            .desired_rows((line_count + 1).max(min_rows))
+                            // Whatever width the gutter column leaves: the row
+                            // does not expand the editor on its own.
+                            .desired_width(ui.available_size().x)
+                            .layouter(&mut layouter),
+                    );
+                    let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
+                    if resp.changed() {
+                        self.lsp_completion_open = false;
+                        let paren_at = cursor_byte
+                            .filter(|&off| self.code_text[..off].chars().next_back() == Some('('));
+                        self.code_changed(paren_at);
+                    }
+                    if resp.has_focus() {
+                        let pressed = |key| {
+                            ui.ctx()
+                                .input(|i| i.modifiers.command && i.key_pressed(key))
+                        };
+                        if pressed(egui::Key::Space) {
+                            self.request_completion_at(cursor_byte);
+                        } else if pressed(egui::Key::H) {
+                            self.request_hover_at(cursor_byte);
+                        }
+                    }
+                });
+            });
         self.show_completion_popup(ui);
     }
 
@@ -1185,12 +1261,11 @@ impl EditorApp {
         Some(lsp::byte_offset_of_char(text, range.primary.index.0))
     }
 
-    /// Move the code editor's cursor to the start of 1-based `line` (a gutter
-    /// mark click) and focus the editor so it scrolls there.
+    /// Move the code editor's cursor to the start of 1-based `line` and focus
+    /// it. Callers scroll the outer area to the line themselves: the TextEdit
+    /// only scrolls on text/selection changes, never on a stored cursor.
     fn jump_to_line(&mut self, ctx: &egui::Context, line: usize) {
-        let Some(edit_id) = self.code_edit_id else {
-            return;
-        };
+        let edit_id = egui::Id::new("code-editor");
         let byte = lsp::line_start_byte(&self.code_text, line);
         let index = self.code_text[..byte].chars().count();
         if let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ctx, edit_id) {
