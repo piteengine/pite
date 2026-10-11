@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish pite crates (core → project → scene)
+    name: Publish pite crates (core → scene → project)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -58,14 +58,14 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-core
 
-      - name: Publish pite-project
-        shell: bash
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-project
-
       - name: Publish pite-scene (waits for live core)
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-scene --wait-for pite-core
+
+      - name: Publish pite-project (waits for live scene)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-project --wait-for pite-scene
