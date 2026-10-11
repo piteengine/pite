@@ -1,13 +1,10 @@
 # Publish the three public crates to crates.io — separate from release.yml
 # so engine bundles and registry publishes re-run independently.
 #
-# RELEASE FLOW (crates.io has no pre-registration for non-existent crates):
-# 1. FIRST release is manual: `cargo login`, then publish core → project →
-#    scene from a clean tree, in order (scene verifies against the live index).
-# 2. Afterwards, configure a trusted publisher on each crate (repository
-#    piteengine/pite, workflow file publish-crates.yml) + confirm 2FA/owners.
-# 3. From the SECOND release on, pushing a `v*` tag publishes automatically,
-#    no tokens involved.
+# Auth: `CARGO_REGISTRY_TOKEN` repo secret (classic crates.io API token).
+# OIDC trusted publishing was dropped: GitHub issues no OIDC variables to
+# this workflow's jobs, so there is nothing for cargo to exchange.
+# First release was manual (`cargo login`); tags publish via this workflow.
 # The tag MUST equal the workspace version (v0.2.0 ↔ 0.2.0) — lockstep (§0.4).
 # The version check below fails the run loudly otherwise.
 name: Publish crates to crates.io
@@ -21,7 +18,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write # trusted publishing (OIDC) — no registry token in secrets
 
 jobs:
   publish:
@@ -45,23 +41,14 @@ jobs:
           echo "tag: $tag / workspace: $ver"
           test "$tag" = "$ver" || { echo "tag v$tag != workspace $ver — bump Cargo.toml first"; exit 1; }
 
-      - name: Auth preflight (OIDC present? token fallback set?)
+      - name: Auth preflight (registry token set?)
         shell: bash
         run: |
-          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-            echo "OIDC available — trusted publishing will be attempted"
-          else
-            echo "NO OIDC VARS — trusted publishing cannot work on this runner"
-          fi
-          if [ -n "${CARGO_REGISTRY_TOKEN:-}" ]; then
-            echo "CARGO_REGISTRY_TOKEN secret is set (fallback path)"
-          else
-            echo "no CARGO_REGISTRY_TOKEN secret (trusted publishing is the only path)"
-          fi
-          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -n "${CARGO_REGISTRY_TOKEN:-}" ] || {
-            echo "neither OIDC nor a token is available — check the trusted publisher on crates.io (exact workflow filename publish-crates.yml, no environment) or add a CARGO_REGISTRY_TOKEN secret"
+          [ -n "${CARGO_REGISTRY_TOKEN:-}" ] || {
+            echo "no CARGO_REGISTRY_TOKEN secret — add one (classic crates.io API token) and re-run"
             exit 1
           }
+          echo "registry token present"
 
       - name: Publish pite-core
         shell: bash
