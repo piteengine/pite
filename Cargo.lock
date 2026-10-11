@@ -2811,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "pite-assets"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "pite-render",
@@ -2821,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "pite-audio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cpal",
@@ -2831,7 +2831,7 @@ dependencies = [
 
 [[package]]
 name = "pite-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2852,14 +2852,14 @@ dependencies = [
 
 [[package]]
 name = "pite-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "pite-editor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2875,7 +2875,7 @@ dependencies = [
 
 [[package]]
 name = "pite-export"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crc32fast",
@@ -2890,7 +2890,7 @@ dependencies = [
 
 [[package]]
 name = "pite-player"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2901,7 +2901,7 @@ dependencies = [
 
 [[package]]
 name = "pite-project"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "pite-scene",
@@ -2911,7 +2911,7 @@ dependencies = [
 
 [[package]]
 name = "pite-render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -2928,7 +2928,7 @@ dependencies = [
 
 [[package]]
 name = "pite-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "image",
@@ -2945,7 +2945,7 @@ dependencies = [
 
 [[package]]
 name = "pite-scene"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "pite-core",
@@ -2957,7 +2957,7 @@ dependencies = [
 
 [[package]]
 name = "pite-script"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "pite-assets",

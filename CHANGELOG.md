@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.1.1
+
+- `Timer` fires: engine-owned `timeout` signal ticks every elapsed `wait_time` (looping; non-positive waits never fire), with `wait_time` synced both ways like `position`/`text`. `Button.size` is script-readable/writable through the same channel (proxy, instance, seed, per-frame sync) and typed in `pite.pyi`.
+- `export.platforms` removed (export never read it); old manifests still parse with a deprecation warning.
+- `pite export` fails loudly outside a project instead of silently exporting the working directory.
+- Dropped the dead string-signal detector from `pite check` (it could never match attribute-style emits); signal safety now comes from pyright stub visibility (`timeout`/`pressed` declared in `pite.pyi`).
+- Template scenes derive `format_version` from the `pite-scene` const; manifest `pite_version` tracks the engine version (`0.1.1`).
+
 ## v0.1.0
 
 - Registry debut: `pite-core`, `pite-project`, and `pite-scene` 0.1.0 are live on crates.io, versioned lockstep with the engine. First release published manually; later `v*` tags publish automatically via trusted publishing (`publish-crates.yml`, idempotent — already-live versions skip).
