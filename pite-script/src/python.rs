@@ -280,6 +280,22 @@ fn ensure_init() {
     });
 }
 
+/// Sorted wheel files inside `vendor_dir`. Missing dir reads as empty so
+/// projects without vendored packages pay nothing.
+pub(crate) fn vendor_wheels(vendor_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(vendor_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "whl") {
+                out.push(path);
+            }
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
 /// True when `name` is a top-level stdlib module of the running interpreter
 /// (`sys.stdlib_module_names`). Asked live so the answer tracks the pinned
 /// CPython instead of a hand list; `pite check` uses it to tell stdlib
@@ -408,6 +424,17 @@ impl Pyo3Backend {
         Python::attach(|py| {
             let sys = py.import("sys")?;
             let path = sys.getattr("path")?;
+            // Vendored third-party packages resolve in dev and export alike:
+            // the export stages vendor/ whole, so the same entries work.
+            // Unpacked trees import from the directory itself; each zipped
+            // wheel needs its own entry (a dir of wheels imports nothing).
+            if let Some(root) = crate::project_dir() {
+                let vendor = root.join("vendor");
+                for (i, wheel) in vendor_wheels(&vendor).iter().enumerate() {
+                    path.call_method1("insert", (i + 1, wheel.to_string_lossy().as_ref()))?;
+                }
+                path.call_method1("insert", (0, vendor.to_string_lossy().as_ref()))?;
+            }
             path.call_method1("insert", (0, dir.to_string_lossy().as_ref()))?;
             let code = std::ffi::CString::new(src.clone())?;
             let filename = std::ffi::CString::new(format!("{stem}.py"))?;
@@ -620,6 +647,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pite-py-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn vendor_wheels_lists_sorted_whls() {
+        let dir = test_dir("wheels");
+        assert!(vendor_wheels(&dir.join("missing")).is_empty());
+        std::fs::write(dir.join("b-1.0-py3-none-any.whl"), b"w").unwrap();
+        std::fs::write(dir.join("a-2.0-py3-none-any.whl"), b"w").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"w").unwrap();
+        let got = vendor_wheels(&dir);
+        assert_eq!(
+            got.iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            vec![
+                "a-2.0-py3-none-any.whl".to_string(),
+                "b-1.0-py3-none-any.whl".to_string()
+            ]
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     const MOVER: &str = r#"

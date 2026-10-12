@@ -93,5 +93,6 @@ pite.stop(voice)
 ## Imports
 
 - `import pite` plus the stdlib always work. Each script's own directory is prepended to `sys.path`, so sibling modules (`import utils`) import in dev.
-- Third-party packages (pip) work in dev only when installed in your system Python — **exports drop `site-packages` entirely**, so the exported game crashes on them. `pite check` warns per offending import.
-- Sibling modules are *not* staged automatically either: a helper imported in dev is missing from the export unless listed under `[export] include` in `pite.toml`. Safe rule: `pite` + stdlib + included siblings.
+- Third-party packages live in project-root `vendor/` (`pite vendor add pkg==ver` pins them into `[vendor]` with hashes; `list`/`verify`/`remove` manage the lock). Trees and wheels both import: the runtime puts `vendor/` on `sys.path` in dev and export alike, so resolution is identical everywhere. Zipped is the default; wheels with native modules unpack (they can't load from a zip).
+- Exports drop `site-packages` entirely: anything outside stdlib + `pite` + siblings + `vendor/` dies in the export. `pite check` warns per offending import.
+- Sibling modules outside `vendor/` still need `[export] include` to be staged. Safe rule: `pite` + stdlib + siblings + vendor.

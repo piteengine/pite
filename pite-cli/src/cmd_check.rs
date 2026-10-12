@@ -258,7 +258,8 @@ fn check_scene_ref(
                         dir.join(format!("{module}.py")).is_file()
                             || dir.join(module).join("__init__.py").is_file()
                     });
-                    if sibling || pite_script::is_stdlib_module(module) {
+                    let vendored = crate::cmd_vendor::vendor_provides(&root.join("vendor"), module);
+                    if sibling || vendored || pite_script::is_stdlib_module(module) {
                         continue;
                     }
                     warnings.push(format!(
@@ -719,10 +720,16 @@ texture = "res://assets/gone.png"
         .expect("write scene");
         std::fs::write(
             root.join("scripts").join("sfx.py"),
-            "import pite\nimport os\nimport numpy\nfrom collections import OrderedDict\nfrom . import helper\nimport helper\n",
+            "import pite\nimport os\nimport numpy\nimport vpkg\nfrom collections import OrderedDict\nfrom . import helper\nimport helper\n",
         )
         .expect("write script");
         std::fs::write(root.join("scripts").join("helper.py"), "x = 1\n").expect("write sibling");
+        std::fs::create_dir_all(root.join("vendor").join("vpkg")).expect("vendor dir");
+        std::fs::write(
+            root.join("vendor").join("vpkg").join("__init__.py"),
+            "y = 2\n",
+        )
+        .expect("write vendored");
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
         let mut cache = Vec::new();

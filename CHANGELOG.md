@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Third-party Python packages vendor into the project: `pite vendor add pkg==ver` downloads wheels (+ transitive deps) into `vendor/`, pins versions + hashes in `[vendor]` (`list`/`verify`/`remove` manage the lock). Zipped by default, unpacked for native modules. The runtime puts `vendor/` on `sys.path` in dev and export alike; the export stages it whole; `pite check` stays silent for vendored imports.
 - `pite check` warns on third-party imports in game scripts (stdlib + `pite` + siblings are fine; exports drop `site-packages`).
 - `pite run` with no `--scene` starts the enclosing project's `main_scene` (same rule `pite edit` already used); outside a project it fails loudly.
 - Default window size is now 1280×720 (was 800×600): new scaffolds are stamped with it, and sizeless manifests inherit it. The size is the design resolution — the game opens maximized and scales content to fit keeping aspect, with clicks mapped through the same transform; the editor preview frames the same resolution.

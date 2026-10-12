@@ -2846,8 +2846,10 @@ dependencies = [
  "pite-script",
  "serde",
  "serde_json",
+ "sha2",
  "tracing",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]

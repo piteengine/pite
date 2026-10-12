@@ -437,6 +437,21 @@ fn readme(game: &str, platform: &str, python: &PythonChoice) -> String {
     )
 }
 
+/// Every file under `dir`, recursively.
+fn stage_tree(dir: &Path, out: &mut std::collections::HashSet<PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
+        let path = entry
+            .with_context(|| format!("cannot list entry in {}", dir.display()))?
+            .path();
+        if path.is_dir() {
+            stage_tree(&path, out)?;
+        } else if path.is_file() {
+            out.insert(path);
+        }
+    }
+    Ok(())
+}
+
 fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Result<Vec<PathBuf>> {
     let mut files = HashSet::new();
     let mut scenes = vec![manifest.project.main_scene.clone()];
@@ -488,6 +503,12 @@ fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Res
     }
     for extra in &manifest.export.include {
         files.insert(root.join(extra));
+    }
+    // Vendored third-party packages ship whole: the lock pins them, the
+    // runtime puts them on sys.path in dev and export alike.
+    let vendor_dir = root.join("vendor");
+    if vendor_dir.is_dir() {
+        stage_tree(&vendor_dir, &mut files)?;
     }
     let mut files: Vec<PathBuf> = files.into_iter().collect();
     for f in &files {
@@ -690,6 +711,27 @@ def _once():
         assert!(!sh.contains(" run --scene"));
         assert!(sh.contains("game/scenes/main.pitescene"));
         assert!(out.join("README.txt").is_file());
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(out).ok();
+    }
+
+    #[test]
+    fn layout_stages_vendor_whole() {
+        let (dir, bin) = fixture("vendor-stage");
+        std::fs::create_dir_all(dir.join("vendor").join("vpkg")).unwrap();
+        std::fs::write(dir.join("vendor").join("vpkg").join("__init__.py"), b"x=1").unwrap();
+        std::fs::write(
+            dir.join("vendor").join("pure-1.0-py3-none-any.whl"),
+            b"fake-wheel",
+        )
+        .unwrap();
+        let report = export_project(&dir, &opts(&bin)).unwrap();
+        let out = &report.out_dir;
+        assert!(game_has(out, "vendor/vpkg/__init__.py"), "missing tree");
+        assert!(
+            game_has(out, "vendor/pure-1.0-py3-none-any.whl"),
+            "missing wheel"
+        );
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(out).ok();
     }

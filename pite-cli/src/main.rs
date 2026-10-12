@@ -5,6 +5,7 @@ mod cmd_export;
 mod cmd_new;
 mod cmd_reimport;
 mod cmd_run;
+mod cmd_vendor;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -59,6 +60,30 @@ enum Command {
         #[arg(long, default_value_t = false)]
         no_bundle_python: bool,
     },
+    Vendor {
+        #[command(subcommand)]
+        action: VendorAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum VendorAction {
+    /// Download wheels (plus transitive deps) into vendor/ and pin them.
+    Add {
+        /// `name` or `name==version`.
+        spec: String,
+        /// Keep the wheel file even for pure-Python packages.
+        #[arg(long, default_value_t = false)]
+        zipped: bool,
+        /// Unpack into vendor/ even without native modules.
+        #[arg(long, default_value_t = false)]
+        unpacked: bool,
+    },
+    Remove {
+        name: String,
+    },
+    List,
+    Verify,
 }
 
 fn main() -> Result<()> {
@@ -87,5 +112,15 @@ fn main() -> Result<()> {
             skip_python_check,
             no_bundle_python,
         ),
+        Command::Vendor { action } => match action {
+            VendorAction::Add {
+                spec,
+                zipped,
+                unpacked,
+            } => cmd_vendor::add(&spec, zipped, unpacked),
+            VendorAction::Remove { name } => cmd_vendor::remove(&name),
+            VendorAction::List => cmd_vendor::list(),
+            VendorAction::Verify => cmd_vendor::verify(),
+        },
     }
 }

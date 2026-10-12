@@ -17,6 +17,12 @@ pub struct PiteManifest {
     pub project: ProjectMeta,
     #[serde(default)]
     pub export: ExportConfig,
+    /// Pinned third-party packages (`pite vendor add`). The table is the
+    /// lock: committed `vendor/` bytes must match it (`pite vendor verify`).
+    /// No `form` field yet — absent means zipped wheels; unpacked trees
+    /// arrive with explicit forms later, keeping this shape working.
+    #[serde(default)]
+    pub vendor: HashMap<String, VendorEntry>,
     #[serde(flatten, default)]
     pub extra: HashMap<String, toml::Value>,
 }
@@ -99,6 +105,17 @@ impl Default for ExportConfig {
             extra: HashMap::new(),
         }
     }
+}
+
+/// One pinned package in `[vendor]`. `sha256` covers the stored artifact:
+/// the wheel file when zipped, a canonical tree hash when unpacked.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VendorEntry {
+    pub version: String,
+    pub sha256: String,
+    /// False for transitive deps pulled in by `add`; true for asked-for ones.
+    #[serde(default)]
+    pub direct: bool,
 }
 
 pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
@@ -344,9 +361,39 @@ mod tests {
         assert_eq!(manifest.project.window_width, 1280);
         assert_eq!(manifest.project.window_height, 720);
         assert!(manifest.project.extra.is_empty());
+        assert!(manifest.vendor.is_empty());
         let (errors, warnings) = validate_manifest(&manifest);
         assert!(errors.is_empty(), "got {errors:?}");
         assert!(warnings.is_empty(), "got {warnings:?}");
+    }
+
+    #[test]
+    fn vendor_table_round_trips() {
+        let dir = tmpdir("vendor");
+        let mut manifest = load_text("[project]\nname = \"t\"\n");
+        manifest.vendor.insert(
+            "requests".to_string(),
+            VendorEntry {
+                version: "2.32.3".to_string(),
+                sha256: "abc".to_string(),
+                direct: true,
+            },
+        );
+        manifest.vendor.insert(
+            "urllib3".to_string(),
+            VendorEntry {
+                version: "2.2.2".to_string(),
+                sha256: "def".to_string(),
+                direct: false,
+            },
+        );
+        save_manifest(&dir, &manifest).unwrap();
+        let back = load_manifest(&dir).unwrap();
+        assert_eq!(back.vendor.len(), 2);
+        assert_eq!(back.vendor["requests"].version, "2.32.3");
+        assert!(back.vendor["requests"].direct);
+        assert!(!back.vendor["urllib3"].direct);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

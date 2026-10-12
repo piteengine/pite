@@ -1096,6 +1096,94 @@ mod tests {
 
     const COUNTER_BUILTIN: &str = "import pite\n\nclass Counter(pite.Button):\n    def _ready(self):\n        self.text = \"0\"\n        self.get_node(\".\").pressed.connect(self.on_pressed)\n    def on_pressed(self):\n        self.text = str(int(self.text) + 1)\n";
 
+    #[test]
+    fn vendored_import_resolves_in_session() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-vendor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::create_dir_all(dir.join("vendor").join("vpkg")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("vendor").join("vpkg").join("__init__.py"),
+            "VALUE = 7\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"m\"\ntype = \"Label\"\nname = \"M\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/m.py\"\nclass = \"M\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("scripts").join("m.py"),
+            "import pite\nimport vpkg\n\nclass M(pite.Label):\n    def _ready(self):\n        self.text = str(vpkg.VALUE)\n",
+        )
+        .unwrap();
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        session.update(0.016);
+        assert!(session.errors().is_empty(), "got: {:?}", session.errors());
+        let text = session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from("m".to_string())) {
+                Some(n) => match n.props.get("text") {
+                    Some(PropValue::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                None => String::from("<gone>"),
+            });
+        assert_eq!(text, "7");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn zipped_wheel_import_resolves_in_session() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-zip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::create_dir_all(dir.join("vendor")).unwrap();
+        let crafted = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(
+                "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], 'w'); z.writestr('zpkg/__init__.py', 'VALUE = 9\\n'); z.close()",
+            )
+            .arg(dir.join("vendor").join("zpkg-1.0-py3-none-any.whl"))
+            .output();
+        if !crafted.as_ref().is_ok_and(|o| o.status.success()) {
+            eprintln!("skipped: python3 with zipfile unavailable");
+            return;
+        }
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"m\"\ntype = \"Label\"\nname = \"M\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/m.py\"\nclass = \"M\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("scripts").join("m.py"),
+            "import pite\nimport zpkg\n\nclass M(pite.Label):\n    def _ready(self):\n        self.text = str(zpkg.VALUE)\n",
+        )
+        .unwrap();
+        let scene = dir.join("scenes").join("main.pitescene");
+        let mut session = GameSession::open(&scene, true).unwrap();
+        session.update(0.016);
+        assert!(session.errors().is_empty(), "got: {:?}", session.errors());
+        let text = session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from("m".to_string())) {
+                Some(n) => match n.props.get("text") {
+                    Some(PropValue::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                None => String::from("<gone>"),
+            });
+        assert_eq!(text, "9");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn make_button_project(tag: &str) -> PathBuf {
         make_button_project_with(tag, COUNTER)
     }

@@ -37,8 +37,8 @@ at export time) plus a deflated stdlib zip. Two flags change that:
 
 Only referenced files ship: reachable scenes (from `main_scene`), attached
 scripts, `res://` asset strings, `pite.play("…")` literals, atlas sheets,
-plus `[export] include` extras. The stdlib zip carries no `site-packages`,
-so third-party imports die in the export (`pite check` warns), and sibling
+the whole `vendor/` tree, plus `[export] include` extras. The stdlib zip carries no `site-packages`,
+so third-party imports die in the export unless vendored (`pite check` warns, `pite vendor verify` proves the lock), and sibling
 helper modules must be listed under `include` to be staged.
 
 ## Output
