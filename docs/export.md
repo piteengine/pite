@@ -33,6 +33,14 @@ at export time) plus a deflated stdlib zip. Two flags change that:
 - `--skip-python-check` skips the host-side interpreter check, for
   cross-machine builds where the host lacks the target's Python.
 
+## Content
+
+Only referenced files ship: reachable scenes (from `main_scene`), attached
+scripts, `res://` asset strings, `pite.play("…")` literals, atlas sheets,
+plus `[export] include` extras. The stdlib zip carries no `site-packages`,
+so third-party imports die in the export (`pite check` warns), and sibling
+helper modules must be listed under `include` to be staged.
+
 ## Output
 
 Export prints the output directory, the shipped binary, the staged file

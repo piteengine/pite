@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `pite check` warns on third-party imports in game scripts (stdlib + `pite` + siblings are fine; exports drop `site-packages`).
 - `pite run` with no `--scene` starts the enclosing project's `main_scene` (same rule `pite edit` already used); outside a project it fails loudly.
 - Default window size is now 1280×720 (was 800×600): new scaffolds are stamped with it, and sizeless manifests inherit it. The size is the design resolution — the game opens maximized and scales content to fit keeping aspect, with clicks mapped through the same transform; the editor preview frames the same resolution.
 - Editor completion is integrated: it triggers as you type with a cursor-anchored popup, narrows on what you typed, follows the arrow-key selection, and accepts with `Enter` (`Esc` dismisses, click works too).

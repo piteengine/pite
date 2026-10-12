@@ -89,3 +89,9 @@ pite.stop(voice)
 
 - A script exception is reported with node path, file, and line; the node keeps its last good state and the game keeps running. Repeat offenders are parked after the first error (see the console).
 - Saving a `.py` file hot-reloads it: the module re-executes, the class rebinds to existing nodes, `position` is preserved, and `_ready` is *not* called again. A failed reload keeps the old code running.
+
+## Imports
+
+- `import pite` plus the stdlib always work. Each script's own directory is prepended to `sys.path`, so sibling modules (`import utils`) import in dev.
+- Third-party packages (pip) work in dev only when installed in your system Python — **exports drop `site-packages` entirely**, so the exported game crashes on them. `pite check` warns per offending import.
+- Sibling modules are *not* staged automatically either: a helper imported in dev is missing from the export unless listed under `[export] include` in `pite.toml`. Safe rule: `pite` + stdlib + included siblings.

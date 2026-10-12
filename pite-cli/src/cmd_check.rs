@@ -250,6 +250,23 @@ fn check_scene_ref(
                 ));
             }
             if let Ok(text) = std::fs::read_to_string(&script_path) {
+                for module in script_imports(&text) {
+                    if module == "pite" || module == "__future__" {
+                        continue;
+                    }
+                    let sibling = script_path.parent().is_some_and(|dir| {
+                        dir.join(format!("{module}.py")).is_file()
+                            || dir.join(module).join("__init__.py").is_file()
+                    });
+                    if sibling || pite_script::is_stdlib_module(module) {
+                        continue;
+                    }
+                    warnings.push(format!(
+                        "scene {}: node {:?} script imports third-party {module:?}, which exports drop (stdlib + project files only)",
+                        path.display(),
+                        node.id
+                    ));
+                }
                 for asset in played_assets(&text) {
                     referenced.insert(normalize_asset_ref(asset));
                     let asset_path = if let Some(rel) = asset.strip_prefix("res://") {
@@ -442,6 +459,39 @@ fn orphan_warnings(
         .into_iter()
         .map(|p| format!("asset {p:?} is never referenced by a reachable scene"))
         .collect()
+}
+
+/// Top-level module names imported by a script (`import a, b`, `from a
+/// import …`), comment-stripped like `played_assets`. Relative imports
+/// (`.x`) resolve to siblings, never third-party.
+fn script_imports(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if let Some(list) = line.strip_prefix("import ") {
+            for item in list.split(',') {
+                let name = item
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_end_matches(';');
+                let top = name.split('.').next().unwrap_or("");
+                if !top.is_empty() && !out.contains(&top) {
+                    out.push(top);
+                }
+            }
+        } else if let Some(after_from) = line.strip_prefix("from ") {
+            let module = after_from.split_whitespace().next().unwrap_or("");
+            if module.starts_with('.') {
+                continue;
+            }
+            let top = module.split('.').next().unwrap_or("");
+            if !top.is_empty() && !out.contains(&top) {
+                out.push(top);
+            }
+        }
+    }
+    out
 }
 
 fn played_assets(text: &str) -> Vec<&str> {
@@ -646,6 +696,58 @@ texture = "res://assets/gone.png"
             "got: {referenced:?}"
         );
         assert!(orphan_warnings(&by_path, &referenced).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn script_imports_extracts_top_levels() {
+        let text = "import pite\nimport os, sys # comment\nfrom collections import OrderedDict\nfrom . import helper\nfrom pkg.sub import thing\nimport numpy as np\n# import commented_out\nx = \"import string_in_literal\"\n";
+        assert_eq!(
+            script_imports(text),
+            vec!["pite", "os", "sys", "collections", "pkg", "numpy"]
+        );
+    }
+
+    #[test]
+    fn third_party_import_warns_once() {
+        let root = fixture_root(5);
+        std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
+        std::fs::write(
+            root.join("scenes").join("main.pitescene"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"sfx\"\ntype = \"Node\"\nname = \"Sfx\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/sfx.py\"\nclass = \"Sfx\"\n",
+        )
+        .expect("write scene");
+        std::fs::write(
+            root.join("scripts").join("sfx.py"),
+            "import pite\nimport os\nimport numpy\nfrom collections import OrderedDict\nfrom . import helper\nimport helper\n",
+        )
+        .expect("write script");
+        std::fs::write(root.join("scripts").join("helper.py"), "x = 1\n").expect("write sibling");
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut cache = Vec::new();
+        let mut atlas_uses = Vec::new();
+        let mut visited = HashSet::new();
+        let mut referenced = HashSet::new();
+        let registry = pite_assets::UidRegistry::default();
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+        check_scene_ref(
+            &root,
+            "res://scenes/main.pitescene",
+            &mut errors,
+            &mut warnings,
+            &mut cache,
+            &mut atlas_uses,
+            &registry,
+            &by_path,
+            &by_hash,
+            &mut visited,
+            &mut referenced,
+        );
+        assert!(errors.is_empty(), "got: {errors:?}");
+        assert_eq!(warnings.len(), 1, "got: {warnings:?}");
+        assert!(warnings[0].contains("\"numpy\""), "got: {warnings:?}");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -280,6 +280,20 @@ fn ensure_init() {
     });
 }
 
+/// True when `name` is a top-level stdlib module of the running interpreter
+/// (`sys.stdlib_module_names`). Asked live so the answer tracks the pinned
+/// CPython instead of a hand list; `pite check` uses it to tell stdlib
+/// (ships in the export zip) from third-party (dropped) imports.
+pub fn is_stdlib_module(name: &str) -> bool {
+    ensure_init();
+    Python::attach(|py| {
+        py.import("sys")
+            .and_then(|sys| sys.getattr("stdlib_module_names"))
+            .and_then(|names| names.contains(name))
+            .unwrap_or(false)
+    })
+}
+
 fn format_error(py: Python<'_>, err: PyErr, ctx: &str) -> String {
     let tb = err
         .traceback(py)
