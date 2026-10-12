@@ -90,6 +90,17 @@ pub fn screen_to_world(
     )
 }
 
+/// Uniform "contain" scale that fits `design` inside `actual` keeping aspect:
+/// the game renders the design resolution through `zoom * fit_scale` so
+/// content grows and shrinks with the window instead of showing more world.
+/// Zero sizes fall back to 1.0 (a minimized window must not divide).
+pub fn fit_scale(design: (u32, u32), actual: (u32, u32)) -> f64 {
+    if design.0 == 0 || design.1 == 0 || actual.0 == 0 || actual.1 == 0 {
+        return 1.0;
+    }
+    (actual.0 as f64 / design.0 as f64).min(actual.1 as f64 / design.1 as f64)
+}
+
 pub fn screen_to_ndc(screen: (f32, f32), size: (u32, u32)) -> (f32, f32) {
     (
         screen.0 / size.0 as f32 * 2.0 - 1.0,
@@ -342,10 +353,13 @@ fn build_groups(
     let mut order: Vec<String> = Vec::new();
     for sprite in sprites {
         let (tw, th) = sizes.get(&sprite.tex_key).copied().unwrap_or((8, 8));
+        // Every size scales with zoom: positions already do, so a sprite
+        // that stayed pixel-fixed while its center moved would shear apart
+        // from the scene on resize (and under Camera2D zoom).
         let (w, h) = match (sprite.size_world, sprite.size_px) {
             (Some((w, h)), _) => ((w * zoom) as f32, (h * zoom) as f32),
-            (None, Some((w, h))) => (w as f32, h as f32),
-            (None, None) => (tw as f32, th as f32),
+            (None, Some((w, h))) => ((w as f64 * zoom) as f32, (h as f64 * zoom) as f32),
+            (None, None) => ((tw as f64 * zoom) as f32, (th as f64 * zoom) as f32),
         };
         let screen = world_to_screen(sprite.world, cam, zoom, size);
         let ndc = screen_to_ndc(screen, size);
@@ -1014,6 +1028,15 @@ mod tests {
         assert!((back.0 - world.0).abs() < 1e-3 && (back.1 - world.1).abs() < 1e-3);
         let center = screen_to_world((400.0, 300.0), (100.0, 200.0), 1.0, size);
         assert!((center.0 - 100.0).abs() < 1e-9 && (center.1 - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_scale_contains_and_guards_zeros() {
+        assert!((fit_scale((1280, 720), (1920, 1080)) - 1.5).abs() < 1e-9);
+        assert!((fit_scale((1280, 720), (1920, 800)) - (800.0 / 720.0)).abs() < 1e-9);
+        assert!((fit_scale((1280, 720), (640, 360)) - 0.5).abs() < 1e-9);
+        assert_eq!(fit_scale((0, 720), (1920, 1080)), 1.0);
+        assert_eq!(fit_scale((1280, 720), (0, 0)), 1.0);
     }
 
     #[test]

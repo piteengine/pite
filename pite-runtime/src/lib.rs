@@ -176,6 +176,25 @@ impl GameSession {
         }
     }
 
+    /// Project window size: explicit `window_width/height` when set, else the
+    /// engine default. Doubles as the design resolution the game scales from
+    /// and as the window's restore size when maximized.
+    pub fn design_size(&self) -> Option<(u32, u32)> {
+        let dir = self.project_dir.as_deref()?;
+        pite_project::load_manifest(dir)
+            .ok()
+            .map(|m| (m.project.window_width, m.project.window_height))
+    }
+
+    /// Camera zoom composed with the contain-fit scale, so content keeps the
+    /// design aspect at any window size. `button_at` shares it, keeping
+    /// clicks on what is drawn.
+    pub fn effective_zoom(&self) -> f64 {
+        let ((_, _), zoom) = self.camera_view();
+        let design = self.design_size().unwrap_or(self.viewport);
+        zoom * pite_render::fit_scale(design, self.viewport)
+    }
+
     pub fn camera_view(&self) -> ((f64, f64), f64) {
         self.host.with_tree(|tree| {
             tree.iter()
@@ -192,8 +211,8 @@ impl GameSession {
     }
 
     pub fn draw_into(&mut self, r: &mut dyn Renderer2D) -> Result<()> {
-        let (cam, zoom) = self.camera_view();
-        r.set_camera(cam.0, cam.1, zoom);
+        let (cam, _) = self.camera_view();
+        r.set_camera(cam.0, cam.1, self.effective_zoom());
         let sprite_nodes: Vec<(String, String, Option<String>, Option<String>, (f64, f64))> =
             self.host.with_tree(|tree| {
                 tree.iter()
@@ -291,7 +310,8 @@ impl GameSession {
     }
 
     pub fn button_at(&self, screen: (f64, f64)) -> Option<String> {
-        let ((cx, cy), zoom) = self.camera_view();
+        let ((cx, cy), _) = self.camera_view();
+        let zoom = self.effective_zoom();
         let (world_x, world_y) = pite_render::screen_to_world(
             (screen.0 as f32, screen.1 as f32),
             (cx, cy),
@@ -663,6 +683,11 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let mut attrs = Window::default_attributes().with_title(self.title.clone());
+            // Maximized like the editor; the design size is the restore size.
+            attrs = attrs.with_maximized(true);
+            if let Some((w, h)) = self.session.design_size() {
+                attrs = attrs.with_inner_size(winit::dpi::PhysicalSize::new(w, h));
+            }
             if let Some(icon) = window_icon() {
                 attrs = attrs.with_window_icon(Some(icon));
             }
@@ -1089,6 +1114,10 @@ mod tests {
 
     fn click(session: &mut GameSession, down: (f64, f64), up: (f64, f64)) {
         use pite_script::{input_begin_frame, input_set_key, input_set_mouse};
+        // Mirror the real loop, which syncs the viewport from the renderer
+        // every frame: clicks map 1:1 only at the design size.
+        let (w, h) = session.design_size().unwrap_or((800, 600));
+        session.set_viewport(w, h);
         input_set_mouse(down.0, down.1);
         input_set_key("MouseLeft", true);
         session.update(0.016);
@@ -1106,9 +1135,9 @@ mod tests {
         let scene = dir.join("scenes").join("main.pitescene");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert_eq!(btn_text(&session), "0");
-        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        click(&mut session, (740.0, 460.0), (740.0, 460.0));
         assert_eq!(btn_text(&session), "1");
-        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        click(&mut session, (740.0, 460.0), (740.0, 460.0));
         assert_eq!(btn_text(&session), "2");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1121,7 +1150,7 @@ mod tests {
         let mut session = GameSession::open(&scene, true).unwrap();
         assert!(session.host.has_signal("btn", "pressed"));
         assert_eq!(btn_text(&session), "0");
-        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        click(&mut session, (740.0, 460.0), (740.0, 460.0));
         assert_eq!(btn_text(&session), "1");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1132,7 +1161,9 @@ mod tests {
         let dir = make_button_project("btn-out");
         let scene = dir.join("scenes").join("main.pitescene");
         let mut session = GameSession::open(&scene, true).unwrap();
-        click(&mut session, (700.0, 500.0), (700.0, 500.0));
+        // Screen points for the 1280x720 design center (640, 360): the
+        // fixture button sits at world (100, 100), i.e. screen (740, 460).
+        click(&mut session, (100.0, 100.0), (100.0, 100.0));
         assert_eq!(btn_text(&session), "0");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1143,7 +1174,7 @@ mod tests {
         let dir = make_button_project("btn-drag");
         let scene = dir.join("scenes").join("main.pitescene");
         let mut session = GameSession::open(&scene, true).unwrap();
-        click(&mut session, (500.0, 400.0), (700.0, 500.0));
+        click(&mut session, (740.0, 460.0), (100.0, 100.0));
         assert_eq!(btn_text(&session), "0");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1159,7 +1190,7 @@ mod tests {
         });
         session.host.disconnect_node("btn");
         assert!(!session.host.has_signal("btn", "pressed"));
-        click(&mut session, (500.0, 400.0), (500.0, 400.0));
+        click(&mut session, (740.0, 460.0), (740.0, 460.0));
         assert_eq!(btn_text(&session), "<gone>");
         std::fs::remove_dir_all(&dir).ok();
     }

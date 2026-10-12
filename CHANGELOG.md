@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Default window size is now 1280×720 (was 800×600): new scaffolds are stamped with it, and sizeless manifests inherit it. The size is the design resolution — the game opens maximized and scales content to fit keeping aspect, with clicks mapped through the same transform; the editor preview frames the same resolution.
 - Editor completion is integrated: it triggers as you type with a cursor-anchored popup, narrows on what you typed, follows the arrow-key selection, and accepts with `Enter` (`Esc` dismisses, click works too).
 - Editor gutter numbers tile the laid-out galley rows exactly, so long files no longer drift out of alignment.
 

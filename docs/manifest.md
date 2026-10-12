@@ -10,8 +10,8 @@ main_scene = "res://scenes/main.pitescene"
 python = "3.12"
 author = ""
 icon = ""
-window_width = 800
-window_height = 600
+window_width = 1280
+window_height = 720
 
 [export]
 # binary_name = "my-game"  # optional, defaults to the project name
@@ -22,6 +22,7 @@ window_height = 600
 
 - Wrong types fail loudly at parse (`cannot parse pite.toml`) — never silent defaults.
 - `window_width` / `window_height` must be positive; `python` must be non-empty; `icon` is empty (no icon) or `res://…` (absolute paths are forbidden, a missing file warns).
+- The window size is the design resolution: the game opens maximized and scales content uniformly to fit, keeping aspect (letterboxed); clicks map through the same transform. The editor preview frames this same resolution.
 - Unknown fields (`custom`, `project.nickname`, `export.bundle`) survive a parse→write round-trip and warn in `pite check`.
 - `export.platforms` was removed in 0.1.1 (export never read it). Old manifests carrying it still parse and get a deprecation warning from `pite check`.
 - Export copies the manifest verbatim and reads only `name`, `main_scene`, `binary_name`, `include`.

@@ -72,10 +72,10 @@ fn default_python() -> String {
     "3.12".to_string()
 }
 fn default_window_width() -> u32 {
-    800
+    1280
 }
 fn default_window_height() -> u32 {
-    600
+    720
 }
 
 /// Export settings. Everything defaults. `platforms` was removed in 0.1.1
@@ -209,8 +209,8 @@ main_scene = "res://scenes/main.pitescene"
 python = "3.12"
 author = ""
 icon = ""
-window_width = 800
-window_height = 600
+window_width = 1280
+window_height = 720
 "#;
 
 /// Fresh `main.pitescene` for `create_project`. The format version comes
@@ -341,8 +341,8 @@ mod tests {
         assert_eq!(manifest.project.python, "3.12");
         assert_eq!(manifest.project.author, "");
         assert_eq!(manifest.project.icon, "");
-        assert_eq!(manifest.project.window_width, 800);
-        assert_eq!(manifest.project.window_height, 600);
+        assert_eq!(manifest.project.window_width, 1280);
+        assert_eq!(manifest.project.window_height, 720);
         assert!(manifest.project.extra.is_empty());
         let (errors, warnings) = validate_manifest(&manifest);
         assert!(errors.is_empty(), "got {errors:?}");
