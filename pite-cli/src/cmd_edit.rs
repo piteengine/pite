@@ -20,16 +20,7 @@ pub fn run(scene: Option<&str>) -> Result<()> {
                 }
             }
         }
-        _ => {
-            let root = pite_project::find_project_root(&cwd).unwrap_or(cwd.clone());
-            let manifest = pite_project::load_manifest(&root)?;
-            let main = manifest.project.main_scene;
-            if let Some(rel) = main.strip_prefix("res://") {
-                root.join(rel)
-            } else {
-                root.join(main)
-            }
-        }
+        _ => pite_runtime::resolve_default_scene()?,
     };
     pite_editor::launch(&path)
 }

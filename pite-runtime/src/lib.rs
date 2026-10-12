@@ -803,6 +803,20 @@ pub fn resolve_scene_arg(scene: &str) -> Result<PathBuf> {
     Ok(if p.is_absolute() { p } else { cwd.join(p) })
 }
 
+/// Default scene when `--scene` is omitted: the enclosing project's
+/// `main_scene`. Same rule `pite edit` uses with no scene; outside a
+/// project it fails loudly instead of guessing.
+pub fn resolve_default_scene() -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    let root = pite_project::find_project_root(&cwd)
+        .with_context(|| "no --scene given and no pite.toml found above cwd")?;
+    let main = pite_project::load_manifest(&root)?.project.main_scene;
+    Ok(match main.strip_prefix("res://") {
+        Some(rel) => root.join(rel),
+        None => root.join(main),
+    })
+}
+
 pub fn run_scene(scene: &Path, no_reload: bool) -> Result<()> {
     run_with_options(&RunOptions {
         scene: scene.to_path_buf(),
@@ -1371,6 +1385,30 @@ mod tests {
             1,
             "all frames share one texture, so they batch into one draw"
         );
+    }
+
+    #[test]
+    fn default_scene_resolves_main_scene_and_fails_outside_projects() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-defscene-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::write(
+            dir.join("pite.toml"),
+            "[project]\nname = \"t\"\nmain_scene = \"res://scenes/main.pitescene\"\n",
+        )
+        .unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        let got = resolve_default_scene().unwrap();
+        assert_eq!(got, dir.join("scenes").join("main.pitescene"));
+        let bare = std::env::temp_dir().join(format!("pite-noproj-{}", std::process::id()));
+        std::fs::create_dir_all(&bare).unwrap();
+        std::env::set_current_dir(&bare).unwrap();
+        let err = resolve_default_scene().expect_err("outside a project must fail loudly");
+        assert!(err.to_string().contains("pite.toml"), "got {err:#}");
+        std::env::set_current_dir(&prev).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&bare).ok();
     }
 
     #[test]

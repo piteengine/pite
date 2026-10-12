@@ -25,7 +25,7 @@ enum Command {
     },
     Run {
         #[arg(long)]
-        scene: String,
+        scene: Option<String>,
         #[arg(long, default_value_t = false)]
         no_reload: bool,
     },
@@ -68,7 +68,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::New { name, template } => cmd_new::run(&name, &template),
-        Command::Run { scene, no_reload } => cmd_run::run(&scene, no_reload),
+        Command::Run { scene, no_reload } => cmd_run::run(scene.as_deref(), no_reload),
         Command::Check { path, strict, json } => cmd_check::run(path.as_deref(), strict, json),
         Command::Reimport { path } => cmd_reimport::run(path.as_deref()),
         Command::Edit { scene } => cmd_edit::run(scene.as_deref()),
