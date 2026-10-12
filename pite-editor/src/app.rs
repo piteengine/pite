@@ -665,19 +665,23 @@ impl eframe::App for EditorApp {
                         ui.close();
                     }
                 });
-                // Transport controls next to the menus, Godot-style: the same
-                // actions as the Run menu, always visible.
+                // Transport controls pinned to the right end, Godot-style:
+                // the same actions as the Run menu, always visible.
+                // Right-to-left places the first widget rightmost, so Stop
+                // comes first to keep the Play, Stop order.
                 let (play_icon, play_tip) = if self.playing {
                     (Icon::Pause, "Pause the scene")
                 } else {
                     (Icon::Play, "Run the scene")
                 };
-                if icons::icon_button(ui, play_icon, play_tip).clicked() {
-                    self.toggle_play();
-                }
-                if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene").clicked() {
-                    self.stop();
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene").clicked() {
+                        self.stop();
+                    }
+                    if icons::icon_button(ui, play_icon, play_tip).clicked() {
+                        self.toggle_play();
+                    }
+                });
             });
         });
 
