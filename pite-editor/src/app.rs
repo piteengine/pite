@@ -1707,6 +1707,11 @@ impl EditorApp {
         let mut render_err: Option<String> = None;
         if let Some(renderer) = self.viewport.as_mut() {
             if want_refresh {
+                // The offscreen buffer is the design size: sync the session
+                // viewport here, not only while playing, or a fresh or just-
+                // stopped session still carries the (800, 600) init and the
+                // preview draws shrunken.
+                self.session.set_viewport(view_w, view_h);
                 let draw = renderer.begin_frame().and_then(|()| {
                     self.session.draw_into(renderer)?;
                     renderer.render_to_rgba()
