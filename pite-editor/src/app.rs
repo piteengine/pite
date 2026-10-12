@@ -1128,7 +1128,9 @@ impl EditorApp {
         };
         match std::fs::write(&file, &self.code_text) {
             Ok(()) => {
-                self.session.reload_script_path(&file);
+                if self.code_is_python() {
+                    self.session.reload_script_path(&file);
+                }
                 self.log(format!("saved {}", file.display()));
             }
             Err(e) => self.log(format!("save failed: {e:#}")),
@@ -1139,12 +1141,22 @@ impl EditorApp {
         self.poll_lsp();
         let diag_count = self.lsp.as_ref().map(|c| c.diagnostic_count()).unwrap_or(0);
         ui.horizontal(|ui| {
-            ui.label(&self.lsp_status);
-            if diag_count > 0 {
-                ui.label(format!("diagnostics: {diag_count}"));
-            }
-            if !self.lsp_hint.is_empty() {
-                ui.monospace(&self.lsp_hint);
+            if self.code_is_python() {
+                ui.label(&self.lsp_status);
+                if diag_count > 0 {
+                    ui.label(format!("diagnostics: {diag_count}"));
+                }
+                if !self.lsp_hint.is_empty() {
+                    ui.monospace(&self.lsp_hint);
+                }
+            } else {
+                let name = self
+                    .code_file
+                    .as_ref()
+                    .and_then(|f| f.file_name())
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("no file open");
+                ui.label(format!("text: {name}"));
             }
         });
         let mut marks = ops::gutter_marks(&self.current_file_errors());
@@ -1380,6 +1392,27 @@ impl EditorApp {
             .map(|p| lsp::path_to_uri(p.as_path()))
     }
 
+    /// The open file is a Python script: the only kind the LSP serves.
+    fn code_is_python(&self) -> bool {
+        self.code_file
+            .as_ref()
+            .and_then(|f| f.extension())
+            .and_then(|e| e.to_str())
+            == Some("py")
+    }
+
+    /// Plain-text files the code editor opens (same set the asset
+    /// browser shows with a gear icon); LSP stays Python-only.
+    fn editor_text_file(file: &Path) -> bool {
+        matches!(
+            file.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .as_deref(),
+            Some("py" | "toml" | "cfg" | "ini" | "json" | "yaml" | "yml")
+        )
+    }
+
     fn code_cursor_byte(text: &str, ctx: &egui::Context, id: &egui::Id) -> Option<usize> {
         let state = egui::widgets::text_edit::TextEditState::load(ctx, *id)?;
         let range = state.cursor.char_range()?;
@@ -1437,8 +1470,10 @@ impl EditorApp {
                         };
                         if let Some(uri) = self.code_uri() {
                             let text = self.code_text.clone();
-                            if let Err(e) = client.did_open(&uri, &text) {
-                                self.log(format!("lsp: {e:#}"));
+                            if self.code_is_python() {
+                                if let Err(e) = client.did_open(&uri, &text) {
+                                    self.log(format!("lsp: {e:#}"));
+                                }
                             }
                         }
                         self.lsp = Some(client);
@@ -1521,6 +1556,9 @@ impl EditorApp {
     }
 
     fn code_changed(&mut self, paren_at: Option<usize>) {
+        if !self.code_is_python() {
+            return;
+        };
         let Some(uri) = self.code_uri() else {
             return;
         };
@@ -1541,6 +1579,9 @@ impl EditorApp {
     }
 
     fn request_completion_at(&mut self, cursor_byte: Option<usize>) {
+        if !self.code_is_python() {
+            return;
+        }
         let (Some(off), Some(uri)) = (cursor_byte, self.code_uri()) else {
             return;
         };
@@ -1609,6 +1650,9 @@ impl EditorApp {
     }
 
     fn request_hover_at(&mut self, cursor_byte: Option<usize>) {
+        if !self.code_is_python() {
+            return;
+        }
         let (Some(off), Some(uri)) = (cursor_byte, self.code_uri()) else {
             return;
         };
@@ -1955,18 +1999,24 @@ impl EditorApp {
     }
 
     fn open_asset(&mut self, file: &Path) {
-        if file.extension().and_then(|e| e.to_str()) == Some("py") {
+        if Self::editor_text_file(file) {
             match std::fs::read_to_string(file) {
                 Ok(text) => {
                     self.code_file = Some(file.to_path_buf());
                     self.code_text = text;
                     self.tab = Tab::Code;
-                    self.ensure_lsp();
-                    let uri = self.code_uri();
-                    let text = self.code_text.clone();
-                    if let (Some(client), Some(uri)) = (self.lsp.as_mut(), uri) {
-                        if let Err(e) = client.did_open(&uri, &text) {
-                            self.log(format!("lsp: {e:#}"));
+                    self.close_completion();
+                    self.lsp_hint.clear();
+                    // LSP stays Python-only: text files open with no
+                    // did_open, so pyright never sees them.
+                    if self.code_is_python() {
+                        self.ensure_lsp();
+                        let uri = self.code_uri();
+                        let text = self.code_text.clone();
+                        if let (Some(client), Some(uri)) = (self.lsp.as_mut(), uri) {
+                            if let Err(e) = client.did_open(&uri, &text) {
+                                self.log(format!("lsp: {e:#}"));
+                            }
                         }
                     }
                 }
@@ -2061,5 +2111,17 @@ mod tests {
         assert!((view.left() - (outer.right() - view.right())).abs() < 0.01);
         assert!(view.width() <= outer.width() + 0.01);
         assert!(view.height() <= outer.height() + 0.01);
+    }
+
+    #[test]
+    fn editor_opens_gear_group_as_text() {
+        for name in [
+            "a.py", "p.toml", "c.cfg", "c.ini", "d.json", "e.yaml", "f.yml", "G.TOML",
+        ] {
+            assert!(EditorApp::editor_text_file(Path::new(name)), "{name}");
+        }
+        for name in ["a.png", "b.wav", "c.pitescene", "noext", "a.pyx"] {
+            assert!(!EditorApp::editor_text_file(Path::new(name)), "{name}");
+        }
     }
 }
