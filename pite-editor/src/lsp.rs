@@ -139,6 +139,20 @@ pub fn word_start_before(text: &str, byte_offset: usize) -> usize {
     start
 }
 
+/// End byte offset of the identifier starting at `byte_offset`
+/// (letters, digits, `_`); accepting mid-word replaces up to here.
+pub fn word_end_after(text: &str, byte_offset: usize) -> usize {
+    let mut end = byte_offset.min(text.len());
+    for c in text[end..].chars() {
+        if c.is_alphanumeric() || c == '_' {
+            end += c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    end
+}
+
 /// First `major.minor.patch` in free-form `--version` output.
 pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
     let mut digits = String::new();
@@ -1386,6 +1400,10 @@ mod tests {
         assert_eq!(word_start_before("self.position", 4), 0);
         assert_eq!(word_start_before("x = 1", 4), 4);
         assert_eq!(word_start_before("x = 1", 5), 4);
+        assert_eq!(word_end_after("self.position", 5), 13);
+        assert_eq!(word_end_after("self.position", 0), 4);
+        assert_eq!(word_end_after("x = 1", 4), 5);
+        assert_eq!(word_end_after("x = 1", 5), 5);
     }
 
     #[test]

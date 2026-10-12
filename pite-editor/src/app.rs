@@ -156,6 +156,8 @@ pub struct EditorApp {
     lsp_completions: Vec<lsp::CompletionItem>,
     lsp_completion_open: bool,
     lsp_completion_offset: usize,
+    lsp_completion_pending: Vec<(i64, usize)>,
+    lsp_completion_selected: usize,
     playing: bool,
     last_frame: Instant,
     add_open: bool,
@@ -209,6 +211,8 @@ impl EditorApp {
             lsp_completions: Vec::new(),
             lsp_completion_open: false,
             lsp_completion_offset: 0,
+            lsp_completion_pending: Vec::new(),
+            lsp_completion_selected: 0,
             playing: false,
             last_frame: Instant::now(),
             add_open: false,
@@ -1209,29 +1213,95 @@ impl EditorApp {
                             job.keep_trailing_whitespace = true;
                             ui.fonts_mut(|fonts| fonts.layout_job(job))
                         };
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(&mut self.code_text)
-                            .code_editor()
-                            // Pinned id: gutter jumps address the editor across
-                            // frames, so it must not depend on widget order.
-                            .id(egui::Id::new("code-editor"))
-                            // Full content height (+1 slack row) so the outer
-                            // scroll area owns scrolling and the gutter stays
-                            // in sync; the editor never scrolls internally.
-                            // At least the viewport height so short files still
-                            // fill the panel.
-                            .desired_rows((line_count + 1).max(min_rows))
-                            // Whatever width the gutter column leaves: the row
-                            // does not expand the editor on its own.
-                            .desired_width(ui.available_size().x)
-                            .layouter(&mut layouter),
-                    );
+                    let edit_id = egui::Id::new("code-editor");
+                    let before_len = self.code_text.len();
+                    // Completion keys are consumed before the editor sees them:
+                    // arrows move the selection and Enter accepts, so typing
+                    // flows without the popup stealing or mangling keystrokes.
+                    // Escape is NOT focus-gated: egui core drops editor focus
+                    // on every plain Esc before widgets run, so a focus check
+                    // here would never observe the press.
+                    let mut completion_accept = false;
+                    if self.lsp_completion_open {
+                        if ui.ctx().memory(|m| m.focused()) == Some(edit_id) {
+                            if let Some(pre) =
+                                Self::code_cursor_byte(&self.code_text, ui.ctx(), &edit_id)
+                            {
+                                let matches = self.completion_filtered(pre).len();
+                                ui.ctx().input_mut(|i| {
+                                    let plain = i.modifiers.is_none();
+                                    if plain && i.key_pressed(egui::Key::ArrowDown) {
+                                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+                                        if matches > 0 {
+                                            self.lsp_completion_selected =
+                                                (self.lsp_completion_selected + 1) % matches;
+                                        }
+                                    } else if plain && i.key_pressed(egui::Key::ArrowUp) {
+                                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
+                                        if matches > 0 {
+                                            self.lsp_completion_selected = self
+                                                .lsp_completion_selected
+                                                .checked_sub(1)
+                                                .unwrap_or(matches - 1);
+                                        }
+                                    } else if plain
+                                        && matches > 0
+                                        && i.key_pressed(egui::Key::Enter)
+                                    {
+                                        i.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+                                        completion_accept = true;
+                                    }
+                                });
+                            }
+                        }
+                        if ui.ctx().input_mut(|i| {
+                            i.modifiers.is_none()
+                                && i.key_pressed(egui::Key::Escape)
+                                && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                        }) {
+                            self.close_completion();
+                            // Core already defocused the editor: hand focus
+                            // back so typing resumes without a click.
+                            ui.ctx().memory_mut(|m| m.request_focus(edit_id));
+                        }
+                    }
+                    // `show` (not `add`) exposes the galley so the popup can
+                    // anchor at the cursor instead of a fixed offset.
+                    let output = egui::TextEdit::multiline(&mut self.code_text)
+                        .code_editor()
+                        // Pinned id: gutter jumps address the editor across
+                        // frames, so it must not depend on widget order.
+                        .id(edit_id)
+                        // Full content height (+1 slack row) so the outer
+                        // scroll area owns scrolling and the gutter stays
+                        // in sync; the editor never scrolls internally.
+                        // At least the viewport height so short files still
+                        // fill the panel.
+                        .desired_rows((line_count + 1).max(min_rows))
+                        // Whatever width the gutter column leaves: the row
+                        // does not expand the editor on its own.
+                        .desired_width(ui.available_size().x)
+                        .layouter(&mut layouter)
+                        .show(ui);
+                    let resp = &output.response;
                     let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
                     if resp.changed() {
-                        self.lsp_completion_open = false;
+                        // Insertions only: backspace re-filters the live list
+                        // and the anchor check dismisses what no longer fits.
+                        let grew = self.code_text.len() > before_len;
+                        let last =
+                            cursor_byte.and_then(|off| self.code_text[..off].chars().next_back());
+                        let is_word = matches!(last, Some(c) if c.is_alphanumeric() || c == '_');
                         let paren_at = cursor_byte
                             .filter(|&off| self.code_text[..off].chars().next_back() == Some('('));
                         self.code_changed(paren_at);
+                        if grew && last == Some('.') {
+                            self.request_completion_at(cursor_byte);
+                        } else if grew && is_word {
+                            self.request_completion_at(cursor_byte);
+                        } else if grew && !is_word {
+                            self.close_completion();
+                        }
                     }
                     if resp.has_focus() {
                         let pressed = |key| {
@@ -1244,9 +1314,21 @@ impl EditorApp {
                             self.request_hover_at(cursor_byte);
                         }
                     }
+                    if completion_accept {
+                        self.accept_completion(ui.ctx(), cursor_byte);
+                    }
+                    let anchor = output.cursor_range.map(|range| {
+                        output.galley_pos
+                            + output
+                                .galley
+                                .pos_from_cursor(range.primary)
+                                .left_bottom()
+                                .to_vec2()
+                            + egui::vec2(0.0, 4.0)
+                    });
+                    self.show_completion_popup(ui, cursor_byte, anchor);
                 });
             });
-        self.show_completion_popup(ui);
     }
 
     fn code_uri(&self) -> Option<String> {
@@ -1268,14 +1350,19 @@ impl EditorApp {
         let edit_id = egui::Id::new("code-editor");
         let byte = lsp::line_start_byte(&self.code_text, line);
         let index = self.code_text[..byte].chars().count();
+        Self::store_code_cursor(ctx, index);
+        ctx.memory_mut(|memory| memory.request_focus(edit_id));
+    }
+
+    fn store_code_cursor(ctx: &egui::Context, char_index: usize) {
+        let edit_id = egui::Id::new("code-editor");
         if let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ctx, edit_id) {
-            let cursor = egui::text::CCursor::new(index);
+            let cursor = egui::text::CCursor::new(char_index);
             state
                 .cursor
                 .set_char_range(Some(egui::text::CCursorRange::one(cursor)));
             state.store(ctx, edit_id);
         }
-        ctx.memory_mut(|memory| memory.request_focus(edit_id));
     }
 
     fn ensure_lsp(&mut self) {
@@ -1320,7 +1407,6 @@ impl EditorApp {
                 }
             }
         }
-        let mut completions: Vec<lsp::CompletionItem> = Vec::new();
         let mut hovers: Vec<String> = Vec::new();
         let mut signatures: Vec<String> = Vec::new();
         let mut notices: Vec<String> = Vec::new();
@@ -1329,9 +1415,21 @@ impl EditorApp {
             if let Some(msg) = client.poll() {
                 dead = Some(msg);
             }
-            while let Some((_, items)) = client.take_completion() {
-                if !items.is_empty() {
-                    completions = items;
+            while let Some((id, items)) = client.take_completion() {
+                let hit = self
+                    .lsp_completion_pending
+                    .iter()
+                    .position(|(pending, _)| *pending == id);
+                if let Some(i) = hit {
+                    let (_, anchor) = self.lsp_completion_pending.remove(i);
+                    // Out-of-order guard: an older response landing after a
+                    // newer trigger must not resurrect a stale list.
+                    if anchor >= self.lsp_completion_offset {
+                        self.lsp_completion_offset = anchor;
+                        self.lsp_completion_selected = 0;
+                        self.lsp_completions = items;
+                        self.lsp_completion_open = !self.lsp_completions.is_empty();
+                    }
                 }
             }
             while let Some((_, text)) = client.take_hover() {
@@ -1348,10 +1446,6 @@ impl EditorApp {
         }
         for notice in notices {
             self.log(format!("lsp: {notice}"));
-        }
-        if !completions.is_empty() {
-            self.lsp_completions = completions;
-            self.lsp_completion_open = true;
         }
         for hover in hovers {
             self.log(format!("hover: {hover}"));
@@ -1410,11 +1504,65 @@ impl EditorApp {
         let (line, ch) = lsp::offset_to_position(&self.code_text, off);
         match self.lsp.as_mut() {
             Some(client) => match client.request_completion(&uri, line, ch) {
-                Ok(_) => self.lsp_completion_offset = off,
+                Ok(id) => {
+                    // Provisional anchor: the render-time check needs a base
+                    // before the response lands; the accepted response
+                    // overwrites it with the same value.
+                    self.lsp_completion_offset = off;
+                    self.lsp_completion_pending.push((id, off));
+                    if self.lsp_completion_pending.len() > 16 {
+                        let excess = self.lsp_completion_pending.len() - 16;
+                        self.lsp_completion_pending.drain(..excess);
+                    }
+                }
                 Err(e) => self.log(format!("lsp: {e:#}")),
             },
             None => self.log("lsp: no server (see console for the prerequisite).".to_string()),
         }
+    }
+
+    /// Dismiss the popup and drop in-flight requests so late responses
+    /// cannot reopen it.
+    fn close_completion(&mut self) {
+        self.lsp_completion_open = false;
+        self.lsp_completion_pending.clear();
+        self.lsp_completion_selected = 0;
+    }
+
+    /// Indices into `lsp_completions` matching the text typed since the
+    /// trigger offset (case-insensitive prefix): optimistic narrowing
+    /// while a server refresh is still in flight.
+    fn completion_filtered(&self, cursor_byte: usize) -> Vec<usize> {
+        let base = self.lsp_completion_offset.min(self.code_text.len());
+        let cur = cursor_byte.min(self.code_text.len());
+        let prefix = self.code_text[base.min(cur)..cur].to_lowercase();
+        self.lsp_completions
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.label.to_lowercase().starts_with(&prefix))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Insert the selected candidate, replacing the whole identifier under
+    /// the cursor (accepting mid-word must not duplicate its tail).
+    fn accept_completion(&mut self, ctx: &egui::Context, cursor_byte: Option<usize>) {
+        let Some(cur) = cursor_byte else { return };
+        let cur = cur.min(self.code_text.len());
+        let label = self
+            .completion_filtered(cur)
+            .get(self.lsp_completion_selected)
+            .copied()
+            .and_then(|i| self.lsp_completions.get(i))
+            .map(|item| item.label.clone());
+        let Some(label) = label else { return };
+        let start = lsp::word_start_before(&self.code_text, cur);
+        let end = lsp::word_end_after(&self.code_text, cur);
+        self.code_text.replace_range(start..end, &label);
+        let index = self.code_text[..start + label.len()].chars().count();
+        Self::store_code_cursor(ctx, index);
+        self.code_changed(None);
+        self.close_completion();
     }
 
     fn request_hover_at(&mut self, cursor_byte: Option<usize>) {
@@ -1432,40 +1580,68 @@ impl EditorApp {
         }
     }
 
-    fn show_completion_popup(&mut self, ui: &mut egui::Ui) {
+    fn show_completion_popup(
+        &mut self,
+        ui: &mut egui::Ui,
+        cursor_byte: Option<usize>,
+        anchor: Option<egui::Pos2>,
+    ) {
         if !self.lsp_completion_open || self.lsp_completions.is_empty() {
             return;
         }
-        let anchor = ui.min_rect().left_top() + egui::vec2(40.0, 40.0);
-        let mut pick: Option<String> = None;
+        // The cursor must still sit in the word the request was made for;
+        // anything else means the list belongs to another spot.
+        let Some(cur) = cursor_byte else {
+            self.close_completion();
+            return;
+        };
+        let cur = cur.min(self.code_text.len());
+        let word_start = lsp::word_start_before(&self.code_text, cur);
+        if word_start > self.lsp_completion_offset || self.lsp_completion_offset > cur {
+            self.close_completion();
+            return;
+        }
+        let shown = self.completion_filtered(cur);
+        if shown.is_empty() {
+            return;
+        }
+        self.lsp_completion_selected = self.lsp_completion_selected.min(shown.len() - 1);
+        // No cursor, no popup: falling back to a corner rect is how the
+        // list ends up stranded at top-left after focus loss.
+        let Some(anchor) = anchor else {
+            self.close_completion();
+            return;
+        };
+        let mut pick: Option<usize> = None;
         egui::Window::new("LSP completions")
             .fixed_pos(anchor)
+            .constrain(true)
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .show(ui, |ui| {
                 ui.set_max_height(220.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for item in &self.lsp_completions[..self.lsp_completions.len().min(20)] {
+                    for (row, &i) in shown.iter().enumerate() {
+                        let item = &self.lsp_completions[i];
                         let label = if item.detail.is_empty() {
                             item.label.clone()
                         } else {
                             format!("{} — {}", item.label, item.detail)
                         };
-                        if ui.small_button(&label).clicked() {
-                            pick = Some(item.label.clone());
+                        let resp = ui.selectable_label(row == self.lsp_completion_selected, &label);
+                        if row == self.lsp_completion_selected {
+                            ui.scroll_to_rect(resp.rect, None);
+                        }
+                        if resp.clicked() {
+                            pick = Some(row);
                         }
                     }
                 });
-                if ui.small_button("Close").clicked() {
-                    self.lsp_completion_open = false;
-                }
             });
-        if let Some(label) = pick {
-            self.lsp_completion_open = false;
-            let off = self.lsp_completion_offset.min(self.code_text.len());
-            let start = lsp::word_start_before(&self.code_text, off);
-            self.code_text.replace_range(start..off, &label);
-            self.code_changed(None);
+        if let Some(row) = pick {
+            self.lsp_completion_selected = row;
+            self.accept_completion(ui.ctx(), cursor_byte);
         }
     }
 

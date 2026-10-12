@@ -20,7 +20,10 @@ than the pin warn in the console but still serve.
 - The project root (the `pite.toml` directory) is sent as the workspace
   folder, so the server analyzes real files instead of reporting
   `No source files found`.
-- Completion via `Ctrl+Space` (click a candidate to insert it).
+- Completion pops up as you type and refreshes on every keystroke;
+  `Ctrl+Space` forces it anywhere. The popup anchors at the cursor, narrows
+  on what you typed, follows the selection as you arrow, and accepts with
+  `Enter` (`Esc` dismisses, click works too).
 - Hover via `Ctrl+H` (logged to the console).
 - Signature help automatically after typing `(` (shown above the code pane).
 - `publishDiagnostics` merged into the existing error gutter as `[lsp] …`
