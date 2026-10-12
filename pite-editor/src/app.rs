@@ -158,6 +158,13 @@ pub struct EditorApp {
     lsp_completion_offset: usize,
     lsp_completion_pending: Vec<(i64, usize)>,
     lsp_completion_selected: usize,
+    /// Previous frame's galley row tops (galley space) for the code editor:
+    /// pixel-snapped, so the gutter tiles exactly instead of drifting on an
+    /// assumed pitch. Empty until the first paint.
+    code_row_tops: Vec<f32>,
+    /// `galley_pos.y - widget_top.y`: scroll-invariant content offset of the
+    /// galley origin, paired with `code_row_tops`.
+    code_galley_dy: f32,
     playing: bool,
     last_frame: Instant,
     add_open: bool,
@@ -213,6 +220,8 @@ impl EditorApp {
             lsp_completion_offset: 0,
             lsp_completion_pending: Vec::new(),
             lsp_completion_selected: 0,
+            code_row_tops: Vec::new(),
+            code_galley_dy: 0.0,
             playing: false,
             last_frame: Instant::now(),
             add_open: false,
@@ -1164,14 +1173,34 @@ impl EditorApp {
                         // No gaps between rows: the placer would drift the
                         // numbers away from the text rows down the file.
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        // Match the editor frame's top inner margin so row 1
-                        // sits level with the first text row.
-                        ui.add_space(2.0);
-                        for n in 1..=line_count {
-                            let (rect, resp) = ui.allocate_exact_size(
-                                egui::vec2(strip_w, row_h),
-                                egui::Sense::click(),
-                            );
+                        // Measured row geometry from last frame's galley: exact,
+                        // pixel-snapped tops, so long files cannot drift.
+                        let measured = self.code_row_tops.len() == line_count;
+                        if measured {
+                            let top = self.code_galley_dy + self.code_row_tops[0];
+                            if top > 0.0 {
+                                ui.add_space(top);
+                            }
+                        } else {
+                            // Match the editor frame's top inner margin so row 1
+                            // sits level with the first text row.
+                            ui.add_space(2.0);
+                        }
+                        for (idx, n) in (1..=line_count).enumerate() {
+                            let h = if measured {
+                                let tops = &self.code_row_tops;
+                                if idx + 1 < tops.len() {
+                                    tops[idx + 1] - tops[idx]
+                                } else if tops.len() >= 2 {
+                                    tops[tops.len() - 1] - tops[tops.len() - 2]
+                                } else {
+                                    row_h
+                                }
+                            } else {
+                                row_h
+                            };
+                            let (rect, resp) = ui
+                                .allocate_exact_size(egui::vec2(strip_w, h), egui::Sense::click());
                             let color = if error_lines.contains(&n) {
                                 egui::Color32::YELLOW
                             } else {
@@ -1284,6 +1313,15 @@ impl EditorApp {
                         .layouter(&mut layouter)
                         .show(ui);
                     let resp = &output.response;
+                    // Record this frame's row geometry for next frame's
+                    // gutter: galley-space tops plus the scroll-invariant
+                    // widget offset, so numbers tile the true rows.
+                    if output.galley.rows.len() == line_count && !output.galley.rows.is_empty() {
+                        self.code_row_tops.clear();
+                        self.code_row_tops
+                            .extend(output.galley.rows.iter().map(|r| r.pos.y));
+                        self.code_galley_dy = output.galley_pos.y - output.response.rect.top();
+                    }
                     let cursor_byte = Self::code_cursor_byte(&self.code_text, ui.ctx(), &resp.id);
                     if resp.changed() {
                         // Insertions only: backspace re-filters the live list

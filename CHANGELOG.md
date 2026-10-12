@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Editor completion is integrated: it triggers as you type with a cursor-anchored popup, narrows on what you typed, follows the arrow-key selection, and accepts with `Enter` (`Esc` dismisses, click works too).
+- Editor gutter numbers tile the laid-out galley rows exactly, so long files no longer drift out of alignment.
+
 - Editor code pane is a real gutter: line numbers with yellow error rows (hover for the message), click to jump with cursor + focus + scroll. The editor never wraps and scrolls with the gutter in one shared area.
 - `import pite` resolves everywhere: the `pite.pyi` stubs are baked into the editor binary and materialized to a versioned scratch dir when no checkout copy is found (installed bundles never shipped the file), `pite.py` ships beside `pite.pyi` as the source sibling the checker needs, and the `workspace/configuration` answer carries the requested section value (an extra `python` wrapper made the server silently drop the stubs).
 - `get_node` results type-check cleanly: they are typed as plain `Node`, and anything beyond the declared surface (custom signals, script methods) is dynamically typed instead of warning.
