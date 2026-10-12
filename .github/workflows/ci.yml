@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Jobs share one cargo cache key and run in parallel (no needs: gates):
+# each job recompiles only what it needs from cache, so serializing them
+# bought latency without saving work.
 jobs:
   fmt:
     name: Format check
@@ -20,10 +23,12 @@ jobs:
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Install the Rust toolchain with rustfmt
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up the Rust toolchain with rustfmt
+        uses: ./.github/actions/rust-python-env
         with:
           components: rustfmt
+          python: "false"
+          alsa: "false"
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -34,22 +39,10 @@ jobs:
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v7
+      - name: Set up the build environment
+        uses: ./.github/actions/rust-python-env
         with:
-          python-version: "3.12"
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Share the cargo cache across jobs
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: workspace
-      - name: Install ALSA headers (cpal device output)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - name: Export the Python env for embedded builds
-        run: |
-          echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
+          cache-key: workspace
       - name: Build the workspace (locked deps)
         run: cargo build --workspace --locked
 
@@ -57,53 +50,32 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v7
+      - name: Set up the build environment
+        uses: ./.github/actions/rust-python-env
         with:
-          python-version: "3.12"
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Share the cargo cache across jobs
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: workspace
-      - name: Install ALSA headers (cpal device output)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - name: Export the Python env for embedded builds
-        run: |
-          echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
-      - name: Run the workspace tests
-        run: cargo test --workspace
+          cache-key: workspace
+      - name: Run the workspace tests (locked deps, like the release)
+        run: cargo test --workspace --locked
 
   lsp-smoke:
     name: LSP smoke (real pyright over stdio)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v7
+      - name: Set up the build environment
+        uses: ./.github/actions/rust-python-env
         with:
-          python-version: "3.12"
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Share the cargo cache across jobs
-        uses: Swatinem/rust-cache@v2
+          cache-key: workspace
+      - name: Cache pip downloads (pinned pyright below)
+        uses: actions/cache@v6.1.0
         with:
-          shared-key: workspace
-      - name: Install ALSA headers (cpal device output)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - name: Export the Python env for embedded builds
-        run: |
-          echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
+          path: ~/.cache/pip
+          key: pip-pyright-1.1.411
       - name: Install pinned pyright (editor LSP smoke)
         run: pip install "pyright==1.1.411"
       - name: Run the live LSP smoke test
@@ -113,26 +85,22 @@ jobs:
     name: Python bundling smoke (pinned CPython download + export layout)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v7
+      - name: Set up the build environment
+        uses: ./.github/actions/rust-python-env
         with:
-          python-version: "3.12"
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Share the cargo cache across jobs
-        uses: Swatinem/rust-cache@v2
+          cache-key: workspace
+      - name: Cache the CPython toolchain archive (60 MB download)
+        # The archive lives under ~/.cache/pite/toolchains (see
+        # pite-export/src/python_bundle.rs) and is re-verified by checksum
+        # on every use, so a cached copy is never trusted blindly.
+        # Hashing the pin source busts the cache the moment the pin moves.
+        uses: actions/cache@v6.1.0
         with:
-          shared-key: workspace
-      - name: Install ALSA headers (cpal device output)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - name: Export the Python env for embedded builds
-        run: |
-          echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
+          path: ~/.cache/pite/toolchains
+          key: pite-toolchains-linux-${{ hashFiles('pite-export/src/python_bundle.rs') }}
       - name: Run the export tests with a real CPython download
         run: PITE_BUNDLE_SMOKE=1 cargo test -p pite-export --lib
 
@@ -140,25 +108,12 @@ jobs:
     name: Project check (pite check)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v7
+      - name: Set up the build environment
+        uses: ./.github/actions/rust-python-env
         with:
-          python-version: "3.12"
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Share the cargo cache across jobs
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: workspace
-      - name: Install ALSA headers (cpal device output)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - name: Export the Python env for embedded builds
-        run: |
-          echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
-      - name: Run pite check on the repo
-        run: cargo run -p pite-cli -- check
+          cache-key: workspace
+      - name: Run pite check on the repo (locked deps, like the release)
+        run: cargo run --locked -p pite-cli -- check

@@ -1,0 +1,60 @@
+# Shared Rust + Python build environment for pite CI jobs.
+#
+# Collapses the preamble every job used to copy-paste (setup-python,
+# toolchain, cargo cache, ALSA headers, PYO3 env) into one place.
+# Deliberately OUT: actions/checkout (stays visible per job) and any
+# job-specific installs (pyright, ...).
+name: rust-python-env
+description: Set up the shared Rust/Python build environment
+
+inputs:
+  toolchain:
+    description: Rust toolchain to install (MSRV job passes a version)
+    default: stable
+  components:
+    description: Extra toolchain components (e.g. rustfmt)
+    default: ""
+  python:
+    description: Set up Python 3.12 + PYO3 env ('true'/'false')
+    default: "true"
+  alsa:
+    description: Install ALSA headers on Linux runners ('true'/'false')
+    default: "true"
+  cache-key:
+    description: >
+      rust-cache shared-key; empty skips the cargo cache. The MSRV proof
+      stays cold on purpose — a proof must not ride a warm cache.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up system Python 3.12 (link target for embedded builds)
+      if: ${{ inputs.python == 'true' }}
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install the Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+
+    - name: Share the cargo cache across jobs
+      if: ${{ inputs.cache-key != '' }}
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.cache-key }}
+
+    - name: Install ALSA headers (cpal device output)
+      if: ${{ inputs.alsa == 'true' && runner.os == 'Linux' }}
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+
+    - name: Export the Python env for embedded builds
+      if: ${{ inputs.python == 'true' }}
+      shell: bash
+      run: |
+        echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"

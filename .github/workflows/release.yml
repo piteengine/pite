@@ -24,24 +24,13 @@ jobs:
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
-      - name: Set up system Python 3.12 (link target for embedded builds)
-        uses: actions/setup-python@v7
+      - name: Set up the build environment
+        # ALSA installs on Linux only (guard lives in the composite);
+        # the release profile keeps its own cache key — dev-cache
+        # artifacts would only bloat it.
+        uses: ./.github/actions/rust-python-env
         with:
-          python-version: "3.12"
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Share the cargo cache across jobs
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release
-      - name: Install ALSA headers (cpal device output)
-        if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - name: Export the Python env for embedded builds
-        shell: bash
-        run: |
-          echo "PYO3_PYTHON=$(which python3.12 2>/dev/null || which python)" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
+          cache-key: release
       - name: Build the engine and player (locked deps)
         shell: bash
         run: cargo build --release --locked -p pite-cli -p pite-player

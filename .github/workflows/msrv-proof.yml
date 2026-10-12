@@ -9,12 +9,16 @@ on:
   schedule:
     - cron: "0 6 * * 1" # weekly: catches dependency MSRV creep
 
+permissions:
+  contents: read
+
 jobs:
   msrv:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out pite
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Read claimed MSRV from workspace manifest
         id: msrv
@@ -24,11 +28,12 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Claimed MSRV: $v"
 
-      - name: Install exactly that toolchain, minimal profile
-        uses: dtolnay/rust-toolchain@master
+      - name: "Install exactly that toolchain (no cargo cache: a proof must be cold)"
+        uses: ./.github/actions/rust-python-env
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
-          components: rustfmt
+          python: "false"
+          alsa: "false"
 
       - name: Check publish crates (locked deps, as packaged)
         run: cargo check -p pite-core -p pite-project -p pite-scene --locked --all-targets

@@ -28,8 +28,12 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v7
 
-      - name: Install the Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: "Set up the build environment (no Python/ALSA: pure crates)"
+        uses: ./.github/actions/rust-python-env
+        with:
+          python: "false"
+          alsa: "false"
+          cache-key: publish
 
       - name: Tag must equal workspace version (lockstep)
         # Tag pushes only — manual dispatches have no tag to compare.
