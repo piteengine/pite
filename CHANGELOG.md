@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.0
+
 - Third-party Python packages vendor into the project: `pite vendor add pkg==ver` downloads wheels (+ transitive deps) into `vendor/`, pins versions + hashes in `[vendor]` (`list`/`verify`/`remove` manage the lock). Zipped by default, unpacked for native modules. The runtime puts `vendor/` on `sys.path` in dev and export alike; the export stages it whole; `pite check` stays silent for vendored imports.
 - `pite check` warns on third-party imports in game scripts (stdlib + `pite` + siblings are fine; exports drop `site-packages`).
 - `pite run` with no `--scene` starts the enclosing project's `main_scene` (same rule `pite edit` already used); outside a project it fails loudly.

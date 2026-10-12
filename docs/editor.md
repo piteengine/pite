@@ -1,7 +1,7 @@
 # Editor
 
 Godot-style layout: menu bar on top (`File`, `Run`, `Project`) with play / pause / stop
-icon buttons beside the menus (mirroring the `Run` menu). `Scene` tree above `Assets` in the left panel;
+icon buttons pinned to the bar's right end (mirroring the `Run` menu). `Scene` tree above `Assets` in the left panel;
 `Viewport` / `Code` tabs in the center; `Inspector` on the right; `Console` at
 the bottom. All toolbar glyphs are hand-drawn vector icons (`icons.rs`, painted
 with the egui painter — never font glyphs, which the bundled Inter does not
@@ -13,7 +13,7 @@ selection, links, and the active widget stroke.
 
 The viewport shows the real game frame: `EditorApp` owns a lazily created
 `pite_render::OffscreenRenderer` (sized from the manifest's `window_width` /
-`window_height`, egui scales the image) and renders via
+`window_height`, the panel contain-fits and centers the image) and renders via
 `session.draw_into(&mut renderer)` — the same camera/viewport traversal the
 game window uses — then `render_to_rgba()` into an `egui::TextureHandle`
 (`ColorImage::from_rgba_unmultiplied`, `NEAREST`). The texture re-renders only
@@ -115,8 +115,21 @@ Clicking a row moves the editor cursor there, focuses the pane, and scrolls
 it into view. Marks come from `ops::gutter_marks` over the open file's
 `session.errors()` entries plus `[lsp] …` server diagnostics. No gutter when
 no file is open. The editor itself never wraps (one text row per line) and is
-sized to its full content inside a shared scroll area, so gutter and code
-cannot drift apart; the editor never scrolls internally.
+sized to its full content inside a shared scroll area, with numbers tiling
+the laid-out galley rows, so gutter and code cannot drift apart; the editor never scrolls internally.
+
+## Completion
+
+Completions pop up as you type (every word character requests; `Ctrl+Space`
+forces it anywhere) in a frameless list anchored at the cursor, constrained to
+the screen. The list narrows on what you typed (optimistic local filtering
+while the server answers), follows the arrow-key selection with the scroll,
+and accepts with `Enter` — replacing the whole identifier under the cursor.
+`Esc` dismisses (focus is handed back so typing resumes), as does typing a
+non-word character, moving the cursor out of the word, or an empty server
+answer. Stale responses (cursor moved past their trigger) are dropped by
+request id, so fast typing never resurrects old lists. Mouse click accepts
+too. See [`lsp.md`](lsp.md) for the protocol side.
 
 ## Assets
 

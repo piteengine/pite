@@ -47,10 +47,10 @@ the sheet as `<sheet>.atlas.json`:
 ```json
 {
   "texture": "sheet.png",
-  "size": [64, 32],
+  "size": [128, 64],
   "frames": {
-    "player": { "x": 0, "y": 0, "w": 32, "h": 32 },
-    "enemy": { "x": 32, "y": 0, "w": 32, "h": 32 }
+    "player": { "x": 0, "y": 0, "w": 64, "h": 64 },
+    "enemy": { "x": 64, "y": 0, "w": 64, "h": 64 }
   }
 }
 ```

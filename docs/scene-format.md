@@ -57,7 +57,7 @@ parent = "root"
 prefix = "e1_"
 
 [instance.overrides]
-"sprite.position" = [300.0, 120.0]
+"sprite.position" = [480.0, 144.0]
 ```
 
 Loading clones the referenced subtree under `parent` (`parent` defaults to the host root), remaps every id as `prefix + id` (collisions fail loudly), and applies overrides keyed `"node_id.prop"` (unknown targets fail loudly).
@@ -66,7 +66,8 @@ Saving preserves `[[instance]]` entries rather than inlining the subtree, and re
 
 ## Rendering
 
-- `Sprite2D` draws its `texture` (a `res://` png path) centered on the node's global position at native pixel size. A missing texture renders magenta and warns once.
+- The manifest size is the design resolution: the game opens maximized and scales content uniformly to fit, keeping aspect (letterboxed). Clicks map through the same transform.
+- `Sprite2D` draws its `texture` (a `res://` png path) centered on the node's global position at texture size times the camera zoom (which folds in the window fit scale). A missing texture renders magenta and warns once.
 - The first `Camera2D` node frames the view: the screen centers on its global position. Its optional `zoom` prop (number, default `1.0`) scales the world.
 - Global position is local `position` plus every ancestor's — moving a parent carries its children.
 

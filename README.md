@@ -34,7 +34,7 @@ pite check
 pite edit --scene examples/minimal-2d/scenes/main.pitescene
 ```
 
-Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `check` validates it, `edit` opens the editor. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
+Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene (defaults to the project's main scene), `check` validates it, `edit` opens the editor, `vendor` pins third-party Python packages. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
 
 ### Export
 
@@ -42,7 +42,7 @@ Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene, `
 pite export linux
 ```
 
-`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship both players, so any machine exports for either platform with no download and no compiler.
+`export linux|windows` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files, plus `vendor/` for third-party Python packages. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship both players, so any machine exports for either platform with no download and no compiler.
 
 Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`) and ships in the exported game. The exported game runs with no system Python installed. Passing `--no-bundle-python` falls back to end-user's system Python 3.12 (`PITE_PYTHON` overrides detection).
 
@@ -66,7 +66,7 @@ Half of Pite is about being handy, Scene Tree (Scenes & Nodes) is a proven way t
 
 ### `pite check` tooling
 
-A lot of games grow to tons of images and scenes, `pite check` keeps it clean and robust: detects orphans, resolves file moves, validates decoding, scans code references. Thanks to Rust, it reports what is outside its place instantly. 
+A lot of games grow to tons of images and scenes, `pite check` keeps it clean and robust: detects orphans, resolves file moves, validates decoding, scans code references, warns on third-party imports that exports would drop. Thanks to Rust, it reports what is outside its place instantly. 
 
 ### TOML scenes
 
@@ -121,7 +121,7 @@ See [`CHANGELOG.md`](CHANGELOG.md) for full history and status.
 
 | Crate | Role |
 |---|---|
-| `pite-cli` | `pite` binary: new / run / check / reimport / edit / export |
+| `pite-cli` | `pite` binary: new / run / check / reimport / edit / export / vendor |
 | `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
@@ -145,10 +145,10 @@ Published on crates.io, versioned lockstep with the engine:
 | Doc | Covers |
 |---|---|
 | [`docs/scene-format.md`](docs/scene-format.md) | `.pitescene` TOML, instantiation, the scene cache |
-| [`docs/scripting-api.md`](docs/scripting-api.md) | Python API: nodes, signals, input, audio, text |
+| [`docs/scripting-api.md`](docs/scripting-api.md) | Python API: nodes, signals, input, audio, text, imports |
 | [`docs/assets.md`](docs/assets.md) | `res://` refs, uid manifest, `pite reimport` |
-| [`docs/editor.md`](docs/editor.md) | Panels, viewport, save, tree ops |
-| [`docs/manifest.md`](docs/manifest.md) | `pite.toml` fields, defaults, `check` rules |
+| [`docs/editor.md`](docs/editor.md) | Panels, viewport, save, tree ops, settings, completion |
+| [`docs/manifest.md`](docs/manifest.md) | `pite.toml` fields, defaults, vendor, check rules |
 | [`docs/lsp.md`](docs/lsp.md) | Pinned pyright server, completion/hover/diagnostics |
 
 ## Contributing
