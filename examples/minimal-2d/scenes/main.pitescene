@@ -27,7 +27,7 @@ name = "Camera"
 parent = "root"
 
 [node.props]
-position = [100.0, 200.0]
+position = [160.0, 240.0]
 
 [[node]]
 id = "hplabel"
@@ -37,8 +37,8 @@ parent = "root"
 
 [node.props]
 color = "#4ADE80"
-font_size = 20.0
-position = [100.0, 80.0]
+font_size = 28.0
+position = [160.0, 100.0]
 text = "HP: 3"
 
 [[node]]
@@ -49,9 +49,9 @@ parent = "root"
 
 [node.props]
 color = "#4ADE80"
-font_size = 20.0
-position = [100.0, 450.0]
-size = [140.0, 44.0]
+font_size = 28.0
+position = [160.0, 540.0]
+size = [224.0, 53.0]
 text = "HIT"
 
 [node.script]
@@ -64,4 +64,4 @@ parent = "root"
 prefix = "e1_"
 
 [instance.overrides]
-"sprite.position" = [300.0, 120.0]
+"sprite.position" = [480.0, 144.0]

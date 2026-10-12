@@ -6,7 +6,7 @@ class Player(pite.Node2D):
     speed: float = 200.0
 
     def _ready(self):
-        self.position = (100.0, 200.0)
+        self.position = (160.0, 240.0)
 
     def _process(self, delta: float):
         x, y = self.position

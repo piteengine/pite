@@ -1042,7 +1042,7 @@ mod tests {
     #[test]
     fn demo_textures_decode() {
         let sheet = image::open("../examples/minimal-2d/assets/sheet.png").unwrap();
-        assert_eq!((sheet.width(), sheet.height()), (64, 32));
+        assert_eq!((sheet.width(), sheet.height()), (128, 64));
     }
 
     #[test]
@@ -1266,8 +1266,8 @@ mod tests {
         }
         assert_eq!(
             (min.0, min.1, max.0 - min.0 + 1, max.1 - min.1 + 1),
-            (84, 84, 32, 32),
-            "a 32x32 texture must fill 32x32 pixels, centered in a 200x200 target"
+            (68, 68, 64, 64),
+            "a 64x64 frame must fill 64x64 pixels, centered in a 200x200 target"
         );
     }
 
