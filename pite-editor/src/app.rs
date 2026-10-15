@@ -187,6 +187,8 @@ pub struct EditorApp {
     view_size: (u32, u32),
     grip_hover: Option<String>,
     tab: Tab,
+    recent: Vec<PathBuf>,
+    about_open: bool,
 }
 
 impl EditorApp {
@@ -240,6 +242,8 @@ impl EditorApp {
             viewport_dirty: true,
             grip_hover: None,
             tab: Tab::Viewport,
+            recent: Self::load_recent(),
+            about_open: false,
         })
     }
 
@@ -351,6 +355,163 @@ impl EditorApp {
             },
             Err(e) => self.log(format!("save scene failed: {e:#}")),
         }
+    }
+
+    fn view_size_for(project_dir: Option<&Path>) -> (u32, u32) {
+        project_dir
+            .and_then(|dir| pite_project::load_manifest(dir).ok())
+            .map_or_else(
+                || {
+                    let d = pite_project::ProjectMeta::default();
+                    (d.window_width, d.window_height)
+                },
+                |m| (m.project.window_width, m.project.window_height),
+            )
+    }
+
+    fn recent_file() -> Option<PathBuf> {
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+        Some(base.join("pite").join("recent.json"))
+    }
+
+    fn read_recent_file(path: &Path) -> Vec<PathBuf> {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let files: Vec<String> = serde_json::from_str(&text).unwrap_or_default();
+        files
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|p| p.is_file())
+            .collect()
+    }
+
+    fn write_recent_file(path: &Path, recent: &[PathBuf]) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let files: Vec<String> = recent
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        std::fs::write(path, serde_json::to_string_pretty(&files)?)?;
+        Ok(())
+    }
+
+    fn load_recent() -> Vec<PathBuf> {
+        Self::recent_file()
+            .map(|p| Self::read_recent_file(&p))
+            .unwrap_or_default()
+    }
+
+    fn push_recent(&mut self, file: &Path) {
+        self.recent.retain(|p| p != file);
+        self.recent.insert(0, file.to_path_buf());
+        self.recent.truncate(10);
+        if let Some(path) = Self::recent_file() {
+            if let Err(e) = Self::write_recent_file(&path, &self.recent) {
+                self.log(format!("recent list not saved: {e:#}"));
+            }
+        }
+    }
+
+    /// Root-only scene: `New Scene` starts blank, never from the example scaffold.
+    fn blank_scene_text() -> String {
+        format!(
+            "format_version = {}\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n",
+            pite_scene::FORMAT_VERSION
+        )
+    }
+
+    fn open_scene_file(&mut self, file: &Path) {
+        match GameSession::open(file, false) {
+            Ok(session) => {
+                self.session = session;
+                self.scene_path = file.to_path_buf();
+                self.project_dir = pite_project::find_project_root(file);
+                self.view_size = Self::view_size_for(self.project_dir.as_deref());
+                self.selected = None;
+                self.viewport_dirty = true;
+                self.tab = Tab::Viewport;
+                self.push_recent(file);
+                self.log(format!("opened {}", file.display()));
+            }
+            Err(e) => self.log(format!("open failed: {e:#}")),
+        }
+    }
+
+    /// Native dialogs return the path as-is: enforce `.pitescene` so a bare
+    /// name cannot scatter extensionless scenes through the project.
+    fn with_scene_extension(mut path: PathBuf) -> PathBuf {
+        if path.extension().and_then(|e| e.to_str()) != Some("pitescene") {
+            path.set_extension("pitescene");
+        }
+        path
+    }
+
+    fn new_scene_via_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Pite scene", &["pitescene"])
+            .set_file_name("main.pitescene")
+            .save_file()
+        else {
+            return;
+        };
+        let path = Self::with_scene_extension(path);
+        match std::fs::write(&path, Self::blank_scene_text()) {
+            Ok(()) => self.open_scene_file(&path),
+            Err(e) => self.log(format!("new scene failed: {e:#}")),
+        }
+    }
+
+    fn open_scene_via_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Pite scene", &["pitescene"])
+            .pick_file()
+        else {
+            return;
+        };
+        self.open_scene_file(&path);
+    }
+
+    fn save_scene_as_via_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Pite scene", &["pitescene"])
+            .set_file_name(
+                self.scene_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("main.pitescene"),
+            )
+            .save_file()
+        else {
+            return;
+        };
+        self.scene_path = Self::with_scene_extension(path);
+        self.save_scene();
+        let path = self.scene_path.clone();
+        self.push_recent(&path);
+    }
+
+    fn debug_info(&mut self, ctx: &egui::Context) {
+        let lines = [
+            format!("pite {}", env!("CARGO_PKG_VERSION")),
+            format!("scene {}", self.scene_path.display()),
+            format!(
+                "project {}",
+                self.project_dir
+                    .as_deref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            ),
+            format!("lsp {}", self.lsp_status),
+        ];
+        for line in &lines {
+            self.log(line.clone());
+        }
+        ctx.copy_text(lines.join("\n"));
+        self.log("debug info copied to clipboard.".to_string());
     }
 
     fn open_settings(&mut self) {
@@ -621,6 +782,24 @@ impl eframe::App for EditorApp {
         if save_shortcut {
             self.save_scene();
         }
+        let cmd = |key: egui::Key| {
+            ctx.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(key))
+        };
+        let cmd_shift = |key: egui::Key| {
+            ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(key))
+        };
+        if cmd(egui::Key::N) {
+            self.new_scene_via_dialog();
+        }
+        if cmd(egui::Key::O) {
+            self.open_scene_via_dialog();
+        }
+        if cmd_shift(egui::Key::S) {
+            self.save_scene_as_via_dialog();
+        }
+        if cmd(egui::Key::Q) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         if self.playing {
             let delta = self.last_frame.elapsed().as_secs_f64().min(0.1);
             self.last_frame = Instant::now();
@@ -639,29 +818,65 @@ impl eframe::App for EditorApp {
             // full row width, so siblings after it in an outer horizontal
             // row get zero space and vanish.
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Save scene  Ctrl+S").clicked() {
+                ui.menu_button("Scene", |ui| {
+                    if ui.button("New Scene  Ctrl+N").clicked() {
+                        self.new_scene_via_dialog();
+                        ui.close();
+                    }
+                    if ui.button("Open Scene…  Ctrl+O").clicked() {
+                        self.open_scene_via_dialog();
+                        ui.close();
+                    }
+                    if self.recent.is_empty() {
+                        ui.add_enabled(false, egui::Button::new("Open Recent"));
+                    } else {
+                        ui.menu_button("Open Recent", |ui| {
+                            let recent = self.recent.clone();
+                            for path in &recent {
+                                if ui.button(path.display().to_string()).clicked() {
+                                    let path = path.clone();
+                                    self.open_scene_file(&path);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                    ui.separator();
+                    if ui.button("Save Scene  Ctrl+S").clicked() {
                         self.save_scene();
                         ui.close();
                     }
-                    if ui.button("Quit").clicked() {
+                    if ui.button("Save Scene As…  Ctrl+Shift+S").clicked() {
+                        self.save_scene_as_via_dialog();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Quit  Ctrl+Q").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-                ui.menu_button("Run", |ui| {
-                    let label = if self.playing { "Pause" } else { "Play" };
-                    if ui.button(label).clicked() {
-                        self.toggle_play();
-                        ui.close();
-                    }
-                    if ui.button("Stop").clicked() {
-                        self.stop();
-                        ui.close();
                     }
                 });
                 ui.menu_button("Project", |ui| {
                     if ui.button("Project Settings…").clicked() {
                         self.open_settings();
+                        ui.close();
+                    }
+                });
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Repository").clicked() {
+                        ctx.open_url(egui::OpenUrl::new_tab("https://github.com/piteengine/pite"));
+                    }
+                    if ui.button("Issues").clicked() {
+                        ctx.open_url(egui::OpenUrl::new_tab(
+                            "https://github.com/piteengine/pite/issues",
+                        ));
+                    }
+                    ui.separator();
+                    if ui.button("About Pite").clicked() {
+                        self.about_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Copy Debug Info").clicked() {
+                        self.debug_info(ui.ctx());
                         ui.close();
                     }
                 });
@@ -684,6 +899,27 @@ impl eframe::App for EditorApp {
                 });
             });
         });
+
+        if self.about_open {
+            egui::Window::new("About Pite")
+                .open(&mut self.about_open)
+                .show(ui, |ui| {
+                    ui.label(format!("Pite game engine {}", env!("CARGO_PKG_VERSION")));
+                    ui.label("Scene-tree 2D engine: Rust core, embedded Python, egui editor.");
+                    ui.horizontal(|ui| {
+                        if ui.button("Repository").clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(
+                                "https://github.com/piteengine/pite",
+                            ));
+                        }
+                        if ui.button("Issues").clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(
+                                "https://github.com/piteengine/pite/issues",
+                            ));
+                        }
+                    });
+                });
+        }
 
         egui::Panel::left("left")
             .default_size(240.0)
@@ -2022,17 +2258,7 @@ impl EditorApp {
                 Err(e) => self.log(format!("cannot open {}: {e:#}", file.display())),
             }
         } else if file.extension().and_then(|e| e.to_str()) == Some("pitescene") {
-            match GameSession::open(file, false) {
-                Ok(session) => {
-                    self.session = session;
-                    self.scene_path = file.to_path_buf();
-                    self.selected = None;
-                    self.viewport_dirty = true;
-                    self.tab = Tab::Viewport;
-                    self.log(format!("opened {}", file.display()));
-                }
-                Err(e) => self.log(format!("open failed: {e:#}")),
-            }
+            self.open_scene_file(file);
         } else {
             self.log(format!("no opener for {}", file.display()));
         }
@@ -2122,5 +2348,43 @@ mod tests {
         for name in ["a.png", "b.wav", "c.pitescene", "noext", "a.pyx"] {
             assert!(!EditorApp::editor_text_file(Path::new(name)), "{name}");
         }
+    }
+
+    #[test]
+    fn recent_list_round_trips_and_drops_missing() {
+        let dir = std::env::temp_dir().join(format!("pite-recent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let present = dir.join("a.pitescene");
+        std::fs::write(&present, "x").unwrap();
+        let file = dir.join("recent.json");
+        let recent = vec![present.clone(), dir.join("gone.pitescene")];
+        EditorApp::write_recent_file(&file, &recent).unwrap();
+        assert_eq!(EditorApp::read_recent_file(&file), vec![present]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_dialog_path_keeps_scene_extension() {
+        assert_eq!(
+            EditorApp::with_scene_extension(PathBuf::from("s/main")),
+            PathBuf::from("s/main.pitescene")
+        );
+        assert_eq!(
+            EditorApp::with_scene_extension(PathBuf::from("s/main.pitescene")),
+            PathBuf::from("s/main.pitescene")
+        );
+    }
+
+    #[test]
+    fn blank_scene_tracks_format_version() {
+        let text = EditorApp::blank_scene_text();
+        assert!(
+            text.starts_with(&format!(
+                "format_version = {}\n",
+                pite_scene::FORMAT_VERSION
+            )),
+            "{text}"
+        );
+        assert!(text.contains("id = \"root\""));
     }
 }

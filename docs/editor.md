@@ -1,7 +1,7 @@
 # Editor
 
-Godot-style layout: menu bar on top (`File`, `Run`, `Project`) with play / pause / stop
-icon buttons pinned to the bar's right end (mirroring the `Run` menu). `Scene` tree above `Assets` in the left panel;
+Godot-style layout: menu bar on top (`Scene`, `Project`, `Help`) with play /
+stop icon buttons pinned to the bar's right end. `Scene` tree above `Assets` in the left panel;
 `Viewport` / `Code` tabs in the center; `Inspector` on the right; `Console` at
 the bottom. All toolbar glyphs are hand-drawn vector icons (`icons.rs`, painted
 with the egui painter — never font glyphs, which the bundled Inter does not
@@ -30,12 +30,16 @@ over the viewport, so the code pane and shortcuts keep priority.
 
 ## Save scene
 
-`File` > `Save scene`, the save icon button, or `Ctrl+S` / `Cmd+S`
+`Scene` > `Save Scene`, the save icon button, or `Ctrl+S` / `Cmd+S`
 (`command` modifier). Serializes the live tree (`ops::build_doc` →
 `pite_scene::save_scene`) and writes `scene_path`. Success and failure both
-land in the console; saves never panic and never fail silently. `File` > `Quit`
-closes the editor window; `Run` > `Play`/`Pause`/`Stop` mirrors the icon
-buttons. Below the `Viewport` / `Code` tabs a path bar shows the open scene or
+land in the console; saves never panic and never fail silently. `Scene` also
+holds `New Scene` (`Ctrl+N`, root-only blank via a native save dialog),
+`Open Scene…` (`Ctrl+O`, native picker), `Open Recent` (last ten, kept in
+`~/.config/pite/recent.json`), `Save Scene As…` (`Ctrl+Shift+S`), and `Quit`
+(`Ctrl+Q`). `Help` links the repository and issue tracker, shows an `About`
+window, and copies debug info (version, scene, project, LSP state) to the
+clipboard besides logging it. Below the `Viewport` / `Code` tabs a path bar shows the open scene or
 the open script with its own save icon button; the Code tab itself is just the
 gutter plus a borderless editor filling the panel like the viewport.
 

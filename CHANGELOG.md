@@ -4,6 +4,7 @@
 
 - Editor code pane opens config text files (`toml`/`cfg`/`ini`/`json`/`yaml`/`yml`) for plain editing; LSP completion, hover, and diagnostics stay Python-only.
 - Editor code pane highlights Python and config text (keywords, strings, numbers, comments, `[...]` headers) in palette colors.
+- Editor menus reorganized: `Scene` (new/open/recent/save/save-as/quit, native dialogs, `Ctrl+N/O/Shift+S/Q` shortcuts), `Project`, and `Help` (repo/issues links, about, clipboard debug info); the `Run` menu is gone, transport buttons remain.
 
 ## v0.2.0
 
