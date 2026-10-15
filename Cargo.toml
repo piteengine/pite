@@ -60,3 +60,8 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 wgpu = "30"
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11"] }
 zip = { version = "5", default-features = false, features = ["deflate"] }
+
+# Leaner dev artifacts: line tables keep usable backtraces at a fraction
+# of full debuginfo size. One-time rebuild, then incremental stays intact.
+[profile.dev]
+debug = "line-tables-only"
