@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Editor code pane opens config text files (`toml`/`cfg`/`ini`/`json`/`yaml`/`yml`) for plain editing; LSP completion, hover, and diagnostics stay Python-only.
+- Editor code pane highlights Python and config text (keywords, strings, numbers, comments, `[...]` headers) in palette colors.
+
 ## v0.2.0
 
 - Third-party Python packages vendor into the project: `pite vendor add pkg==ver` downloads wheels (+ transitive deps) into `vendor/`, pins versions + hashes in `[vendor]` (`list`/`verify`/`remove` manage the lock). Zipped by default, unpacked for native modules. The runtime puts `vendor/` on `sys.path` in dev and export alike; the export stages it whole; `pite check` stays silent for vendored imports.

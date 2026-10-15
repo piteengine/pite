@@ -131,6 +131,13 @@ answer. Stale responses (cursor moved past their trigger) are dropped by
 request id, so fast typing never resurrects old lists. Mouse click accepts
 too. See [`lsp.md`](lsp.md) for the protocol side.
 
+## Syntax highlighting
+
+The code pane colors keywords, strings, numbers, and comments for Python
+scripts and config text (`toml`/`cfg`/`ini`/`yaml`/`yml`/`json`, where
+`[...]` headers read as keywords), all in palette colors. Anything else
+stays plain text.
+
 ## Assets
 
 The `Assets` panel is a real file tree: collapsible folders, per-type file

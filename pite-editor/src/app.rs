@@ -1245,19 +1245,18 @@ impl EditorApp {
                         }
                     });
                     // No wrapping: one text row per line keeps the gutter exact.
+                    // Highlighting rides the same layouter, colored by extension.
+                    let ext = self
+                        .code_file
+                        .as_ref()
+                        .and_then(|f| f.extension())
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
                     let mut layouter =
                         |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
                             let _ = wrap_width;
-                            let fid = egui::TextStyle::Monospace.resolve(ui.style());
-                            let mut job = egui::text::LayoutJob::simple(
-                                text.as_str().to_string(),
-                                fid,
-                                ui.visuals().text_color(),
-                                f32::INFINITY,
-                            );
-                            job.halign = egui::Align::LEFT;
-                            job.keep_trailing_whitespace = true;
-                            ui.fonts_mut(|fonts| fonts.layout_job(job))
+                            crate::highlight::layout(ui, text.as_str(), &ext)
                         };
                     let edit_id = egui::Id::new("code-editor");
                     let before_len = self.code_text.len();
