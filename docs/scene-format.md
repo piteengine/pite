@@ -1,4 +1,4 @@
-# Scene format (`.pitescene`)
+# Scene format (`.ptscn`)
 
 Canonical, human-editable TOML. Text is the source of truth; no binary format is authored (the runtime keeps its own cache, see below). Node ids are human strings (`D7`), never UUIDs.
 
@@ -52,7 +52,7 @@ per-scene `hit` / `miss` / `rebuilt (reason)` status.
 
 ```toml
 [[instance]]
-scene = "res://scenes/enemy.pitescene"
+scene = "res://scenes/enemy.ptscn"
 parent = "root"
 prefix = "e1_"
 

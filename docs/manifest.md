@@ -6,7 +6,7 @@ Locked field set. Every field has a default, so old projects parse untouched; un
 [project]
 name = "my-game"
 pite_version = "0.2.0"
-main_scene = "res://scenes/main.pitescene"
+main_scene = "res://scenes/main.ptscn"
 python = "3.12"
 author = ""
 icon = ""

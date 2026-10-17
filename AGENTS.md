@@ -24,7 +24,7 @@ cargo run --locked -p pite-cli -- check
 
 ## Gotchas agents miss
 
-- **Scenes**: `.pitescene` TOML is source of truth; binary `_cache/<stem>.<hash>.bin` beside it is derived. Node ids are human strings, never UUIDs. Unknown `props` warn and survive saves (forward compat) — don't "clean" them. Saves are byte-stable (sorted prop keys); `[[instance]]` entries stay as entries with edits recorded as `"node.prop"` overrides, never inlined.
+- **Scenes**: `.ptscn` TOML is source of truth; binary `_cache/<stem>.<hash>.bin` beside it is derived. Node ids are human strings, never UUIDs. Unknown `props` warn and survive saves (forward compat) — don't "clean" them. Saves are byte-stable (sorted prop keys); `[[instance]]` entries stay as entries with edits recorded as `"node.prop"` overrides, never inlined.
 - **Assets**: all refs are `res://` project-relative strings; absolute paths are forbidden. After renaming/moving an asset outside the editor, run `pite reimport` (rewrites refs by uid); `check` never writes. Orphan-asset warnings only consider scenes transitively reachable from `main_scene`.
 - **Deps**: exports drop `site-packages`; third-party imports die in an export unless vendored (`pite vendor add pkg==ver` → project `vendor/`, pinned in `[vendor]`). `pite check` warns per offending import; non-vendored sibling modules need `[export] include` to ship.
 - **Scripts**: one file = one class inheriting `pite.*`, `snake_case`. Missing `_ready`/`_process` is a no-op, never an error. Cross-node calls go through `get_node("../Name")`; a miss raises `KeyError`. Signals are typed (`pite.signal(int)`); `Button.pressed` and `Timer.timeout` (fires each `wait_time` seconds, looping; non-positive never fires) are engine-owned — just `connect`, don't declare.

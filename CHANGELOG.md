@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Scene file extension is now `.ptscn` (was `.pitescene`): editor dialogs and detection, asset-rewrite scans, docs, examples, and scaffolds all follow. File content and `format_version` are unchanged — existing projects just rename their scene files; `.pitescene` is no longer recognized.
 - Editor code pane opens config text files (`toml`/`cfg`/`ini`/`json`/`yaml`/`yml`) for plain editing; LSP completion, hover, and diagnostics stay Python-only.
 - Editor code pane highlights Python and config text (keywords, strings, numbers, comments, `[...]` headers) in palette colors.
 - Editor menus reorganized: `Scene` (new/open/recent/save/save-as/quit, native dialogs, `Ctrl+N/O/Shift+S/Q` shortcuts), `Project`, and `Help` (repo/issues links, about, clipboard debug info); the `Run` menu is gone, transport buttons remain.

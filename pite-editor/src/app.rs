@@ -441,19 +441,19 @@ impl EditorApp {
         }
     }
 
-    /// Native dialogs return the path as-is: enforce `.pitescene` so a bare
+    /// Native dialogs return the path as-is: enforce `.ptscn` so a bare
     /// name cannot scatter extensionless scenes through the project.
     fn with_scene_extension(mut path: PathBuf) -> PathBuf {
-        if path.extension().and_then(|e| e.to_str()) != Some("pitescene") {
-            path.set_extension("pitescene");
+        if path.extension().and_then(|e| e.to_str()) != Some("ptscn") {
+            path.set_extension("ptscn");
         }
         path
     }
 
     fn new_scene_via_dialog(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pite scene", &["pitescene"])
-            .set_file_name("main.pitescene")
+            .add_filter("Pite scene", &["ptscn"])
+            .set_file_name("main.ptscn")
             .save_file()
         else {
             return;
@@ -467,7 +467,7 @@ impl EditorApp {
 
     fn open_scene_via_dialog(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pite scene", &["pitescene"])
+            .add_filter("Pite scene", &["ptscn"])
             .pick_file()
         else {
             return;
@@ -477,12 +477,12 @@ impl EditorApp {
 
     fn save_scene_as_via_dialog(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pite scene", &["pitescene"])
+            .add_filter("Pite scene", &["ptscn"])
             .set_file_name(
                 self.scene_path
                     .file_name()
                     .and_then(|s| s.to_str())
-                    .unwrap_or("main.pitescene"),
+                    .unwrap_or("main.ptscn"),
             )
             .save_file()
         else {
@@ -2197,7 +2197,7 @@ impl EditorApp {
                 .as_str()
             {
                 "py" => icons::Icon::Script,
-                "pitescene" => icons::Icon::Scene,
+                "ptscn" => icons::Icon::Scene,
                 "toml" | "cfg" | "ini" | "json" | "yaml" | "yml" => icons::Icon::Gear,
                 "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" => icons::Icon::Image,
                 "wav" | "ogg" | "mp3" | "flac" => icons::Icon::Audio,
@@ -2257,7 +2257,7 @@ impl EditorApp {
                 }
                 Err(e) => self.log(format!("cannot open {}: {e:#}", file.display())),
             }
-        } else if file.extension().and_then(|e| e.to_str()) == Some("pitescene") {
+        } else if file.extension().and_then(|e| e.to_str()) == Some("ptscn") {
             self.open_scene_file(file);
         } else {
             self.log(format!("no opener for {}", file.display()));
@@ -2345,7 +2345,7 @@ mod tests {
         ] {
             assert!(EditorApp::editor_text_file(Path::new(name)), "{name}");
         }
-        for name in ["a.png", "b.wav", "c.pitescene", "noext", "a.pyx"] {
+        for name in ["a.png", "b.wav", "c.ptscn", "noext", "a.pyx"] {
             assert!(!EditorApp::editor_text_file(Path::new(name)), "{name}");
         }
     }
@@ -2354,10 +2354,10 @@ mod tests {
     fn recent_list_round_trips_and_drops_missing() {
         let dir = std::env::temp_dir().join(format!("pite-recent-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let present = dir.join("a.pitescene");
+        let present = dir.join("a.ptscn");
         std::fs::write(&present, "x").unwrap();
         let file = dir.join("recent.json");
-        let recent = vec![present.clone(), dir.join("gone.pitescene")];
+        let recent = vec![present.clone(), dir.join("gone.ptscn")];
         EditorApp::write_recent_file(&file, &recent).unwrap();
         assert_eq!(EditorApp::read_recent_file(&file), vec![present]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -2367,11 +2367,11 @@ mod tests {
     fn save_dialog_path_keeps_scene_extension() {
         assert_eq!(
             EditorApp::with_scene_extension(PathBuf::from("s/main")),
-            PathBuf::from("s/main.pitescene")
+            PathBuf::from("s/main.ptscn")
         );
         assert_eq!(
-            EditorApp::with_scene_extension(PathBuf::from("s/main.pitescene")),
-            PathBuf::from("s/main.pitescene")
+            EditorApp::with_scene_extension(PathBuf::from("s/main.ptscn")),
+            PathBuf::from("s/main.ptscn")
         );
     }
 

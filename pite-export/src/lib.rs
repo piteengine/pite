@@ -608,7 +608,7 @@ path = "res://scripts/m.py"
 class = "M"
 
 [[instance]]
-scene = "res://scenes/sub.pitescene"
+scene = "res://scenes/sub.ptscn"
 parent = "root"
 prefix = "s_"
 "#;
@@ -656,8 +656,8 @@ def _once():
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         std::fs::create_dir_all(dir.join("sfx")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"fixt\"\n").unwrap();
-        std::fs::write(dir.join("scenes").join("main.pitescene"), MAIN).unwrap();
-        std::fs::write(dir.join("scenes").join("sub.pitescene"), SUB).unwrap();
+        std::fs::write(dir.join("scenes").join("main.ptscn"), MAIN).unwrap();
+        std::fs::write(dir.join("scenes").join("sub.ptscn"), SUB).unwrap();
         std::fs::write(dir.join("scripts").join("m.py"), SCRIPT).unwrap();
         std::fs::write(dir.join("assets").join("a.png"), "A").unwrap();
         std::fs::write(dir.join("assets").join("b.png"), "B").unwrap();
@@ -692,8 +692,8 @@ def _once():
         let out = &report.out_dir;
         for rel in [
             "pite.toml",
-            "scenes/main.pitescene",
-            "scenes/sub.pitescene",
+            "scenes/main.ptscn",
+            "scenes/sub.ptscn",
             "scripts/m.py",
             "assets/a.png",
             "assets/b.png",
@@ -709,7 +709,7 @@ def _once():
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
         assert!(sh.contains("--scene"));
         assert!(!sh.contains(" run --scene"));
-        assert!(sh.contains("game/scenes/main.pitescene"));
+        assert!(sh.contains("game/scenes/main.ptscn"));
         assert!(out.join("README.txt").is_file());
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(out).ok();
@@ -931,7 +931,7 @@ def _once():
             .out_dir
             .join("game")
             .join("scenes")
-            .join("main.pitescene");
+            .join("main.ptscn");
         let manifest = pite_project::load_manifest(&report.out_dir.join("game")).unwrap();
         assert_eq!(manifest.project.name, "fixt");
         let session =

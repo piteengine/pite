@@ -478,7 +478,7 @@ parent = "root"
 texture = "res://assets/player.png"
 
 [[instance]]
-scene = "res://scenes/enemy.pitescene"
+scene = "res://scenes/enemy.ptscn"
 parent = "root"
 prefix = "e1_"
 
@@ -491,22 +491,22 @@ prefix = "e1_"
     }
 
     impl Fixture {
-        /// Project with `host.pitescene` instantiating `enemy.pitescene`.
+        /// Project with `host.ptscn` instantiating `enemy.ptscn`.
         fn with_instances(tag: &str) -> Self {
             let n = FIXTURE_COUNTER.fetch_add(1, Ordering::SeqCst);
             let dir = std::env::temp_dir()
                 .join(format!("pite-ops-inst-{tag}-{}-{n}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(dir.join("scenes")).expect("create scenes dir");
-            std::fs::write(dir.join("scenes").join("enemy.pitescene"), ENEMY_SCENE)
+            std::fs::write(dir.join("scenes").join("enemy.ptscn"), ENEMY_SCENE)
                 .expect("write enemy scene");
-            std::fs::write(dir.join("scenes").join("host.pitescene"), HOST_SCENE)
+            std::fs::write(dir.join("scenes").join("host.ptscn"), HOST_SCENE)
                 .expect("write host scene");
             Self { dir }
         }
 
         fn host_path(&self) -> PathBuf {
-            self.dir.join("scenes").join("host.pitescene")
+            self.dir.join("scenes").join("host.ptscn")
         }
 
         fn scene_dir(&self) -> PathBuf {
@@ -554,7 +554,7 @@ prefix = "e1_"
 
         assert_eq!(doc.instance.len(), 1, "instance entry must survive save");
         let inst = &doc.instance[0];
-        assert_eq!(inst.scene, "res://scenes/enemy.pitescene");
+        assert_eq!(inst.scene, "res://scenes/enemy.ptscn");
         assert_eq!(inst.prefix, "e1_");
         assert_eq!(inst.parent.as_deref(), Some("root"));
         let ids: Vec<&str> = doc.node.iter().map(|n| n.id.as_str()).collect();
@@ -686,7 +686,7 @@ prefix = "e1_"
             .join("..")
             .join("examples")
             .join("minimal-2d");
-        let scene = project.join("scenes").join("main.pitescene");
+        let scene = project.join("scenes").join("main.ptscn");
         let source = pite_scene::load_scene(&scene).expect("dogfood scene parses");
         assert_eq!(
             source.instance.len(),

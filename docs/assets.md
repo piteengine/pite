@@ -31,7 +31,7 @@ Every `res://` string in node props (main scene + instanced scenes) and every
 
 Re-runs the matching importer over added/changed files (png: magic bytes, wav:
 `RIFF…WAVE`), updates the manifest, and rewrites quote-wrapped `res://` refs in
-`.pitescene` / `.py` files when a uid moved. Single files that fail import are
+`.ptscn` / `.py` files when a uid moved. Single files that fail import are
 reported, not fatal to the rest. `check` itself never writes.
 
 ## Importers (`pite-assets`)

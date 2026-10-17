@@ -549,7 +549,7 @@ texture = "res://assets/gone.png"
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("scenes")).expect("create scenes dir");
         std::fs::create_dir_all(dir.join("assets")).expect("create assets dir");
-        std::fs::write(dir.join("scenes").join("main.pitescene"), FIXTURE_SCENE)
+        std::fs::write(dir.join("scenes").join("main.ptscn"), FIXTURE_SCENE)
             .expect("write fixture scene");
         dir
     }
@@ -568,7 +568,7 @@ texture = "res://assets/gone.png"
         let mut referenced = HashSet::new();
         check_scene_ref(
             root,
-            "res://scenes/main.pitescene",
+            "res://scenes/main.ptscn",
             &mut errors,
             &mut warnings,
             &mut cache,
@@ -677,7 +677,7 @@ texture = "res://assets/gone.png"
         let root = fixture_root(4);
         std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
         std::fs::write(
-            root.join("scenes").join("main.pitescene"),
+            root.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"sfx\"\ntype = \"Node\"\nname = \"Sfx\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/sfx.py\"\nclass = \"Sfx\"\n",
         )
         .expect("write scene");
@@ -714,7 +714,7 @@ texture = "res://assets/gone.png"
         let root = fixture_root(5);
         std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
         std::fs::write(
-            root.join("scenes").join("main.pitescene"),
+            root.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"sfx\"\ntype = \"Node\"\nname = \"Sfx\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/sfx.py\"\nclass = \"Sfx\"\n",
         )
         .expect("write scene");
@@ -741,7 +741,7 @@ texture = "res://assets/gone.png"
         let by_hash: HashMap<&str, &str> = HashMap::new();
         check_scene_ref(
             &root,
-            "res://scenes/main.pitescene",
+            "res://scenes/main.ptscn",
             &mut errors,
             &mut warnings,
             &mut cache,

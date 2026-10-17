@@ -445,7 +445,7 @@ pub fn replace_res_ref(text: &str, old: &str, new: &str) -> (String, usize) {
     (out, dq_count + sq_count)
 }
 
-/// Rewrite every `*.pitescene` / `*.py` file under `root` (same skip
+/// Rewrite every `*.ptscn` / `*.py` file under `root` (same skip
 /// rules as [`scan_files`]) for each `(old, new)` rename. Only files
 /// with at least one quote-wrapped hit are written back. Returns the
 /// sorted `res://`-style paths of touched files.
@@ -480,7 +480,7 @@ pub fn apply_renames(root: &Path, renames: &[(String, String)]) -> Result<Vec<St
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
-            if ext != "pitescene" && ext != "py" {
+            if ext != "ptscn" && ext != "py" {
                 continue;
             }
             targets.push((res_path_for(root, &fs_path)?, fs_path));
@@ -788,7 +788,7 @@ mod tests {
         assert_eq!(rep1.added, vec!["res://old.png".to_string()]);
 
         std::fs::rename(root.join("old.png"), root.join("new.png")).unwrap();
-        std::fs::write(root.join("main.pitescene"), "texture = \"res://old.png\"\n").unwrap();
+        std::fs::write(root.join("main.ptscn"), "texture = \"res://old.png\"\n").unwrap();
         std::fs::write(
             root.join("play.py"),
             "pite.play('res://old.png')\nbare res://old.png\n",
@@ -798,12 +798,9 @@ mod tests {
         let (reg, report) = reimport_project(&root).unwrap();
         assert_eq!(
             report.refs_updated,
-            vec![
-                "res://main.pitescene".to_string(),
-                "res://play.py".to_string()
-            ]
+            vec!["res://main.ptscn".to_string(), "res://play.py".to_string()]
         );
-        let scene = std::fs::read_to_string(root.join("main.pitescene")).unwrap();
+        let scene = std::fs::read_to_string(root.join("main.ptscn")).unwrap();
         assert!(scene.contains("\"res://new.png\""));
         let script = std::fs::read_to_string(root.join("play.py")).unwrap();
         assert!(script.contains("'res://new.png'"));

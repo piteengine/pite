@@ -1,6 +1,6 @@
 # pite-scene
 
-TOML scene format (`.pitescene`), instantiation, validation, and binary cache for the [Pite](https://github.com/piteengine/pite) game engine.
+TOML scene format (`.ptscn`), instantiation, validation, and binary cache for the [Pite](https://github.com/piteengine/pite) game engine.
 
 TOML is canonical; the binary cache beside it is derived. Depends on `pite-core` only.
 

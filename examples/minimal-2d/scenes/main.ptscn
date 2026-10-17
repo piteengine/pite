@@ -59,7 +59,7 @@ path = "res://scripts/hitbutton.py"
 class = "HitButton"
 
 [[instance]]
-scene = "res://scenes/enemy.pitescene"
+scene = "res://scenes/enemy.ptscn"
 parent = "root"
 prefix = "e1_"
 

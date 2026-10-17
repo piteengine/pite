@@ -20,7 +20,7 @@ pub use cache::{CacheStatus, CACHE_VERSION};
 /// Current scene format version. Bump = migrate or error loudly, never silent.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Canonical `.pitescene` document.
+/// Canonical `.ptscn` document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneDoc {
     pub format_version: u32,
@@ -419,7 +419,7 @@ class = "Player"
         std::fs::create_dir_all(&dir).unwrap();
         let ref_path = write_fixture(
             &dir,
-            "enemy.pitescene",
+            "enemy.ptscn",
             r#"
 format_version = 1
 root = "enemy"
@@ -462,7 +462,7 @@ position = [0.0, 0.0]
         std::fs::create_dir_all(&dir).unwrap();
         let ref_path = write_fixture(
             &dir,
-            "tiny.pitescene",
+            "tiny.ptscn",
             "format_version = 1\nroot = \"solo\"\n\n[[node]]\nid = \"solo\"\ntype = \"Node\"\nname = \"Solo\"\n",
         );
         let mut overrides = BTreeMap::new();

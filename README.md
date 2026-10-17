@@ -29,9 +29,9 @@ Then:
 
 ```sh
 pite new hello --template minimal-2d
-pite run --scene examples/minimal-2d/scenes/main.pitescene
+pite run --scene examples/minimal-2d/scenes/main.ptscn
 pite check
-pite edit --scene examples/minimal-2d/scenes/main.pitescene
+pite edit --scene examples/minimal-2d/scenes/main.ptscn
 ```
 
 Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene (defaults to the project's main scene), `check` validates it, `edit` opens the editor, `vendor` pins third-party Python packages. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
@@ -144,7 +144,7 @@ Published on crates.io, versioned lockstep with the engine:
 
 | Doc | Covers |
 |---|---|
-| [`docs/scene-format.md`](docs/scene-format.md) | `.pitescene` TOML, instantiation, the scene cache |
+| [`docs/scene-format.md`](docs/scene-format.md) | `.ptscn` TOML, instantiation, the scene cache |
 | [`docs/scripting-api.md`](docs/scripting-api.md) | Python API: nodes, signals, input, audio, text, imports |
 | [`docs/assets.md`](docs/assets.md) | `res://` refs, uid manifest, `pite reimport` |
 | [`docs/editor.md`](docs/editor.md) | Panels, viewport, save, tree ops, settings, completion |

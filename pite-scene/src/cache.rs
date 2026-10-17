@@ -514,7 +514,7 @@ path = "res://scripts/player.py"
 class = "Player"
 
 [[instance]]
-scene = "res://scenes/enemy.pitescene"
+scene = "res://scenes/enemy.ptscn"
 parent = "root"
 prefix = "e1_"
 
@@ -530,7 +530,7 @@ prefix = "e1_"
     }
 
     fn write_scene(dir: &Path, text: &str) -> PathBuf {
-        let path = dir.join("main.pitescene");
+        let path = dir.join("main.ptscn");
         std::fs::write(&path, text).unwrap();
         path
     }

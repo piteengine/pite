@@ -514,7 +514,7 @@ impl GameSession {
                         Some("py") => {
                             script_touched.insert(path);
                         }
-                        Some("pitescene") => {
+                        Some("ptscn") => {
                             scene_touched = true;
                         }
                         _ => {}
@@ -911,7 +911,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             format!("format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"mover\"\ntype = \"Sprite2D\"\nname = \"Mover\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/mover.py\"\nclass = \"{class}\"\n"),
         )
         .unwrap();
@@ -940,7 +940,7 @@ mod tests {
     fn editing_script_changes_behavior_without_restart() {
         let _guard = SERIAL.lock().unwrap();
         let (dir, script) = make_project("reload", "Mover", V1);
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, false).unwrap();
         assert_eq!(session.script_count(), 1);
         let x1 = drive_x(&mut session);
@@ -966,7 +966,7 @@ mod tests {
     fn scene_edit_adds_nodes_live() {
         let _guard = SERIAL.lock().unwrap();
         let (dir, _) = make_project("scene", "Mover", V1);
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, false).unwrap();
         assert_eq!(session.tree_len(), 2);
         std::fs::write(
@@ -991,7 +991,7 @@ mod tests {
     fn no_reload_disables_watching() {
         let _guard = SERIAL.lock().unwrap();
         let (dir, _) = make_project("noreload", "Mover", V1);
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let session = GameSession::open(&scene, true).unwrap();
         assert!(session.watch_rx.is_none());
         std::fs::remove_dir_all(&dir).ok();
@@ -1018,12 +1018,12 @@ mod tests {
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"hud\"\ntype = \"Label\"\nname = \"Hud\"\nparent = \"root\"\n\n[node.props]\ntext = \"HP: 3\"\nfont_size = 20.0\n\n[node.script]\npath = \"res://scripts/hud.py\"\nclass = \"Hud\"\n",
         )
         .unwrap();
         std::fs::write(dir.join("scripts").join("hud.py"), HUD).unwrap();
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert_eq!(hud_text(&session), "HP: 3");
         session.update(0.016);
@@ -1042,13 +1042,13 @@ mod tests {
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"pinger\"\ntype = \"Node2D\"\nname = \"Pinger\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/pinger.py\"\nclass = \"Pinger\"\n\n[[node]]\nid = \"ponger\"\ntype = \"Node2D\"\nname = \"Ponger\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/ponger.py\"\nclass = \"Ponger\"\n\n[[node]]\nid = \"hud\"\ntype = \"Label\"\nname = \"Hud\"\nparent = \"root\"\n\n[node.props]\ntext = \"waiting\"\n",
         )
         .unwrap();
         std::fs::write(dir.join("scripts").join("pinger.py"), PINGER).unwrap();
         std::fs::write(dir.join("scripts").join("ponger.py"), PONGER).unwrap();
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert_eq!(hud_text(&session), "waiting");
         session.update(0.016);
@@ -1064,7 +1064,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"tick\"\ntype = \"Timer\"\nname = \"Tick\"\nparent = \"root\"\n\n[node.props]\nwait_time = 0.05\n\n[node.script]\npath = \"res://scripts/ticker.py\"\nclass = \"Ticker\"\n\n[[node]]\nid = \"hud\"\ntype = \"Label\"\nname = \"Hud\"\nparent = \"root\"\n\n[node.props]\ntext = \"0\"\n",
         )
         .unwrap();
@@ -1076,7 +1076,7 @@ mod tests {
     fn timer_fires_and_loops() {
         let _guard = SERIAL.lock().unwrap();
         let dir = make_timer_project("timer-loop");
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert_eq!(hud_text(&session), "0");
         for _ in 0..3 {
@@ -1111,7 +1111,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"m\"\ntype = \"Label\"\nname = \"M\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/m.py\"\nclass = \"M\"\n",
         )
         .unwrap();
@@ -1120,7 +1120,7 @@ mod tests {
             "import pite\nimport vpkg\n\nclass M(pite.Label):\n    def _ready(self):\n        self.text = str(vpkg.VALUE)\n",
         )
         .unwrap();
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         session.update(0.016);
         assert!(session.errors().is_empty(), "got: {:?}", session.errors());
@@ -1158,7 +1158,7 @@ mod tests {
         }
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"m\"\ntype = \"Label\"\nname = \"M\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/m.py\"\nclass = \"M\"\n",
         )
         .unwrap();
@@ -1167,7 +1167,7 @@ mod tests {
             "import pite\nimport zpkg\n\nclass M(pite.Label):\n    def _ready(self):\n        self.text = str(zpkg.VALUE)\n",
         )
         .unwrap();
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         session.update(0.016);
         assert!(session.errors().is_empty(), "got: {:?}", session.errors());
@@ -1194,7 +1194,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"btn\"\ntype = \"Button\"\nname = \"HitBtn\"\nparent = \"root\"\n\n[node.props]\nposition = [100.0, 100.0]\nsize = [120.0, 40.0]\ntext = \"0\"\n\n[node.script]\npath = \"res://scripts/counter.py\"\nclass = \"Counter\"\n",
         )
         .unwrap();
@@ -1234,7 +1234,7 @@ mod tests {
     fn click_inside_fires_once_per_click() {
         let _guard = SERIAL.lock().unwrap();
         let dir = make_button_project("btn-once");
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert_eq!(btn_text(&session), "0");
         click(&mut session, (740.0, 460.0), (740.0, 460.0));
@@ -1248,7 +1248,7 @@ mod tests {
     fn button_pressed_needs_no_script_declaration() {
         let _guard = SERIAL.lock().unwrap();
         let dir = make_button_project_with("btn-builtin", COUNTER_BUILTIN);
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert!(session.host.has_signal("btn", "pressed"));
         assert_eq!(btn_text(&session), "0");
@@ -1261,7 +1261,7 @@ mod tests {
     fn click_outside_is_ignored() {
         let _guard = SERIAL.lock().unwrap();
         let dir = make_button_project("btn-out");
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         // Screen points for the 1280x720 design center (640, 360): the
         // fixture button sits at world (100, 100), i.e. screen (740, 460).
@@ -1274,7 +1274,7 @@ mod tests {
     fn press_inside_release_outside_is_ignored() {
         let _guard = SERIAL.lock().unwrap();
         let dir = make_button_project("btn-drag");
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         click(&mut session, (740.0, 460.0), (100.0, 100.0));
         assert_eq!(btn_text(&session), "0");
@@ -1285,7 +1285,7 @@ mod tests {
     fn dropped_button_disconnects_silently() {
         let _guard = SERIAL.lock().unwrap();
         let dir = make_button_project("btn-drop");
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         session.host.with_tree_mut(|t| {
             t.remove(&NodeId::from("btn".to_string())).unwrap();
@@ -1317,7 +1317,7 @@ mod tests {
         use pite_script::{input_begin_frame, input_set_key};
 
         let (dir, _) = make_project("input", "Walker", WALKER);
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
 
         input_begin_frame();
@@ -1347,7 +1347,7 @@ mod tests {
         use pite_script::input_set_key;
 
         let (dir, _) = make_project("edgeorder", "Walker", STEPPER);
-        let scene = dir.join("scenes").join("main.pitescene");
+        let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
 
         // Production order: the OS event lands between frames, so the
@@ -1432,7 +1432,7 @@ mod tests {
             .join("examples")
             .join("minimal-2d")
             .join("scenes")
-            .join("main.pitescene")
+            .join("main.ptscn")
     }
 
     #[test]
@@ -1482,13 +1482,13 @@ mod tests {
         std::fs::create_dir_all(dir.join("scenes")).unwrap();
         std::fs::write(
             dir.join("pite.toml"),
-            "[project]\nname = \"t\"\nmain_scene = \"res://scenes/main.pitescene\"\n",
+            "[project]\nname = \"t\"\nmain_scene = \"res://scenes/main.ptscn\"\n",
         )
         .unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
         let got = resolve_default_scene().unwrap();
-        assert_eq!(got, dir.join("scenes").join("main.pitescene"));
+        assert_eq!(got, dir.join("scenes").join("main.ptscn"));
         let bare = std::env::temp_dir().join(format!("pite-noproj-{}", std::process::id()));
         std::fs::create_dir_all(&bare).unwrap();
         std::env::set_current_dir(&bare).unwrap();
@@ -1506,12 +1506,11 @@ mod tests {
         std::fs::create_dir_all(dir.join("scenes")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"both\"\ntype = \"Sprite2D\"\nname = \"Both\"\nparent = \"root\"\n\n[node.props]\ntexture = \"res://a.png\"\natlas = \"res://sheet.atlas.json\"\nframe = \"player\"\n",
         )
         .unwrap();
-        let mut session =
-            GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
         let mut recorder = RecordingRenderer::default();
         let err = session
             .draw_into(&mut recorder)
@@ -1539,7 +1538,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("scripts")).unwrap();
         std::fs::write(dir.join("pite.toml"), "[project]\nname = \"probe\"\n").unwrap();
         std::fs::write(
-            dir.join("scenes").join("main.pitescene"),
+            dir.join("scenes").join("main.ptscn"),
             "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"probe\"\ntype = \"Label\"\nname = \"Probe\"\nparent = \"root\"\n\n[node.props]\ntext = \"before\"\n\n[node.script]\npath = \"res://scripts/probe.py\"\nclass = \"Probe\"\n",
         )
         .unwrap();
@@ -1548,8 +1547,7 @@ mod tests {
             "import pite\n\n\nclass Probe(pite.Label):\n    def _process(self, delta):\n        self.text = \"bundled\"\n",
         )
         .unwrap();
-        let mut session =
-            GameSession::open(&dir.join("scenes").join("main.pitescene"), true).unwrap();
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
         session.update(0.016);
         let text = session
             .host
@@ -1575,7 +1573,7 @@ mod tests {
             .join("examples")
             .join("minimal-2d")
             .join("scenes")
-            .join("main.pitescene");
+            .join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
         assert_eq!(session.script_count(), 3);
         input_begin_frame();

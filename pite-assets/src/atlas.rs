@@ -186,13 +186,13 @@ mod tests {
         let dir = project("report");
         let uses = vec![
             AtlasUse {
-                scene: "res://scenes/main.pitescene".to_string(),
+                scene: "res://scenes/main.ptscn".to_string(),
                 node: "player".to_string(),
                 atlas: "res://assets/sheet.atlas.json".to_string(),
                 frame: "player".to_string(),
             },
             AtlasUse {
-                scene: "res://scenes/main.pitescene".to_string(),
+                scene: "res://scenes/main.ptscn".to_string(),
                 node: "ghost".to_string(),
                 atlas: "res://assets/sheet.atlas.json".to_string(),
                 frame: "ghost".to_string(),
@@ -214,7 +214,7 @@ mod tests {
     fn missing_sidecar_is_an_error_not_a_skip() {
         let dir = project("missing");
         let uses = vec![AtlasUse {
-            scene: "res://scenes/main.pitescene".to_string(),
+            scene: "res://scenes/main.ptscn".to_string(),
             node: "player".to_string(),
             atlas: "res://assets/nope.atlas.json".to_string(),
             frame: "player".to_string(),

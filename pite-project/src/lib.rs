@@ -72,7 +72,7 @@ fn default_version() -> String {
     "0.2.0".to_string()
 }
 fn default_main_scene() -> String {
-    "res://scenes/main.pitescene".to_string()
+    "res://scenes/main.ptscn".to_string()
 }
 fn default_python() -> String {
     "3.12".to_string()
@@ -222,7 +222,7 @@ pub fn to_res_path(project_dir: &Path, path: &Path) -> Option<String> {
 pub const TEMPLATE_PITE_TOML: &str = r#"[project]
 name = "TEMPLATE_NAME"
 pite_version = "0.2.0"
-main_scene = "res://scenes/main.pitescene"
+main_scene = "res://scenes/main.ptscn"
 python = "3.12"
 author = ""
 icon = ""
@@ -230,7 +230,7 @@ window_width = 1280
 window_height = 720
 "#;
 
-/// Fresh `main.pitescene` for `create_project`. The format version comes
+/// Fresh `main.ptscn` for `create_project`. The format version comes
 /// from the `pite-scene` const so scaffolds track format bumps.
 pub fn template_scene() -> String {
     format!(
@@ -319,7 +319,7 @@ pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf
         dir.join(MANIFEST_FILE),
         TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
     )?;
-    std::fs::write(dir.join("scenes").join("main.pitescene"), template_scene())?;
+    std::fs::write(dir.join("scenes").join("main.ptscn"), template_scene())?;
     std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
     std::fs::write(dir.join("assets").join("player.png"), TEMPLATE_PLAYER_PNG)?;
     Ok(dir)
@@ -354,7 +354,7 @@ mod tests {
         let manifest = load_text("[project]\nname = \"old\"\n");
         assert_eq!(manifest.project.name, "old");
         assert_eq!(manifest.project.pite_version, "0.2.0");
-        assert_eq!(manifest.project.main_scene, "res://scenes/main.pitescene");
+        assert_eq!(manifest.project.main_scene, "res://scenes/main.ptscn");
         assert_eq!(manifest.project.python, "3.12");
         assert_eq!(manifest.project.author, "");
         assert_eq!(manifest.project.icon, "");
