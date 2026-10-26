@@ -102,20 +102,16 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 
 ## Status
 
-5th milestone of v0.1 is done:
-- Export slimming: Linux 247→52 MB, Windows 75→20 MB (`minimal-2d`, release)
-- Lean `pite-player` binary ships in exports instead of the full editor binary
-- Per-platform player templates published by CI: any machine exports for the other
-- Previous milestones:
-  - Renderer stability
-  - Exporter test on Linux & Windows
-  - Input handling API for Python scripts
-  - Working audio player
-  - Orphan-asset warnings in `pite check`
-  - Playable running preview inside editor
-  - File-tree for Assets panel
+**v0.2 is out:**
+- `pite vendor` pulls third-party Python packages (wheels + deps) into `vendor/`, version- and hash-pinned; exports still need no Python install
+- `pite check` warns on third-party imports in game scripts
+- `pite run` without `--scene` starts the project's `main_scene`
+- 1280×720 is now a design resolution: the window opens maximized and scales with correct click mapping
+- Editor code pane got a real gutter: line numbers, clickable errors, completion popup
+- `import pite` resolves everywhere, even with no checkout
+- `Project Settings…` edits every manifest field
 
-See [`CHANGELOG.md`](CHANGELOG.md) for full history and status.
+**Previous:** v0.1-m5 (export slimming: Linux 247→52 MB, Windows 75→20 MB), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Workspace
 
