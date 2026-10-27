@@ -8,6 +8,12 @@ Pite - A game engine that's handy to use, to change, to own. Rust core, Python s
 
 Build games from scenes and nodes (not ECS) - edit visually, script in Python.
 
+<p align="center">
+  <img src="docs/images/editor.png" width="800" alt="Pite editor" />
+  <br/>
+  <em>The Pite editor running the <code>minimal-2d</code> example</em>
+</p>
+
 ## Quickstart
 
 Install the engine bundle (engine + both player binaries, so any machine
