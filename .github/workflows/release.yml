@@ -61,7 +61,7 @@ jobs:
       - name: Check out the repo (gh needs the git context)
         uses: actions/checkout@v7
       - name: Download the release files
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: dist
       - name: Assemble the engine bundles (engine + player binaries for all platforms)
