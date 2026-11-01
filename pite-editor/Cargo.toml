@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 eframe = "0.37"
-rfd = "0.15"
+rfd = "0.17"
 serde_json.workspace = true
 pite-core.workspace = true
 pite-project.workspace = true
