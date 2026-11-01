@@ -82,7 +82,7 @@ if not pite.is_playing(voice):
 pite.stop(voice)
 ```
 
-- `play(path, volume=1.0)` decodes the file and returns a voice id; only 16-bit `.wav` is supported. Output goes to the OS default audio device; on machines with no audio device playback is simulated (a warning is logged; same API, no sound). A missing or undecodable file raises loudly — the game keeps running. `stop(id)` on an unknown id is a silent no-op, as is `set_volume` (clamped to `0.0`–`1.0`); `is_playing` on unknown ids is `False`.
+- `play(path, volume=1.0)` decodes the file and returns a voice id; `.wav` (8/16/24/32-bit int and float), `.ogg` (Vorbis), `.mp3`, and `.flac` are supported. Output goes to the OS default audio device; on machines with no audio device playback is simulated (a warning is logged; same API, no sound). A missing or undecodable file raises loudly — the game keeps running. `stop(id)` on an unknown id is a silent no-op, as is `set_volume` (clamped to `0.0`–`1.0`); `is_playing` on unknown ids is `False`.
 - `pite check` validates every `play("…")` literal in project scripts: the file must exist and decode.
 
 ## Errors and reload

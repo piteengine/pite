@@ -132,7 +132,7 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 | `pite-scene` | TOML scenes, instantiation, validation, binary cache |
 | `pite-editor` | eframe/egui panels on the same tree, LSP client |
 | `pite-assets` | `Importer` trait, uid registry |
-| `pite-audio` | WAV decode, default-device output, silent-simulation fallback |
+| `pite-audio` | Audio decode (WAV, OGG, MP3, FLAC), default-device output, silent-simulation fallback |
 | `pite-project` | `pite.toml`, `res://` paths, templates |
 | `pite-export` | Desktop export (binary + resolved content) |
 

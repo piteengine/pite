@@ -281,7 +281,7 @@ fn check_scene_ref(
                             path.display(),
                             node.id
                         ));
-                    } else if let Err(e) = pite_audio::decode_wav(&asset_path) {
+                    } else if let Err(e) = pite_audio::decode_audio(&asset_path) {
                         errors.push(format!(
                             "scene {}: node {:?} audio {asset:?} undecodable: {e:#}",
                             path.display(),
@@ -697,6 +697,46 @@ texture = "res://assets/gone.png"
             "got: {referenced:?}"
         );
         assert!(orphan_warnings(&by_path, &referenced).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_validates_audio_multiformat() {
+        let root = fixture_root(42);
+        std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
+        std::fs::create_dir_all(root.join("assets")).expect("create assets dir");
+        std::fs::write(
+            root.join("scenes").join("main.ptscn"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"sfx\"\ntype = \"Node\"\nname = \"Sfx\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/sfx.py\"\nclass = \"Sfx\"\n",
+        )
+        .expect("write scene");
+        std::fs::write(
+            root.join("scripts").join("sfx.py"),
+            "import pite\n\nclass Sfx(pite.Node):\n    def _ready(self):\n        pite.play(\"res://assets/music.ogg\")\n        pite.play(\"res://assets/bad.mp3\")\n",
+        )
+        .expect("write script");
+        const FIXTURE_OGG: &[u8] = include_bytes!("../../pite-audio/fixtures/sine.ogg");
+        std::fs::write(root.join("assets").join("music.ogg"), FIXTURE_OGG).unwrap();
+        std::fs::write(root.join("assets").join("bad.mp3"), b"ID3_NOT_A_VALID_MP3").unwrap();
+
+        let files = scanned(&["res://assets/music.ogg", "res://assets/bad.mp3"]);
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> =
+            files.iter().map(|f| (f.res_path.as_str(), f)).collect();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+        let registry = pite_assets::UidRegistry::default();
+        let (errors, _, referenced) = run_ref(&root, &registry, &by_path, &by_hash);
+        assert!(referenced.contains("res://assets/music.ogg"));
+        assert!(referenced.contains("res://assets/bad.mp3"));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("bad.mp3") && e.contains("undecodable")),
+            "expected undecodable error for bad.mp3, got: {errors:?}"
+        );
+        assert!(
+            !errors.iter().any(|e| e.contains("music.ogg")),
+            "music.ogg should decode cleanly, got: {errors:?}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Context, Result};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::CodecParameters;
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
 
 pub mod device;
 pub use device::CpalBackend;
@@ -106,27 +114,120 @@ impl AudioBackend for WavBackend {
     }
 }
 
-pub fn decode_wav(path: &Path) -> Result<DecodedAudio> {
-    let mut reader =
-        hound::WavReader::open(path).with_context(|| format!("cannot open {}", path.display()))?;
-    let spec = reader.spec();
-    if spec.bits_per_sample != 16 {
-        anyhow::bail!(
-            "{}: only 16-bit WAV supported, got {}-bit",
-            path.display(),
-            spec.bits_per_sample
-        );
+pub fn is_supported_audio_ext(ext: &str) -> bool {
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "wav" | "ogg" | "mp3" | "flac"
+    )
+}
+
+pub fn decode_audio(path: &Path) -> Result<DecodedAudio> {
+    let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
     }
-    let mut samples = Vec::with_capacity(reader.len() as usize);
-    for sample in reader.samples::<i16>() {
-        let sample = sample.with_context(|| format!("cannot decode {}", path.display()))?;
-        samples.push(sample as f32 / 32768.0);
+
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+
+    let mut format = symphonia::default::get_probe()
+        .probe(&hint, mss, format_opts, metadata_opts)
+        .with_context(|| format!("cannot probe audio format: {}", path.display()))?;
+
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or_else(|| anyhow::anyhow!("no audio track found in {}", path.display()))?;
+
+    let track_id = track.id;
+    let codec_params = match &track.codec_params {
+        Some(CodecParameters::Audio(params)) => params,
+        _ => anyhow::bail!(
+            "audio track in {} has no audio codec parameters",
+            path.display()
+        ),
+    };
+
+    let decoder_opts = AudioDecoderOptions::default();
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(codec_params, &decoder_opts)
+        .with_context(|| format!("cannot create audio decoder for {}", path.display()))?;
+
+    let mut samples = Vec::new();
+    let mut sample_rate = 0;
+    let mut channels = 0;
+    let mut byte_vec = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
+            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(SymphoniaError::ResetRequired) => continue,
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "error reading audio stream {}: {e:#}",
+                    path.display()
+                ));
+            }
+        };
+
+        if packet.track_id != track_id {
+            continue;
+        }
+
+        match decoder.decode(&packet) {
+            Ok(buf_ref) => {
+                if sample_rate == 0 {
+                    let spec = buf_ref.spec();
+                    sample_rate = spec.rate();
+                    channels = spec.channels().count() as u16;
+                }
+
+                byte_vec.clear();
+                buf_ref.copy_bytes_to_vec_interleaved_as::<f32>(&mut byte_vec);
+                for chunk in byte_vec.chunks_exact(4) {
+                    let sample = f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                    samples.push(sample);
+                }
+            }
+            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(SymphoniaError::DecodeError(e)) => {
+                tracing::warn!("decode warning in {}: {e}", path.display());
+                continue;
+            }
+            Err(SymphoniaError::ResetRequired) => {
+                decoder.reset();
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "error decoding audio packet in {}: {e:#}",
+                    path.display()
+                ));
+            }
+        }
     }
+
+    if samples.is_empty() || sample_rate == 0 || channels == 0 {
+        anyhow::bail!("{}: no audio samples decoded", path.display());
+    }
+
     Ok(DecodedAudio {
         samples,
-        sample_rate: spec.sample_rate,
-        channels: spec.channels,
+        sample_rate,
+        channels,
     })
+}
+
+pub fn decode_wav(path: &Path) -> Result<DecodedAudio> {
+    decode_audio(path)
 }
 
 pub struct AudioEngine {
@@ -192,10 +293,13 @@ pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
         anyhow::bail!("audio asset not found: {}", path.display());
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if !ext.eq_ignore_ascii_case("wav") {
-        anyhow::bail!("{}: only .wav supported, got .{ext}", path.display());
+    if !is_supported_audio_ext(ext) {
+        anyhow::bail!(
+            "{}: only .wav, .ogg, .mp3, .flac supported, got .{ext}",
+            path.display()
+        );
     }
-    let audio = decode_wav(&path)?;
+    let audio = decode_audio(&path)?;
     Ok((path, audio))
 }
 
@@ -352,11 +456,79 @@ mod tests {
         set_backend(Box::new(MockBackend::new()));
         let dir = std::env::temp_dir().join(format!("pite-aud-ext-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("song.mp3"), b"ID3").unwrap();
+        std::fs::write(dir.join("song.aac"), b"AAC").unwrap();
         set_project_dir(Some(dir.clone()));
-        let err = play_file("res://song.mp3", 1.0).unwrap_err();
-        assert!(err.to_string().contains("only .wav"), "got: {err:#}");
+        let err = play_file("res://song.aac", 1.0).unwrap_err();
+        assert!(
+            err.to_string().contains("only .wav, .ogg, .mp3, .flac"),
+            "got: {err:#}"
+        );
         set_backend(Box::new(WavBackend::new()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const FIXTURE_OGG: &[u8] = include_bytes!("../fixtures/sine.ogg");
+    const FIXTURE_MP3: &[u8] = include_bytes!("../fixtures/sine.mp3");
+    const FIXTURE_FLAC: &[u8] = include_bytes!("../fixtures/sine.flac");
+
+    #[test]
+    fn decode_and_play_multiformat() {
+        let _guard = SERIAL.lock().unwrap();
+        set_backend(Box::new(MockBackend::new()));
+        let dir = std::env::temp_dir().join(format!("pite-aud-formats-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("tone.ogg"), FIXTURE_OGG).unwrap();
+        std::fs::write(dir.join("tone.mp3"), FIXTURE_MP3).unwrap();
+        std::fs::write(dir.join("tone.flac"), FIXTURE_FLAC).unwrap();
+        set_project_dir(Some(dir.clone()));
+
+        // OGG
+        let id_ogg = play_file("res://tone.ogg", 0.7).unwrap();
+        assert!(voice_playing(id_ogg));
+        let (_, audio_ogg) = decode_asset("res://tone.ogg").unwrap();
+        assert!(!audio_ogg.is_empty());
+        assert_eq!(audio_ogg.sample_rate, 44100);
+
+        // MP3
+        let id_mp3 = play_file("res://tone.mp3", 0.8).unwrap();
+        assert!(voice_playing(id_mp3));
+        let (_, audio_mp3) = decode_asset("res://tone.mp3").unwrap();
+        assert!(!audio_mp3.is_empty());
+        assert_eq!(audio_mp3.sample_rate, 44100);
+
+        // FLAC
+        let id_flac = play_file("res://tone.flac", 0.9).unwrap();
+        assert!(voice_playing(id_flac));
+        let (_, audio_flac) = decode_asset("res://tone.flac").unwrap();
+        assert!(!audio_flac.is_empty());
+        assert_eq!(audio_flac.sample_rate, 44100);
+
+        set_backend(Box::new(WavBackend::new()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn decode_wav_float_and_various_bitdepths() {
+        let dir = std::env::temp_dir().join(format!("pite-aud-wav-depth-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("float.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        for i in 0..100 {
+            writer.write_sample((i as f32 * 0.1).sin()).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let decoded = decode_audio(&path).unwrap();
+        assert_eq!(decoded.len(), 100);
+        assert_eq!(decoded.sample_rate, 44100);
+        assert_eq!(decoded.channels, 1);
+
         std::fs::remove_dir_all(&dir).ok();
     }
 }

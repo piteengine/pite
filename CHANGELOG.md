@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Expanded audio formats and containers: pure-Rust decoding via `symphonia` brings support for Ogg Vorbis (`.ogg`), MP3 (`.mp3`), FLAC (`.flac`), and extended WAV (8/16/24/32-bit int and 32-bit float) to `pite.play` and `pite-audio`. `pite-assets` adds `OggImporter`, `Mp3Importer`, and `FlacImporter` for project scanning and manifest tracking, and `pite check` validates decodability across all supported audio formats.
 - Scene file extension is now `.ptscn` (was `.pitescene`): editor dialogs and detection, asset-rewrite scans, docs, examples, and scaffolds all follow. File content and `format_version` are unchanged — existing projects just rename their scene files; `.pitescene` is no longer recognized.
 - Editor code pane opens config text files (`toml`/`cfg`/`ini`/`json`/`yaml`/`yml`) for plain editing; LSP completion, hover, and diagnostics stay Python-only.
 - Editor code pane highlights Python and config text (keywords, strings, numbers, comments, `[...]` headers) in palette colors.

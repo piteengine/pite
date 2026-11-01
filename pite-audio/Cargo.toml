@@ -11,4 +11,5 @@ publish.workspace = true
 anyhow.workspace = true
 cpal.workspace = true
 hound.workspace = true
+symphonia.workspace = true
 tracing.workspace = true

@@ -6,7 +6,7 @@ stability across renames comes from a uid sidecar, not from the reference syntax
 
 ## Manifest (`assets.pite.toml`)
 
-`pite reimport` scans the project root (png + wav only; `target/`, `dist/`,
+`pite reimport` scans the project root (png, wav, ogg, mp3, flac; `target/`, `dist/`,
 `.git/`, hidden dirs, and dotfiles skipped) and writes `assets.pite.toml`:
 `[[asset]]` entries of `{ path, uid, hash, size }`, sorted by path. The uid is
 opaque and assigned once. The manifest is a local import cache — gitignored,
@@ -30,14 +30,14 @@ Every `res://` string in node props (main scene + instanced scenes) and every
 ## `pite reimport`
 
 Re-runs the matching importer over added/changed files (png: magic bytes, wav:
-`RIFF…WAVE`), updates the manifest, and rewrites quote-wrapped `res://` refs in
-`.ptscn` / `.py` files when a uid moved. Single files that fail import are
-reported, not fatal to the rest. `check` itself never writes.
+`RIFF…WAVE`, ogg: `OggS`, mp3: ID3/frame sync, flac: `fLaC`), updates the manifest, and
+rewrites quote-wrapped `res://` refs in `.ptscn` / `.py` files when a uid moved.
+Single files that fail import are reported, not fatal to the rest. `check` itself never writes.
 
 ## Importers (`pite-assets`)
 
 `Importer` trait (`match_ext`, `import`) + `UidRegistry`.
-`png` and `wav` are registered; new formats are new impls, no registry change.
+`png`, `wav`, `ogg`, `mp3`, and `flac` are registered; new formats are new impls, no registry change.
 
 ## Atlas (sprite sheets)
 

@@ -20,7 +20,7 @@ cargo run --locked -p pite-cli -- check
 
 ## Architecture (crate → role)
 
-`pite-cli` (the `pite` binary) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
+`pite-cli` (the `pite` binary) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
 
 ## Gotchas agents miss
 

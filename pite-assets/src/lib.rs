@@ -64,6 +64,56 @@ impl Importer for WavImporter {
     }
 }
 
+pub struct OggImporter;
+
+impl Importer for OggImporter {
+    fn match_ext(&self, ext: &str) -> bool {
+        ext.eq_ignore_ascii_case("ogg")
+    }
+
+    fn import(&self, path: &str) -> Result<()> {
+        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        if bytes.len() < 4 || bytes[0..4] != *b"OggS" {
+            anyhow::bail!("not an OGG asset: {path}");
+        }
+        Ok(())
+    }
+}
+
+pub struct Mp3Importer;
+
+impl Importer for Mp3Importer {
+    fn match_ext(&self, ext: &str) -> bool {
+        ext.eq_ignore_ascii_case("mp3")
+    }
+
+    fn import(&self, path: &str) -> Result<()> {
+        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        let is_id3 = bytes.len() >= 3 && &bytes[0..3] == b"ID3";
+        let is_sync = bytes.len() >= 2 && bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0;
+        if !is_id3 && !is_sync {
+            anyhow::bail!("not an MP3 asset: {path}");
+        }
+        Ok(())
+    }
+}
+
+pub struct FlacImporter;
+
+impl Importer for FlacImporter {
+    fn match_ext(&self, ext: &str) -> bool {
+        ext.eq_ignore_ascii_case("flac")
+    }
+
+    fn import(&self, path: &str) -> Result<()> {
+        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        if bytes.len() < 4 || bytes[0..4] != *b"fLaC" {
+            anyhow::bail!("not a FLAC asset: {path}");
+        }
+        Ok(())
+    }
+}
+
 /// One manifest row: stable uid plus the content it was last scanned with.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetEntry {
@@ -130,7 +180,13 @@ impl UidRegistry {
 }
 
 pub fn default_importers() -> Vec<Box<dyn Importer>> {
-    vec![Box::new(PngImporter), Box::new(WavImporter)]
+    vec![
+        Box::new(PngImporter),
+        Box::new(WavImporter),
+        Box::new(OggImporter),
+        Box::new(Mp3Importer),
+        Box::new(FlacImporter),
+    ]
 }
 
 /// FNV-1a 64-bit, rendered as 16 lowercase hex chars. Hashes file bytes
@@ -699,8 +755,56 @@ mod tests {
         assert!(WavImporter.match_ext("wav"));
         assert!(WavImporter.match_ext("WAV"));
         assert!(!WavImporter.match_ext("png"));
+
+        // Ogg tests
+        let bad_ogg = root.join("bad.ogg");
+        std::fs::write(&bad_ogg, b"NOT_OGG").unwrap();
+        assert!(OggImporter
+            .import(bad_ogg.to_string_lossy().as_ref())
+            .is_err());
+        let good_ogg = root.join("good.ogg");
+        std::fs::write(&good_ogg, b"OggS\x00\x02extra").unwrap();
+        assert!(OggImporter
+            .import(good_ogg.to_string_lossy().as_ref())
+            .is_ok());
+        assert!(OggImporter.match_ext("ogg"));
+        assert!(OggImporter.match_ext("OGG"));
+
+        // MP3 tests
+        let bad_mp3 = root.join("bad.mp3");
+        std::fs::write(&bad_mp3, b"NOT_MP3").unwrap();
+        assert!(Mp3Importer
+            .import(bad_mp3.to_string_lossy().as_ref())
+            .is_err());
+        let good_mp3_id3 = root.join("good_id3.mp3");
+        std::fs::write(&good_mp3_id3, b"ID3\x04\x00").unwrap();
+        assert!(Mp3Importer
+            .import(good_mp3_id3.to_string_lossy().as_ref())
+            .is_ok());
+        let good_mp3_sync = root.join("good_sync.mp3");
+        std::fs::write(&good_mp3_sync, &[0xFF, 0xFB, 0x90, 0x64]).unwrap();
+        assert!(Mp3Importer
+            .import(good_mp3_sync.to_string_lossy().as_ref())
+            .is_ok());
+        assert!(Mp3Importer.match_ext("mp3"));
+        assert!(Mp3Importer.match_ext("MP3"));
+
+        // FLAC tests
+        let bad_flac = root.join("bad.flac");
+        std::fs::write(&bad_flac, b"NOT_FLAC").unwrap();
+        assert!(FlacImporter
+            .import(bad_flac.to_string_lossy().as_ref())
+            .is_err());
+        let good_flac = root.join("good.flac");
+        std::fs::write(&good_flac, b"fLaC\x00\x00").unwrap();
+        assert!(FlacImporter
+            .import(good_flac.to_string_lossy().as_ref())
+            .is_ok());
+        assert!(FlacImporter.match_ext("flac"));
+        assert!(FlacImporter.match_ext("FLAC"));
+
         let importers = default_importers();
-        assert_eq!(importers.len(), 2);
+        assert_eq!(importers.len(), 5);
 
         cleanup(&root);
     }
