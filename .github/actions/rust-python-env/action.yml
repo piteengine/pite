@@ -58,3 +58,4 @@ runs:
       run: |
         echo "PYO3_PYTHON=$(which python3.12)" >> "$GITHUB_ENV"
         echo "LD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"
+        echo "DYLD_LIBRARY_PATH=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" >> "$GITHUB_ENV"

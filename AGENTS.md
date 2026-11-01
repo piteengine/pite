@@ -16,7 +16,7 @@ cargo run --locked -p pite-cli -- check
 - Single crate: `cargo test -p <crate>` (e.g. `-p pite-scene`). Focused check: `cargo run -p pite-cli -- check --path <dir>`; `--strict` promotes warnings, `--json` gives machine report. With no `--path` outside a project it falls back to `examples/minimal-2d`.
 - Build needs CPython 3.12 dev headers + ALSA headers or it fails to link: `libasound2-dev pkg-config` on Debian/Ubuntu, plus `export PYO3_PYTHON=$(which python3.12)` and `LD_LIBRARY_PATH` pointing at its `LIBDIR`.
 - WSL without Wayland: `WINIT_UNIX_BACKEND=x11 cargo run -p pite-cli -- edit`.
-- `pite` dogfood flow: `new --template minimal-2d` → `run --scene …` → `check` → `edit --scene …`. Export via `pite export linux|windows`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` — from a source checkout build both: `cargo build --release -p pite-cli -p pite-player`.
+- `pite` dogfood flow: `new --template minimal-2d` → `run --scene …` → `check` → `edit --scene …`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` — from a source checkout build both: `cargo build --release -p pite-cli -p pite-player`.
 
 ## Architecture (crate → role)
 

@@ -1,4 +1,4 @@
-# Install Pite (engine + both players) from a release bundle, verified.
+# Install Pite (engine + player binaries for all platforms) from a release bundle, verified.
 # Usage: .\install.ps1 [-Tag v0.1.0] [-Prefix "$env:LOCALAPPDATA\Pite"]
 param(
   [string]$Tag = "",
@@ -32,7 +32,7 @@ try {
     [Environment]::SetEnvironmentVariable("PATH", "$path;$Prefix", "User")
     Write-Host "added $Prefix to the user PATH (restart the terminal to use it)"
   }
-  Write-Host "installed $Tag to $Prefix (pite.exe, pite-player.exe, pite-player)"
+  Write-Host "installed $Tag to $Prefix (pite.exe, pite-player.exe, pite-player, pite-player-macos)"
 } finally {
   Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 }

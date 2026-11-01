@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use pite_render::atlas::{sheet_for_sidecar, SIDECAR_EXT};
 
-pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "windows"];
+pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "windows", "macos"];
 
 #[derive(Debug, Clone)]
 pub struct ExportOptions {
@@ -111,7 +111,7 @@ impl Drop for ExportDir {
 pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport> {
     if !SUPPORTED_PLATFORMS.contains(&opts.platform.as_str()) {
         anyhow::bail!(
-            "unsupported export platform {:?} (supported: linux, windows)",
+            "unsupported export platform {:?} (supported: linux, windows, macos)",
             opts.platform
         );
     }
@@ -269,8 +269,8 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
 }
 
 /// Bundled mode needs no Python on PATH: the loader finds `libpython` through
-/// `LD_LIBRARY_PATH` (or a `$ORIGIN` RUNPATH when the binary was built with one)
-/// and the stdlib comes from the zip. Proved on Linux.
+/// `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` (or a `$ORIGIN` RUNPATH when the binary was built with one)
+/// and the stdlib comes from the zip. Proved on Linux and macOS.
 fn unix_launcher(
     game: &str,
     bin: &str,
@@ -287,6 +287,8 @@ fn unix_launcher(
                  HERE=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n\
                  LD_LIBRARY_PATH=\"$HERE/{lib_rel}\"${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\n\
                  export LD_LIBRARY_PATH\n\
+                 DYLD_LIBRARY_PATH=\"$HERE/{lib_rel}\"${{DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}}\n\
+                 export DYLD_LIBRARY_PATH\n\
                  PYTHONPATH=\"$HERE/{zip_rel}\"\n\
                  export PYTHONPATH\n\
                  exec \"$HERE/bin/{bin}\" --scene \"$HERE/game/{main_rel}\" \"$@\"\n",
@@ -368,8 +370,8 @@ fn windows_launcher(
 }
 
 /// Which binary an export ships: an explicit `--binary`, else a `pite-player`
-/// sibling named for the target platform. Every engine bundle ships both
-/// players, so cross-platform export needs no download and no compiler.
+/// sibling named for the target platform. Engine bundles ship player binaries
+/// for all platforms, so cross-platform export needs no download and no compiler.
 /// The full `pite` binary is never shipped: it carries the editor.
 fn select_binary(opts: &ExportOptions) -> Result<PathBuf> {
     select_binary_from(opts, std::env::current_exe().ok())
@@ -384,6 +386,23 @@ fn player_bin_name(platform: &str) -> &'static str {
     }
 }
 
+/// Candidate sibling player binary names for `platform` when running on `host_os`.
+fn candidate_player_names(platform: &str, host_os: &str) -> Vec<String> {
+    if platform == host_os {
+        vec![player_bin_name(platform).to_string()]
+    } else {
+        match platform {
+            "windows" => vec![
+                "pite-player.exe".to_string(),
+                "pite-player-windows.exe".to_string(),
+            ],
+            "macos" => vec!["pite-player-macos".to_string()],
+            "linux" => vec!["pite-player-linux".to_string(), "pite-player".to_string()],
+            _ => vec![format!("pite-player-{platform}")],
+        }
+    }
+}
+
 fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(p) = &opts.binary {
         if !p.is_file() {
@@ -392,14 +411,16 @@ fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Res
         return Ok(p.clone());
     }
     if let Some(dir) = current_exe.as_ref().and_then(|e| e.parent()) {
-        let sibling = dir.join(player_bin_name(&opts.platform));
-        if sibling.is_file() {
-            return Ok(sibling);
+        for name in candidate_player_names(&opts.platform, std::env::consts::OS) {
+            let sibling = dir.join(name);
+            if sibling.is_file() {
+                return Ok(sibling);
+            }
         }
     }
     anyhow::bail!(
-        "export needs a pite-player binary for {} next to {} (engine bundles ship both \
-         players), or pass --binary with a player binary",
+        "export needs a pite-player binary for {} next to {} (engine bundles ship player \
+         binaries for all platforms), or pass --binary with a player binary",
         opts.platform,
         current_exe
             .as_deref()
@@ -844,6 +865,63 @@ def _once():
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn macos_bundling_stages_runtime_and_stdlib_next_to_the_game() {
+        let Some(spec) = python_bundle::pinned("macos") else {
+            panic!("macos must have a pinned bundle");
+        };
+        let dir = std::env::temp_dir().join(format!("pite-stage-mac-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("python/lib/python3.12/site-packages")).unwrap();
+        std::fs::write(
+            dir.join("python/lib").join("libpython3.12.dylib"),
+            b"fake-dylib",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("python/lib/python3.12").join("os.py"),
+            b"import sys\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("python/lib/python3.12/site-packages")
+                .join("pip.py"),
+            b"raise SystemExit\n",
+        )
+        .unwrap();
+        let archive = dir.join("archive.tar.gz");
+        let tar = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&dir)
+            .arg("python")
+            .output();
+        if !tar.as_ref().is_ok_and(|o| o.status.success()) {
+            eprintln!("skipped: tar unavailable");
+            return;
+        }
+        let out = dir.join("out");
+        let staged = python_bundle::stage(&spec, &archive, &out).unwrap();
+        assert!(staged.lib.ends_with("libpython3.12.dylib"), "{staged:?}");
+        assert!(staged.lib.is_file());
+        assert!(staged.stdlib_zip.is_file());
+        let listing = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import zipfile,sys; print(sorted(zipfile.ZipFile(sys.argv[1]).namelist()))")
+            .arg(&staged.stdlib_zip)
+            .output()
+            .expect("python3 lists the zip");
+        let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
+        assert!(listing.contains("os.py"), "{listing}");
+        assert!(!listing.contains("site-packages"), "{listing}");
+        assert!(
+            !out.join(".staging").exists(),
+            "staging dir must be cleaned up"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// Real download + export layout. Gated: it fetches a pinned 60 MB archive
     /// the first time, then runs from the local toolchain cache.
     #[test]
@@ -1150,6 +1228,61 @@ def _once():
         let got = select_binary_from(&bin_opts(foreign, None), Some(fake_exe)).unwrap();
         assert_eq!(got, sibling);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn foreign_macos_uses_bundled_sibling() {
+        let dir = sel_dir("foreign-macos");
+        let fake_exe = dir.join("pite");
+        let sibling = dir.join("pite-player-macos");
+        std::fs::write(&fake_exe, "x").unwrap();
+        std::fs::write(&sibling, "x").unwrap();
+        let got = select_binary_from(&bin_opts("macos", None), Some(fake_exe)).unwrap();
+        assert_eq!(got, sibling);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn macos_export_layout_without_bundle() {
+        let (dir, bin) = fixture("mac-layout");
+        let report = export_project(
+            &dir,
+            &ExportOptions {
+                platform: "macos".to_string(),
+                out_dir: None,
+                binary: Some(bin),
+                skip_python_check: true,
+                bundle_python: false,
+            },
+        )
+        .unwrap();
+        let out = &report.out_dir;
+        assert!(out.join("bin").join("fixt").is_file());
+        assert!(out.join("run.sh").is_file());
+        let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
+        assert!(sh.contains("needs system Python 3.12"));
+        assert!(sh.contains("--scene"));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(out).ok();
+    }
+
+    #[test]
+    fn unix_launcher_sets_both_ld_and_dyld_library_paths() {
+        let bundle = python_bundle::StagedBundle {
+            root: PathBuf::from("/game/python"),
+            lib: PathBuf::from("/game/python/lib/libpython3.12.dylib"),
+            stdlib_zip: PathBuf::from("/game/python/python312.zip"),
+        };
+        let sh = unix_launcher(
+            "game",
+            "bin",
+            "main.ptscn",
+            Path::new("/game"),
+            Some(&bundle),
+        );
+        assert!(sh.contains("LD_LIBRARY_PATH"));
+        assert!(sh.contains("DYLD_LIBRARY_PATH"));
+        assert!(sh.contains("PYTHONPATH"));
     }
 
     #[test]

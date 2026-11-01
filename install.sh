@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install Pite (engine + both players) from a release bundle, verified.
+# Install Pite (engine + player binaries for all platforms) from a release bundle, verified.
 # Usage: ./install.sh [tag]   (tag defaults to the latest release)
 # Env: PREFIX (default $HOME/.local), PITE_VERSION (overrides the tag arg).
 set -e
@@ -14,7 +14,13 @@ fi
 
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="$PREFIX/bin"
-BUNDLE="pite-$TAG-linux.tar.gz"
+OS="$(uname -s)"
+case "$OS" in
+  Linux*)  PLATFORM="linux";;
+  Darwin*) PLATFORM="macos";;
+  *) echo "error: unsupported operating system $OS" >&2; exit 1;;
+esac
+BUNDLE="pite-$TAG-$PLATFORM.tar.gz"
 BASE="https://github.com/$REPO/releases/download/$TAG"
 
 work="$(mktemp -d)"
@@ -22,13 +28,20 @@ trap 'rm -rf "$work"' EXIT INT TERM
 cd "$work"
 curl -fsSL -O "$BASE/$BUNDLE"
 curl -fsSL -O "$BASE/SHA256SUMS"
-grep -F " $BUNDLE" SHA256SUMS | sha256sum -c - >/dev/null
+if command -v sha256sum >/dev/null 2>&1; then
+  grep -F " $BUNDLE" SHA256SUMS | sha256sum -c - >/dev/null
+elif command -v shasum >/dev/null 2>&1; then
+  grep -F " $BUNDLE" SHA256SUMS | shasum -a 256 -c - >/dev/null
+else
+  echo "error: neither sha256sum nor shasum found" >&2
+  exit 1
+fi
 
 mkdir -p "$BINDIR"
-tar -xzf "$BUNDLE" -C "$BINDIR" pite pite-player pite-player.exe
-chmod +x "$BINDIR/pite" "$BINDIR/pite-player"
+tar -xzf "$BUNDLE" -C "$BINDIR"
+chmod +x "$BINDIR/pite" "$BINDIR"/pite-player*
 
-echo "installed $TAG to $BINDIR (pite, pite-player, pite-player.exe)"
+echo "installed $TAG to $BINDIR"
 case ":$PATH:" in
   *":$BINDIR:"*) ;;
   *) echo "note: $BINDIR is not on PATH; add: export PATH=\"$BINDIR:\$PATH\"" ;;
