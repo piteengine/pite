@@ -44,7 +44,7 @@ pub struct BundleSpec {
     pub pth_name: Option<&'static str>,
 }
 
-/// The two `install_only` archives do not agree on layout: Linux nests the
+/// The `install_only` archives do not agree on layout: Linux and macOS nest the
 /// stdlib under `lib/python3.12/`, Windows puts it straight in `Lib/`. Windows
 /// also ships `python3.dll` next to `python312.dll`, but the first is a 56 KB
 /// forwarder onto the second, so only the versioned library can be staged.
@@ -68,18 +68,41 @@ const WINDOWS: BundleSpec = BundleSpec {
     pth_name: Some("python312._pth"),
 };
 
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const MACOS: BundleSpec = BundleSpec {
+    platform: "macos",
+    file: "cpython-3.12.9+20250317-x86_64-apple-darwin-install_only.tar.gz",
+    sha256: "1ee1b1bb9fbce5c145c4bec9a3c98d7a4fa22543e09a7c1d932bc8599283c2dc",
+    lib: "lib/libpython3.12.dylib",
+    stdlib: "lib/python3.12",
+    zip_name: "python312.zip",
+    pth_name: None,
+};
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+const MACOS: BundleSpec = BundleSpec {
+    platform: "macos",
+    file: "cpython-3.12.9+20250317-aarch64-apple-darwin-install_only.tar.gz",
+    sha256: "7c7fd9809da0382a601a79287b5d62d61ce0b15f5a5ee836233727a516e85381",
+    lib: "lib/libpython3.12.dylib",
+    stdlib: "lib/python3.12",
+    zip_name: "python312.zip",
+    pth_name: None,
+};
+
 /// The pinned artifact for `platform`, or `None` when we do not ship one.
 pub fn pinned(platform: &str) -> Option<BundleSpec> {
     match platform {
         "linux" => Some(LINUX),
         "windows" => Some(WINDOWS),
+        "macos" => Some(MACOS),
         _ => None,
     }
 }
 
 /// Every platform whose bundle artifact is pinned and checksummed.
 pub fn pinned_platforms() -> Vec<&'static str> {
-    vec!["linux", "windows"]
+    vec!["linux", "windows", "macos"]
 }
 
 /// Where downloaded toolchains live. Never inside the project or repo.
@@ -367,12 +390,21 @@ fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<
     Ok(())
 }
 
-/// Env the launcher must set for a staged bundle. Proved on Linux: the
-/// process runs with no Python on `PATH`.
+/// Env the launcher must set for a staged bundle. Proved on Linux and macOS:
+/// the process runs with no Python on `PATH`.
 pub fn launcher_env(bundle: &StagedBundle) -> Vec<(String, String)> {
     vec![
         (
             "LD_LIBRARY_PATH".to_string(),
+            bundle
+                .lib
+                .parent()
+                .unwrap_or(&bundle.root)
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        (
+            "DYLD_LIBRARY_PATH".to_string(),
             bundle
                 .lib
                 .parent()
@@ -416,7 +448,7 @@ mod tests {
             );
             assert!(spec.file.starts_with("cpython-3.12"));
         }
-        assert!(pinned("macos").is_none());
+        assert!(pinned("ps5").is_none());
     }
 
     #[test]

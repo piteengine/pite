@@ -4,7 +4,7 @@ Ships a playable build of the project: a lean `pite-player` binary, the
 resolved content, and a launcher (`run.sh` / `run.bat`).
 
 ```sh
-pite export linux|windows [--path <dir>] [--out <dir>] [--binary <file>]
+pite export linux|windows|macos [--path <dir>] [--out <dir>] [--binary <file>]
   [--skip-python-check] [--no-bundle-python]
 ```
 
@@ -17,10 +17,10 @@ old manifests carrying it still parse with a deprecation warning.
 ## Player binary
 
 Which binary an export ships: an explicit `--binary`, else a `pite-player`
-sibling (`pite-player.exe` on Windows) next to the engine binary. Every
-engine bundle ships both players, so cross-platform export needs no download
-and no compiler. Without either, export fails and tells you to pass
-`--binary`.
+sibling (`pite-player.exe` on Windows, `pite-player-macos` or `pite-player` on macOS)
+next to the engine binary. Engine bundles ship player binaries for all supported
+platforms, so cross-platform export needs no download and no compiler. Without
+either, export fails and tells you to pass `--binary`.
 
 ## Python
 
