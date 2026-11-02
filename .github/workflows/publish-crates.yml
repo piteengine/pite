@@ -98,12 +98,6 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-assets --wait-for pite-render
 
-      - name: Publish pite-export (waits for live project and render)
-        shell: bash
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-export --wait-for pite-project --wait-for pite-render
-
       - name: Publish pite-script (waits for live assets, audio, and physics)
         shell: bash
         env:
@@ -115,6 +109,12 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-runtime --wait-for pite-script
+
+      - name: Publish pite-export (waits for live runtime, project, and render)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-export --wait-for pite-runtime --wait-for pite-project --wait-for pite-render
 
       - name: Publish pite-editor (waits for live runtime and export)
         shell: bash
