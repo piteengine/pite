@@ -48,7 +48,7 @@ Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene (d
 pite export linux
 ```
 
-`export linux|windows|macos` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files, plus `vendor/` for third-party Python packages. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship player binaries for all platforms, so any machine exports for any platform with no download and no compiler.
+`export linux|windows|macos` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files, plus `vendor/` for third-party Python packages. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship player binaries for all platforms, so any machine exports for any platform with no download and no compiler. When a player sibling is absent, export falls back to downloading and caching the platform's player template.
 
 Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`) and ships in the exported game. The exported game runs with no system Python installed. Passing `--no-bundle-python` falls back to end-user's system Python 3.12 (`PITE_PYTHON` overrides detection).
 

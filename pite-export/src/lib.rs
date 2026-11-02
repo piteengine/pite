@@ -3,7 +3,10 @@
 //! referenced game content into a runnable directory, together with a pinned
 //! CPython unless `--no-bundle-python` keeps the system-Python requirement.
 
+pub mod player;
 pub mod python_bundle;
+
+pub use player::{candidate_player_names, player_bin_name};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -371,36 +374,11 @@ fn windows_launcher(
 
 /// Which binary an export ships: an explicit `--binary`, else a `pite-player`
 /// sibling named for the target platform. Engine bundles ship player binaries
-/// for all platforms, so cross-platform export needs no download and no compiler.
+/// for all platforms. If no sibling binary is found beside the engine, export
+/// automatically downloads and caches the target platform's player binary.
 /// The full `pite` binary is never shipped: it carries the editor.
 fn select_binary(opts: &ExportOptions) -> Result<PathBuf> {
     select_binary_from(opts, std::env::current_exe().ok())
-}
-
-/// Player binary file name on its own platform.
-fn player_bin_name(platform: &str) -> &'static str {
-    if platform == "windows" {
-        "pite-player.exe"
-    } else {
-        "pite-player"
-    }
-}
-
-/// Candidate sibling player binary names for `platform` when running on `host_os`.
-fn candidate_player_names(platform: &str, host_os: &str) -> Vec<String> {
-    if platform == host_os {
-        vec![player_bin_name(platform).to_string()]
-    } else {
-        match platform {
-            "windows" => vec![
-                "pite-player.exe".to_string(),
-                "pite-player-windows.exe".to_string(),
-            ],
-            "macos" => vec!["pite-player-macos".to_string()],
-            "linux" => vec!["pite-player-linux".to_string(), "pite-player".to_string()],
-            _ => vec![format!("pite-player-{platform}")],
-        }
-    }
 }
 
 fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Result<PathBuf> {
@@ -418,15 +396,21 @@ fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Res
             }
         }
     }
-    anyhow::bail!(
-        "export needs a pite-player binary for {} next to {} (engine bundles ship player \
-         binaries for all platforms), or pass --binary with a player binary",
-        opts.platform,
-        current_exe
-            .as_deref()
-            .unwrap_or(Path::new("pite"))
-            .display()
-    )
+    match player::ensure_player_binary(&opts.platform) {
+        Ok(path) => Ok(path),
+        Err(e) => {
+            anyhow::bail!(
+                "export needs a pite-player binary for {} next to {} (engine bundles ship player \
+                 binaries for all platforms), or pass --binary with a player binary; \
+                 download fallback failed: {e:#}",
+                opts.platform,
+                current_exe
+                    .as_deref()
+                    .unwrap_or(Path::new("pite"))
+                    .display()
+            )
+        }
+    }
 }
 
 /// Path of `target` relative to the export root, with `/` separators.
@@ -1200,14 +1184,117 @@ def _once():
 
     #[test]
     fn missing_sibling_fails_with_build_hint() {
+        let _guard = SERIAL.lock().unwrap();
         let dir = sel_dir("nosibling");
         let fake_exe = dir.join("pite");
         std::fs::write(&fake_exe, "x").unwrap();
+        let empty_cache = dir.join("empty_cache");
+        std::fs::create_dir_all(&empty_cache).unwrap();
+        std::env::set_var("PITE_PLAYER_DIR", &empty_cache);
+        std::env::set_var("PITE_PLAYER_URL", "http://127.0.0.1:9/nonexistent");
         let err = select_binary_from(&bin_opts(std::env::consts::OS, None), Some(fake_exe))
             .unwrap_err()
             .to_string();
         assert!(err.contains("pite-player"), "got: {err}");
         assert!(err.contains("--binary"), "got: {err}");
+        std::env::remove_var("PITE_PLAYER_DIR");
+        std::env::remove_var("PITE_PLAYER_URL");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_sibling_uses_cached_player() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = sel_dir("cached_player");
+        let fake_exe = dir.join("pite");
+        std::fs::write(&fake_exe, "x").unwrap();
+        let cache = dir.join("cache");
+        let platform = std::env::consts::OS;
+        let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let cached_bin = cache
+            .join(&version)
+            .join(platform)
+            .join(player_bin_name(platform));
+        std::fs::create_dir_all(cached_bin.parent().unwrap()).unwrap();
+        std::fs::write(&cached_bin, "cached-binary-content").unwrap();
+
+        std::env::set_var("PITE_PLAYER_DIR", &cache);
+        let got = select_binary_from(&bin_opts(platform, None), Some(fake_exe)).unwrap();
+        assert_eq!(got, cached_bin);
+        std::env::remove_var("PITE_PLAYER_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_sibling_downloads_and_unpacks_player_tar_gz() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = sel_dir("dl_tar_gz");
+        let fake_exe = dir.join("pite");
+        std::fs::write(&fake_exe, "x").unwrap();
+        let cache = dir.join("cache");
+        let archive_src = dir.join("src");
+        std::fs::create_dir_all(&archive_src).unwrap();
+        let bin_src = archive_src.join("pite-player-linux");
+        std::fs::write(&bin_src, "downloaded-player-content").unwrap();
+        let archive_tar = dir.join("pite-player-v0.2.0-linux.tar.gz");
+
+        let status = std::process::Command::new("tar")
+            .args([
+                "-czf",
+                archive_tar.to_str().unwrap(),
+                "-C",
+                archive_src.to_str().unwrap(),
+                "pite-player-linux",
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        std::env::set_var("PITE_PLAYER_DIR", &cache);
+        std::env::set_var(
+            "PITE_PLAYER_URL",
+            format!("file://{}", archive_tar.display()),
+        );
+        let got = select_binary_from(&bin_opts("linux", None), Some(fake_exe)).unwrap();
+        assert!(got.is_file());
+        let content = std::fs::read_to_string(&got).unwrap();
+        assert_eq!(content, "downloaded-player-content");
+
+        std::env::remove_var("PITE_PLAYER_DIR");
+        std::env::remove_var("PITE_PLAYER_URL");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_sibling_downloads_and_unpacks_player_zip() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = sel_dir("dl_zip");
+        let fake_exe = dir.join("pite");
+        std::fs::write(&fake_exe, "x").unwrap();
+        let cache = dir.join("cache");
+        let archive_zip = dir.join("pite-player-v0.2.0-windows.zip");
+
+        {
+            let file = std::fs::File::create(&archive_zip).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("pite-player-windows.exe", options).unwrap();
+            std::io::Write::write_all(&mut zip, b"windows-player-content").unwrap();
+            zip.finish().unwrap();
+        }
+
+        std::env::set_var("PITE_PLAYER_DIR", &cache);
+        std::env::set_var(
+            "PITE_PLAYER_URL",
+            format!("file://{}", archive_zip.display()),
+        );
+        let got = select_binary_from(&bin_opts("windows", None), Some(fake_exe)).unwrap();
+        assert!(got.is_file());
+        let content = std::fs::read_to_string(&got).unwrap();
+        assert_eq!(content, "windows-player-content");
+
+        std::env::remove_var("PITE_PLAYER_DIR");
+        std::env::remove_var("PITE_PLAYER_URL");
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -32,7 +32,7 @@ try {
     [Environment]::SetEnvironmentVariable("PATH", "$path;$Prefix", "User")
     Write-Host "added $Prefix to the user PATH (restart the terminal to use it)"
   }
-  Write-Host "installed $Tag to $Prefix (pite.exe, pite-player.exe, pite-player, pite-player-macos)"
+  Write-Host "installed $Tag to $Prefix (pite.exe, pite-player-windows.exe, pite-player-linux, pite-player-macos)"
 } finally {
   Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 }

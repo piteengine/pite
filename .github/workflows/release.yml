@@ -64,28 +64,52 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: dist
-      - name: Assemble the engine bundles (engine + player binaries for all platforms)
+      - name: Assemble the engine and player bundles
         shell: bash
         run: |
           mkdir -p bundle/linux bundle/windows bundle/macos
+          mkdir -p bundle/player-linux bundle/player-windows bundle/player-macos bundle/player-allplatforms
+
+          # Engine bundles (engine + player binaries for all platforms)
           cp dist/dist-linux/pite-linux bundle/linux/pite
-          cp dist/dist-linux/pite-player-linux bundle/linux/pite-player
-          cp dist/dist-windows/pite-player-windows.exe bundle/linux/pite-player.exe
+          cp dist/dist-linux/pite-player-linux bundle/linux/pite-player-linux
+          cp dist/dist-windows/pite-player-windows.exe bundle/linux/pite-player-windows.exe
           cp dist/dist-macos/pite-player-macos bundle/linux/pite-player-macos
 
           cp dist/dist-windows/pite-windows.exe bundle/windows/pite.exe
-          cp dist/dist-windows/pite-player-windows.exe bundle/windows/pite-player.exe
-          cp dist/dist-linux/pite-player-linux bundle/windows/pite-player
+          cp dist/dist-windows/pite-player-windows.exe bundle/windows/pite-player-windows.exe
+          cp dist/dist-linux/pite-player-linux bundle/windows/pite-player-linux
           cp dist/dist-macos/pite-player-macos bundle/windows/pite-player-macos
 
           cp dist/dist-macos/pite-macos bundle/macos/pite
-          cp dist/dist-macos/pite-player-macos bundle/macos/pite-player
-          cp dist/dist-windows/pite-player-windows.exe bundle/macos/pite-player.exe
+          cp dist/dist-macos/pite-player-macos bundle/macos/pite-player-macos
+          cp dist/dist-windows/pite-player-windows.exe bundle/macos/pite-player-windows.exe
           cp dist/dist-linux/pite-player-linux bundle/macos/pite-player-linux
 
-          tar -czf "dist/pite-${{ github.ref_name }}-linux.tar.gz" -C bundle/linux pite pite-player pite-player.exe pite-player-macos
-          zip -j "dist/pite-${{ github.ref_name }}-windows.zip" bundle/windows/pite.exe bundle/windows/pite-player.exe bundle/windows/pite-player bundle/windows/pite-player-macos
-          tar -czf "dist/pite-${{ github.ref_name }}-macos.tar.gz" -C bundle/macos pite pite-player pite-player.exe pite-player-linux
+          tar -czf "dist/pite-${{ github.ref_name }}-linux.tar.gz" -C bundle/linux pite pite-player-linux pite-player-windows.exe pite-player-macos
+          zip -j "dist/pite-${{ github.ref_name }}-windows.zip" bundle/windows/pite.exe bundle/windows/pite-player-windows.exe bundle/windows/pite-player-linux bundle/windows/pite-player-macos
+          tar -czf "dist/pite-${{ github.ref_name }}-macos.tar.gz" -C bundle/macos pite pite-player-macos pite-player-windows.exe pite-player-linux
+
+          # Standalone player bundles
+          cp dist/dist-linux/pite-player-linux bundle/player-linux/pite-player-linux
+          chmod +x bundle/player-linux/pite-player-linux
+          tar -czf "dist/pite-player-${{ github.ref_name }}-linux.tar.gz" -C bundle/player-linux pite-player-linux
+
+          cp dist/dist-windows/pite-player-windows.exe bundle/player-windows/pite-player-windows.exe
+          zip -j "dist/pite-player-${{ github.ref_name }}-windows.zip" bundle/player-windows/pite-player-windows.exe
+
+          cp dist/dist-macos/pite-player-macos bundle/player-macos/pite-player-macos
+          chmod +x bundle/player-macos/pite-player-macos
+          tar -czf "dist/pite-player-${{ github.ref_name }}-macos.tar.gz" -C bundle/player-macos pite-player-macos
+
+          # All-platforms player bundles
+          cp dist/dist-linux/pite-player-linux bundle/player-allplatforms/pite-player-linux
+          cp dist/dist-windows/pite-player-windows.exe bundle/player-allplatforms/pite-player-windows.exe
+          cp dist/dist-macos/pite-player-macos bundle/player-allplatforms/pite-player-macos
+          chmod +x bundle/player-allplatforms/pite-player-linux bundle/player-allplatforms/pite-player-macos
+
+          tar -czf "dist/pite-player-${{ github.ref_name }}-allplatforms.tar.gz" -C bundle/player-allplatforms pite-player-linux pite-player-windows.exe pite-player-macos
+          zip -j "dist/pite-player-${{ github.ref_name }}-allplatforms.zip" bundle/player-allplatforms/pite-player-linux bundle/player-allplatforms/pite-player-windows.exe bundle/player-allplatforms/pite-player-macos
       - name: Publish the bundles and checksums
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

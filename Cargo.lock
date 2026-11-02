@@ -3021,6 +3021,7 @@ dependencies = [
  "pite-scene",
  "sha2",
  "toml",
+ "tracing",
  "zip",
 ]
 

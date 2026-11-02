@@ -17,10 +17,13 @@ old manifests carrying it still parse with a deprecation warning.
 ## Player binary
 
 Which binary an export ships: an explicit `--binary`, else a `pite-player`
-sibling (`pite-player.exe` on Windows, `pite-player-macos` or `pite-player` on macOS)
+sibling (`pite-player-linux` on Linux, `pite-player-windows.exe` on Windows, `pite-player-macos` on macOS)
 next to the engine binary. Engine bundles ship player binaries for all supported
-platforms, so cross-platform export needs no download and no compiler. Without
-either, export fails and tells you to pass `--binary`.
+platforms, so cross-platform export needs no download and no compiler. When the player
+binary is missing beside the engine (e.g. after a bare `cargo install`), export
+automatically downloads the release archive for the target platform and caches the
+player binary in `~/.cache/pite/toolchains/players/` (or `PITE_PLAYER_DIR`). Without
+network access or when offline, export fails and tells you to pass `--binary`.
 
 ## Python
 
