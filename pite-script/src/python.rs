@@ -1015,6 +1015,8 @@ impl Pyo3Backend {
                 path.call_method1("insert", (0, vendor.to_string_lossy().as_ref()))?;
             }
             path.call_method1("insert", (0, dir.to_string_lossy().as_ref()))?;
+            let modules = sys.getattr("modules")?;
+            let _ = modules.call_method1("pop", (stem.as_str(), py.None()));
             let code = std::ffi::CString::new(src.clone())?;
             let filename = std::ffi::CString::new(format!("{stem}.py"))?;
             let modname = std::ffi::CString::new(stem.clone())?;
@@ -1121,13 +1123,35 @@ impl ScriptBackend for Pyo3Backend {
 
     fn reload(&mut self) -> Result<()> {
         let pos = self.position();
+        let vel = self.velocity();
         let text = self.text();
         let size = self.size();
         let wait = self.wait_time();
+        let old_dict: Option<std::collections::HashMap<String, Py<PyAny>>> = Python::attach(|py| {
+            let inst = self.instance.as_ref()?.bind(py);
+            let dict = inst.getattr("__dict__").ok()?;
+            let py_dict = dict.cast::<pyo3::types::PyDict>().ok()?;
+            let mut attrs = std::collections::HashMap::new();
+            for (k, v) in py_dict {
+                if let Ok(key) = k.extract::<String>() {
+                    if key != "node_path"
+                        && key != "_descriptor_cache"
+                        && key != "position"
+                        && key != "velocity"
+                    {
+                        attrs.insert(key, v.into());
+                    }
+                }
+            }
+            Some(attrs)
+        });
         self.last_error = None;
         self.exec()?;
         if let Some((x, y)) = pos {
             self.set_position(x, y);
+        }
+        if let Some((vx, vy)) = vel {
+            self.set_velocity(vx, vy);
         }
         if let Some(text) = text {
             self.set_text(&text);
@@ -1137,6 +1161,19 @@ impl ScriptBackend for Pyo3Backend {
         }
         if let Some(wait) = wait {
             self.set_wait_time(wait);
+        }
+        if let Some(attrs) = old_dict {
+            Python::attach(|py| {
+                if let Some(inst) = &self.instance {
+                    if let Ok(dict) = inst.bind(py).getattr("__dict__") {
+                        if let Ok(py_dict) = dict.cast::<pyo3::types::PyDict>() {
+                            for (k, v) in attrs {
+                                let _ = py_dict.set_item(k, v);
+                            }
+                        }
+                    }
+                }
+            });
         }
         Ok(())
     }

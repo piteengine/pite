@@ -304,7 +304,7 @@ pub fn instantiate(
     Ok((descs, format!("{prefix}{}", doc.root)))
 }
 
-fn resolve_scene_ref(
+pub fn resolve_scene_ref(
     scene_ref: &str,
     scene_dir: &Path,
     project_dir: Option<&Path>,

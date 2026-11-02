@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Hot reload reliability and asset watching:
+  - Editor hot reload: `poll_watch` now runs continuously while editing (when `playing == false`) so external script or scene modifications reload without starting gameplay.
+  - Scene filter: hot reload only rebuilds the active scene when the touched `.ptscn` matches the main scene or its transitively instantiated sub-scenes, ignoring unrelated scene files.
+  - Python state preservation: script reload preserves custom instance attributes and body velocity across reloads while clearing stale module dictionaries in `sys.modules`.
+  - Asset cache invalidation: modifying `.png` textures or `.atlas.json` files invalidates cached renderer textures and triggers offscreen viewport redraws.
+
 - Python API redesign with direct handles and vector math:
   - `Vec2` class: native 2D math type supporting vector operations (`+`, `-`, `*`, `/`), in-place mutation (`+=`, `-=`, `*=`, `/=`), indexing (`[0]`, `[1]`), tuple sequence unpacking (`x, y = self.position`), and `.length()` / `.normalized()`.
   - Direct engine transform mutations: mutating `self.position.x` or assigning `self.position = (x, y)` directly updates `ScriptHost`, deleting the redundant end-of-frame Python `getattr` and string-allocation sync pass.

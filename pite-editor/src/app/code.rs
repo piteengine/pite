@@ -36,6 +36,7 @@ impl EditorApp {
             Ok(()) => {
                 if self.code_is_python() {
                     self.session.reload_script_path(&file);
+                    self.viewport_dirty = true;
                 }
                 self.log(format!("saved {}", file.display()));
             }

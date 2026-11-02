@@ -354,6 +354,13 @@ impl ScriptHost {
             .unwrap()
             .retain(|(src, _), _| src != node);
     }
+
+    pub fn invalidate_proxy_cache(&self, node: &str) {
+        self.proxy_cache
+            .lock()
+            .unwrap()
+            .retain(|(src, _), _| src != node);
+    }
 }
 
 fn coerce_payload(want: &str, arg: &Bound<'_, PyAny>) -> anyhow::Result<PayloadValue> {

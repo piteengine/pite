@@ -105,6 +105,7 @@ pub struct GameSession {
     physics_accumulator: f64,
     pub pause_on_error: bool,
     pub last_error: Option<pite_script::ScriptError>,
+    pub dirty_assets: HashSet<PathBuf>,
 }
 
 impl GameSession {
@@ -131,6 +132,7 @@ impl GameSession {
             physics_accumulator: 0.0,
             pause_on_error: false,
             last_error: None,
+            dirty_assets: HashSet::new(),
         };
         pite_script::set_current_host(session.host.clone());
         pite_script::set_current_physics(Some(session.physics.clone()));
@@ -167,11 +169,14 @@ impl GameSession {
             .collect()
     }
 
-    pub fn reload_script_path(&mut self, path: &Path) {
+    pub fn reload_script_path(&mut self, path: &Path) -> bool {
+        let mut reloaded = false;
         for slot in self.slots.iter_mut().filter(|s| same_file(&s.file, path)) {
             match slot.backend.reload() {
                 Ok(()) => {
                     slot.errored = false;
+                    self.host.invalidate_proxy_cache(slot.id.as_str());
+                    reloaded = true;
                     tracing::info!(node = %slot.id, "script reloaded");
                 }
                 Err(e) => {
@@ -179,6 +184,27 @@ impl GameSession {
                 }
             }
         }
+        reloaded
+    }
+
+    pub fn is_scene_affected(&self, path: &Path) -> bool {
+        if same_file(path, &self.scene) {
+            return true;
+        }
+        if let Ok(doc) = pite_scene::load_scene_cached(&self.scene) {
+            for inst in &doc.instance {
+                if let Ok(inst_path) = pite_scene::resolve_scene_ref(
+                    &inst.scene,
+                    &self.scene_dir,
+                    self.project_dir.as_deref(),
+                ) {
+                    if same_file(path, &inst_path) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     pub fn tree_len(&self) -> usize {
@@ -230,6 +256,11 @@ impl GameSession {
     }
 
     pub fn draw_into(&mut self, r: &mut dyn Renderer2D) -> Result<()> {
+        if !self.dirty_assets.is_empty() {
+            for p in self.dirty_assets.drain() {
+                r.reload_asset(&p.to_string_lossy());
+            }
+        }
         let (cam, _) = self.camera_view();
         r.set_camera(cam.0, cam.1, self.effective_zoom());
         let sprite_nodes: Vec<(String, String, Option<String>, Option<String>, (f64, f64))> =
@@ -545,12 +576,13 @@ impl GameSession {
         Ok(())
     }
 
-    pub fn poll_watch(&mut self) {
+    pub fn poll_watch(&mut self) -> bool {
         if self.no_reload {
-            return;
+            return false;
         }
         let mut script_touched: HashSet<PathBuf> = HashSet::new();
         let mut scene_touched = false;
+        let mut assets_touched: HashSet<PathBuf> = HashSet::new();
         if let Some(rx) = &self.watch_rx {
             while let Ok(result) = rx.try_recv() {
                 let Ok(event) = result else { continue };
@@ -566,22 +598,38 @@ impl GameSession {
                             script_touched.insert(path);
                         }
                         Some("ptscn") => {
-                            scene_touched = true;
+                            if self.is_scene_affected(&path) {
+                                scene_touched = true;
+                            }
+                        }
+                        Some("png") | Some("json") => {
+                            assets_touched.insert(path);
                         }
                         _ => {}
                     }
                 }
             }
         }
+        let mut changed = false;
         for path in script_touched {
-            self.reload_script_path(&path);
+            if self.reload_script_path(&path) {
+                changed = true;
+            }
+        }
+        if !assets_touched.is_empty() {
+            self.dirty_assets.extend(assets_touched);
+            changed = true;
         }
         if scene_touched {
             match self.rebuild() {
-                Ok(()) => tracing::info!("scene reloaded"),
+                Ok(()) => {
+                    changed = true;
+                    tracing::info!("scene reloaded");
+                }
                 Err(e) => tracing::error!("scene reload failed, keeping old tree: {e:#}"),
             }
         }
+        changed
     }
 
     pub fn rebuild_physics(&mut self) {
@@ -1289,6 +1337,77 @@ mod tests {
         let scene = dir.join("scenes").join("main.ptscn");
         let session = GameSession::open(&scene, true).unwrap();
         assert!(session.watch_rx.is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unrelated_scene_edit_does_not_rebuild() {
+        let _guard = SERIAL.lock().unwrap();
+        let (dir, _) = make_project("unrelated", "Mover", V1);
+        let scene = dir.join("scenes").join("main.ptscn");
+        let other = dir.join("scenes").join("other.ptscn");
+        std::fs::write(
+            &other,
+            "format_version = 1\nroot = \"other\"\n\n[[node]]\nid = \"other\"\ntype = \"Node2D\"\nname = \"Other\"\n",
+        )
+        .unwrap();
+        let mut session = GameSession::open(&scene, false).unwrap();
+        assert_eq!(session.tree_len(), 2);
+
+        std::fs::write(
+            &other,
+            "format_version = 1\nroot = \"other2\"\n\n[[node]]\nid = \"other2\"\ntype = \"Node2D\"\nname = \"Other2\"\n",
+        )
+        .unwrap();
+        for _ in 0..10 {
+            session.poll_watch();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(session.tree_len(), 2);
+        assert_eq!(session.script_count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn script_reload_preserves_custom_attributes_and_velocity() {
+        let _guard = SERIAL.lock().unwrap();
+        let src1 = "import pite\n\nclass Char(pite.CharacterBody2D):\n    def _ready(self):\n        self.score = 42\n        self.velocity = (123.0, 456.0)\n";
+        let src2 = "import pite\n\nclass Char(pite.CharacterBody2D):\n    def _process(self, delta):\n        pass\n";
+        let (dir, script) = make_project("char-preserve", "Char", src1);
+        let scene = dir.join("scenes").join("main.ptscn");
+        std::fs::write(
+            &scene,
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"mover\"\ntype = \"CharacterBody2D\"\nname = \"Char\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/mover.py\"\nclass = \"Char\"\n",
+        )
+        .unwrap();
+        let mut session = GameSession::open(&scene, false).unwrap();
+        session.update(0.016);
+
+        use pite_script::pyo3::{self, types::PyAnyMethods};
+        pyo3::Python::attach(|py| {
+            let inst = session.host.lookup_instance(py, "mover").unwrap();
+            let score: i32 = inst.bind(py).getattr("score").unwrap().extract().unwrap();
+            assert_eq!(score, 42);
+        });
+        assert_eq!(session.slots[0].backend.velocity(), Some((123.0, 456.0)));
+
+        std::fs::write(&script, src2).unwrap();
+        let mut reloaded = false;
+        for _ in 0..100 {
+            if session.poll_watch() {
+                reloaded = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(reloaded, "script reload never detected");
+
+        pyo3::Python::attach(|py| {
+            let inst = session.host.lookup_instance(py, "mover").unwrap();
+            let score: i32 = inst.bind(py).getattr("score").unwrap().extract().unwrap();
+            assert_eq!(score, 42);
+        });
+        assert_eq!(session.slots[0].backend.velocity(), Some((123.0, 456.0)));
         std::fs::remove_dir_all(&dir).ok();
     }
 

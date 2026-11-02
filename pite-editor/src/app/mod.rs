@@ -254,6 +254,9 @@ impl eframe::App for EditorApp {
             self.session.frame(delta);
             self.drain_script_errors();
             ctx.request_repaint();
+        } else if self.session.poll_watch() {
+            self.viewport_dirty = true;
+            ctx.request_repaint();
         }
     }
 

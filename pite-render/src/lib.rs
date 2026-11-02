@@ -32,6 +32,8 @@ pub trait Renderer2D {
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
     fn end_frame(&mut self) -> Result<()>;
     fn set_camera(&mut self, _x: f64, _y: f64, _zoom: f64) {}
+    fn reload_asset(&mut self, _path: &str) {}
+    fn clear_asset_cache(&mut self) {}
 }
 
 #[derive(Debug, Default)]
@@ -64,6 +66,9 @@ impl Renderer2D for NoopRenderer {
     fn end_frame(&mut self) -> Result<()> {
         Ok(())
     }
+
+    fn reload_asset(&mut self, _path: &str) {}
+    fn clear_asset_cache(&mut self) {}
 }
 
 pub fn world_to_screen(
@@ -638,6 +643,22 @@ impl SharedQueue {
             .collect();
         build_groups(sprites, &sizes, self.cam, self.zoom, size)
     }
+
+    fn reload_asset(&mut self, path: &str) {
+        self.textures.remove(path);
+        self.sprite_atlases.remove(path);
+        let path_obj = std::path::Path::new(path);
+        if let Some(stem) = path_obj.file_stem().and_then(|s| s.to_str()) {
+            let pure_stem = stem.strip_suffix(".atlas").unwrap_or(stem);
+            self.textures.retain(|k, _| !k.contains(pure_stem));
+            self.sprite_atlases.retain(|k, _| !k.contains(pure_stem));
+        }
+    }
+
+    fn clear_asset_cache(&mut self) {
+        self.textures.clear();
+        self.sprite_atlases.clear();
+    }
 }
 
 pub struct WgpuRenderer {
@@ -770,6 +791,14 @@ impl Renderer2D for WgpuRenderer {
 
     fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
         self.shared.set_camera(x, y, zoom);
+    }
+
+    fn reload_asset(&mut self, path: &str) {
+        self.shared.reload_asset(path);
+    }
+
+    fn clear_asset_cache(&mut self) {
+        self.shared.clear_asset_cache();
     }
 }
 
@@ -988,6 +1017,14 @@ impl Renderer2D for OffscreenRenderer {
 
     fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
         self.shared.set_camera(x, y, zoom);
+    }
+
+    fn reload_asset(&mut self, path: &str) {
+        self.shared.reload_asset(path);
+    }
+
+    fn clear_asset_cache(&mut self) {
+        self.shared.clear_asset_cache();
     }
 }
 

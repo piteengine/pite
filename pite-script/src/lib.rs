@@ -23,6 +23,7 @@ pub use input::{
     input_set_key, input_set_mouse,
 };
 pub use physics_bridge::{current_physics, set_current_physics, with_physics};
+pub use pyo3;
 pub use python::{is_stdlib_module, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError};
 pub use vec2::Vec2;
 
