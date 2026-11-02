@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-for attempt in $(seq 1 15); do
+for attempt in $(seq 1 6); do
   set +e
   out=$(cargo publish -p "$crate" 2>&1)
   status=$?
@@ -49,8 +49,8 @@ for attempt in $(seq 1 15); do
     break
   fi
   if echo "$out" | grep -qi "429 Too Many Requests\|rate limit"; then
-    echo "$crate hit crates.io rate limit (attempt $attempt/15) — waiting 60s to retry"
-    sleep 60
+    echo "$crate hit crates.io rate limit (attempt $attempt/6) — waiting 5m to retry"
+    sleep 300
   else
     exit $status
   fi
