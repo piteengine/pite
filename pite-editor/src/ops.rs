@@ -15,7 +15,18 @@ use pite_scene::{SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION
 /// the registry exposes no listing API and the editor must not touch core.
 pub fn registered_types() -> Vec<String> {
     [
-        "Node", "Node2D", "Sprite2D", "Camera2D", "Timer", "Label", "Button",
+        "Node",
+        "Node2D",
+        "Sprite2D",
+        "Camera2D",
+        "Timer",
+        "Label",
+        "Button",
+        "StaticBody2D",
+        "CharacterBody2D",
+        "RigidBody2D",
+        "Area2D",
+        "CollisionShape2D",
     ]
     .iter()
     .map(ToString::to_string)
@@ -62,6 +73,43 @@ pub fn add_node(
         .create(id.clone(), type_name)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     node.name = name.to_string();
+
+    match type_name {
+        "StaticBody2D" | "Area2D" => {
+            node.props
+                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
+        }
+        "CharacterBody2D" => {
+            node.props
+                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
+            node.props
+                .insert("velocity".to_string(), PropValue::Vec2(0.0, 0.0));
+        }
+        "RigidBody2D" => {
+            node.props
+                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
+            node.props.insert("mass".to_string(), PropValue::Num(1.0));
+            node.props
+                .insert("gravity_scale".to_string(), PropValue::Num(1.0));
+            node.props
+                .insert("lock_rotation".to_string(), PropValue::Bool(false));
+        }
+        "CollisionShape2D" => {
+            node.props
+                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
+            node.props
+                .insert("shape".to_string(), PropValue::Str("box".to_string()));
+            node.props
+                .insert("size".to_string(), PropValue::Vec2(32.0, 32.0));
+            node.props
+                .insert("radius".to_string(), PropValue::Num(16.0));
+            node.props
+                .insert("height".to_string(), PropValue::Num(32.0));
+            node.props
+                .insert("disabled".to_string(), PropValue::Bool(false));
+        }
+        _ => {}
+    }
     let parent = match parent {
         Some(p) => {
             if !tree.contains(&p) {

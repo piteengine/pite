@@ -85,6 +85,90 @@ pite.stop(voice)
 - `play(path, volume=1.0)` decodes the file and returns a voice id; `.wav` (8/16/24/32-bit int and float), `.ogg` (Vorbis), `.mp3`, and `.flac` are supported. Output goes to the OS default audio device; on machines with no audio device playback is simulated (a warning is logged; same API, no sound). A missing or undecodable file raises loudly — the game keeps running. `stop(id)` on an unknown id is a silent no-op, as is `set_volume` (clamped to `0.0`–`1.0`); `is_playing` on unknown ids is `False`.
 - `pite check` validates every `play("…")` literal in project scripts: the file must exist and decode.
 
+## Physics
+
+Pite includes a pure-Rust 2D physics subsystem built on `rapier2d`. Simulation runs in a fixed 60 Hz loop (`dt = 1/60`), executing `_physics_process(delta)` across active scripts.
+
+### Nodes
+
+- `StaticBody2D`: Non-moving collision body (floors, walls).
+- `CharacterBody2D`: Kinematic character controller with `move_and_slide()`.
+- `RigidBody2D`: Dynamic simulation body affected by gravity and forces.
+- `Area2D`: Trigger zones with entry/exit overlap signals.
+- `CollisionShape2D`: Child of any physics body or area defining geometric collider (`shape`: `"box"`, `"circle"`, `"capsule"`).
+
+### Character Movement
+
+```python
+class Player(pite.CharacterBody2D):
+    speed: float = 200.0
+
+    def _physics_process(self, delta: float):
+        vx, vy = self.velocity
+        if pite.held("ArrowRight"):
+            vx = self.speed
+        elif pite.held("ArrowLeft"):
+            vx = -self.speed
+        else:
+            vx = 0.0
+
+        # Gravity
+        vy += 980.0 * delta
+
+        if pite.pressed("Space") and self.is_on_floor():
+            vy = -400.0
+
+        self.velocity = (vx, vy)
+        self.move_and_slide()
+```
+
+- `move_and_slide() -> bool`: Advances shape along `velocity * dt` using obstacle sliding collision resolution (ignoring sensor areas). Updates `velocity`, `position`, and collision contact flags.
+- `is_on_floor() -> bool`, `is_on_wall() -> bool`, `is_on_ceiling() -> bool`: Collision contact queries relative to `up_direction` (default `(0.0, -1.0)`).
+
+### RigidBody2D Dynamics
+
+```python
+class Ball(pite.RigidBody2D):
+    def _ready(self):
+        self.apply_impulse((0.0, -200.0))
+```
+
+- `apply_impulse((x, y))`: Instantaneous momentum change scaled by mass.
+- `apply_force((x, y))`: Continuous force application over current step.
+- Configurable properties: `mass: float`, `gravity_scale: float`, `lock_rotation: bool`.
+
+### Area2D Triggers
+
+```python
+class Coin(pite.Area2D):
+    def _ready(self):
+        self.body_entered.connect(self.on_body)
+
+    def on_body(self, body_id: str):
+        print(f"Collected by {body_id}")
+```
+
+Built-in signals:
+- `body_entered(body_id: str)`
+- `body_exited(body_id: str)`
+- `area_entered(area_id: str)`
+- `area_exited(area_id: str)`
+
+### Spatial Queries (Raycasts)
+
+```python
+hit = pite.raycast((x, y), (target_x, target_y), mask=1)
+if hit is not None:
+    print(f"Hit {hit['body']} at {hit['point']} with normal {hit['normal']}")
+```
+
+Returns `None` if no solid obstacle intersects, or a dict containing:
+- `point`: `(float, float)` world coordinate of intersection.
+- `normal`: `(float, float)` surface normal at intersection point.
+- `distance`: `float` distance from ray origin.
+- `collider`: `str` node ID of `CollisionShape2D`.
+- `body`: `str` node ID of parent physics body.
+
 ## Errors and reload
 
 - A script exception is reported with node path, file, and line; the node keeps its last good state and the game keeps running. Repeat offenders are parked after the first error (see the console).

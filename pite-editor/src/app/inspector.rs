@@ -57,7 +57,25 @@ impl EditorApp {
                     let mut v = s;
                     ui.horizontal(|ui| {
                         ui.label(&key);
-                        if ui.text_edit_singleline(&mut v).changed() {
+                        if key == "shape" && node.type_name == "CollisionShape2D" {
+                            let mut selected = v.clone();
+                            egui::ComboBox::from_id_salt("shape_select")
+                                .selected_text(&selected)
+                                .show_ui(ui, |ui| {
+                                    for opt in ["box", "circle", "capsule"] {
+                                        if ui
+                                            .selectable_value(&mut selected, opt.to_string(), opt)
+                                            .changed()
+                                        {
+                                            self.set_prop(
+                                                &node_id,
+                                                &key,
+                                                PropValue::Str(selected.clone()),
+                                            );
+                                        }
+                                    }
+                                });
+                        } else if ui.text_edit_singleline(&mut v).changed() {
                             self.set_prop(&node_id, &key, PropValue::Str(v));
                         }
                     });
@@ -84,6 +102,45 @@ impl EditorApp {
                 }
             }
         }
+        let known_props: &[(&str, PropValue)] = match node.type_name.as_str() {
+            "StaticBody2D" | "Area2D" => &[("position", PropValue::Vec2(0.0, 0.0))],
+            "CharacterBody2D" => &[
+                ("position", PropValue::Vec2(0.0, 0.0)),
+                ("velocity", PropValue::Vec2(0.0, 0.0)),
+            ],
+            "RigidBody2D" => &[
+                ("position", PropValue::Vec2(0.0, 0.0)),
+                ("mass", PropValue::Num(1.0)),
+                ("gravity_scale", PropValue::Num(1.0)),
+                ("lock_rotation", PropValue::Bool(false)),
+            ],
+            "CollisionShape2D" => &[
+                ("position", PropValue::Vec2(0.0, 0.0)),
+                ("shape", PropValue::Str("box".to_string())),
+                ("size", PropValue::Vec2(32.0, 32.0)),
+                ("radius", PropValue::Num(16.0)),
+                ("height", PropValue::Num(32.0)),
+                ("disabled", PropValue::Bool(false)),
+            ],
+            _ => &[],
+        };
+        let missing: Vec<(&str, PropValue)> = known_props
+            .iter()
+            .filter(|(k, _)| !node.props.0.contains_key(*k))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            ui.add_space(4.0);
+            ui.label("Add property:");
+            ui.horizontal_wrapped(|ui| {
+                for (k, default_val) in missing {
+                    if ui.button(format!("+ {k}")).clicked() {
+                        self.set_prop(&node_id, k, default_val);
+                    }
+                }
+            });
+        }
+
         match &node.script {
             Some(script) => {
                 ui.label(format!("script: {} ({})", script.path, script.class_name));

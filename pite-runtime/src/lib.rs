@@ -5,12 +5,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use pite_core::{global_position, NodeId, NodeTree, PropValue};
+use pite_physics::{PhysicsEvent, PhysicsWorld, ShapeConfig};
 use pite_render::{Renderer2D, WgpuRenderer};
 use pite_script::{
     input_mouse, input_pressed, input_released, Pyo3Backend, ScriptBackend, ScriptHost,
@@ -100,6 +101,8 @@ pub struct GameSession {
     viewport: (u32, u32),
     armed: HashSet<String>,
     timers: std::collections::HashMap<String, f64>,
+    physics: Arc<Mutex<PhysicsWorld>>,
+    physics_accumulator: f64,
 }
 
 impl GameSession {
@@ -109,6 +112,7 @@ impl GameSession {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
         let project_dir = pite_project::find_project_root(scene);
+        let physics = Arc::new(Mutex::new(PhysicsWorld::new()));
         let mut session = Self {
             host: Arc::new(ScriptHost::new(NodeTree::new())),
             slots: Vec::new(),
@@ -121,8 +125,11 @@ impl GameSession {
             viewport: (800, 600),
             armed: HashSet::new(),
             timers: std::collections::HashMap::new(),
+            physics,
+            physics_accumulator: 0.0,
         };
         pite_script::set_current_host(session.host.clone());
+        pite_script::set_current_physics(Some(session.physics.clone()));
         pite_audio::set_project_dir(session.project_dir.clone());
         pite_script::set_project_dir(session.project_dir.clone());
         session.rebuild()?;
@@ -388,6 +395,26 @@ impl GameSession {
                 tracing::error!(node = %id, "cannot declare builtin timeout: {e:#}");
             }
         }
+
+        let areas: Vec<String> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "Area2D")
+                .map(|n| n.id.to_string())
+                .collect()
+        });
+        for id in &areas {
+            let signals = vec![
+                ("body_entered".to_string(), vec!["str".to_string()]),
+                ("body_exited".to_string(), vec!["str".to_string()]),
+                ("area_entered".to_string(), vec!["str".to_string()]),
+                ("area_exited".to_string(), vec!["str".to_string()]),
+            ];
+            if let Err(e) = self.host.declare_signals(id, signals) {
+                tracing::error!(node = %id, "cannot declare builtin area signals: {e:#}");
+            }
+        }
+
+        self.rebuild_physics();
         self.timers.clear();
         let mut olds: HashMap<String, ScriptSlot> = HashMap::new();
         for slot in self.slots.drain(..) {
@@ -533,9 +560,269 @@ impl GameSession {
         }
     }
 
+    pub fn rebuild_physics(&mut self) {
+        let mut world = PhysicsWorld::new();
+        self.host.with_tree(|tree| {
+            // 1. Add bodies & areas
+            for node in tree.iter() {
+                let pos = global_position(tree, &node.id);
+                let rot = match node.props.get("rotation") {
+                    Some(PropValue::Num(r)) => *r as f32,
+                    _ => 0.0,
+                };
+                match node.type_name.as_str() {
+                    "StaticBody2D" => {
+                        world.add_static_body(node.id.clone(), (pos.0 as f32, pos.1 as f32), rot);
+                    }
+                    "CharacterBody2D" => {
+                        world.add_character_body(
+                            node.id.clone(),
+                            (pos.0 as f32, pos.1 as f32),
+                            rot,
+                        );
+                    }
+                    "RigidBody2D" => {
+                        let mass = match node.props.get("mass") {
+                            Some(PropValue::Num(m)) => *m as f32,
+                            _ => 1.0,
+                        };
+                        let grav = match node.props.get("gravity_scale") {
+                            Some(PropValue::Num(g)) => *g as f32,
+                            _ => 1.0,
+                        };
+                        let lock_rot = match node.props.get("lock_rotation") {
+                            Some(PropValue::Bool(b)) => *b,
+                            _ => false,
+                        };
+                        world.add_rigid_body(
+                            node.id.clone(),
+                            (pos.0 as f32, pos.1 as f32),
+                            rot,
+                            mass,
+                            grav,
+                            lock_rot,
+                        );
+                    }
+                    "Area2D" => {
+                        world.add_area(node.id.clone(), (pos.0 as f32, pos.1 as f32), rot);
+                    }
+                    _ => {}
+                }
+            }
+
+            // 2. Attach collision shapes
+            for node in tree.iter().filter(|n| n.type_name == "CollisionShape2D") {
+                let disabled = match node.props.get("disabled") {
+                    Some(PropValue::Bool(b)) => *b,
+                    _ => false,
+                };
+                if disabled {
+                    continue;
+                }
+
+                // Find parent body
+                let mut parent_id = node.parent.clone();
+                let mut parent_body: Option<&pite_core::Node> = None;
+                while let Some(pid) = parent_id {
+                    if let Some(pnode) = tree.get(&pid) {
+                        if matches!(
+                            pnode.type_name.as_str(),
+                            "StaticBody2D" | "CharacterBody2D" | "RigidBody2D" | "Area2D"
+                        ) {
+                            parent_body = Some(pnode);
+                            break;
+                        }
+                        parent_id = pnode.parent.clone();
+                    } else {
+                        break;
+                    }
+                }
+
+                let Some(body) = parent_body else {
+                    continue;
+                };
+
+                let body_pos = global_position(tree, &body.id);
+                let shape_pos = global_position(tree, &node.id);
+                let offset = (
+                    (shape_pos.0 - body_pos.0) as f32,
+                    (shape_pos.1 - body_pos.1) as f32,
+                );
+
+                let shape_rot = match node.props.get("rotation") {
+                    Some(PropValue::Num(r)) => *r as f32,
+                    _ => 0.0,
+                };
+
+                let shape_type = match node.props.get("shape") {
+                    Some(PropValue::Str(s)) => s.as_str(),
+                    _ => "box",
+                };
+
+                let config = match shape_type {
+                    "circle" => {
+                        let radius = match node.props.get("radius") {
+                            Some(PropValue::Num(r)) => *r as f32,
+                            _ => 16.0,
+                        };
+                        ShapeConfig::Circle { radius }
+                    }
+                    "capsule" => {
+                        let radius = match node.props.get("radius") {
+                            Some(PropValue::Num(r)) => *r as f32,
+                            _ => 16.0,
+                        };
+                        let height = match node.props.get("height") {
+                            Some(PropValue::Num(h)) => *h as f32,
+                            _ => 32.0,
+                        };
+                        ShapeConfig::Capsule { radius, height }
+                    }
+                    _ => {
+                        let (w, h) = match node.props.get("size") {
+                            Some(PropValue::Vec2(w, h)) => (*w as f32, *h as f32),
+                            _ => (32.0, 32.0),
+                        };
+                        ShapeConfig::Box {
+                            width: w,
+                            height: h,
+                        }
+                    }
+                };
+
+                let layer = match body.props.get("collision_layer") {
+                    Some(PropValue::Int(l)) => *l as u32,
+                    _ => 1,
+                };
+                let mask = match body.props.get("collision_mask") {
+                    Some(PropValue::Int(m)) => *m as u32,
+                    _ => 1,
+                };
+                let friction = match body.props.get("friction") {
+                    Some(PropValue::Num(f)) => *f as f32,
+                    _ => 0.5,
+                };
+                let restitution = match body.props.get("restitution") {
+                    Some(PropValue::Num(r)) => *r as f32,
+                    _ => 0.0,
+                };
+
+                let is_sensor = body.type_name == "Area2D";
+
+                world.attach_shape(
+                    &body.id,
+                    node.id.clone(),
+                    config,
+                    offset,
+                    shape_rot,
+                    is_sensor,
+                    layer,
+                    mask,
+                    friction,
+                    restitution,
+                );
+            }
+        });
+
+        *self.physics.lock().unwrap() = world;
+        pite_script::set_current_physics(Some(self.physics.clone()));
+    }
+
     pub fn update(&mut self, delta: f64) {
         self.poll_buttons();
         pite_audio::poll_audio();
+
+        // 60 Hz fixed physics stepping
+        const FIXED_STEP: f64 = 1.0 / 60.0;
+        self.physics_accumulator += delta;
+        if self.physics_accumulator > 0.25 {
+            self.physics_accumulator = 0.25;
+        }
+
+        while self.physics_accumulator >= FIXED_STEP {
+            for slot in &mut self.slots {
+                if slot.errored {
+                    continue;
+                }
+                if let Err(e) = slot.backend.call_physics_process(FIXED_STEP) {
+                    tracing::error!(node = %slot.id, "physics process error: {e:#}");
+                    slot.errored = true;
+                }
+                if let Some((x, y)) = slot.backend.position() {
+                    let mut lock = self.physics.lock().unwrap();
+                    lock.set_body_position(&slot.id, (x, y));
+                }
+            }
+
+            let events = {
+                let mut lock = self.physics.lock().unwrap();
+                lock.step();
+                lock.drain_events()
+            };
+
+            // Sync dynamic physics positions (RigidBody2D) back into tree & slots
+            {
+                let lock = self.physics.lock().unwrap();
+                for slot in &mut self.slots {
+                    if lock.is_rigid_body(&slot.id) {
+                        if let Some(pos) = lock.get_body_position(&slot.id) {
+                            slot.backend.set_position(pos.0, pos.1);
+                            self.host.with_tree_mut(|tree| {
+                                if let Some(node) = tree.get_mut(&slot.id) {
+                                    node.props.insert(
+                                        "position".to_string(),
+                                        PropValue::Vec2(pos.0, pos.1),
+                                    );
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Dispatch Area2D signals
+            for ev in events {
+                match ev {
+                    PhysicsEvent::BodyEntered { area_id, body_id } => {
+                        let _ = pite_script::fire_body_entered(
+                            &self.host,
+                            area_id.as_str(),
+                            body_id.as_str(),
+                        );
+                    }
+                    PhysicsEvent::BodyExited { area_id, body_id } => {
+                        let _ = pite_script::fire_body_exited(
+                            &self.host,
+                            area_id.as_str(),
+                            body_id.as_str(),
+                        );
+                    }
+                    PhysicsEvent::AreaEntered {
+                        area_id,
+                        other_area_id,
+                    } => {
+                        let _ = pite_script::fire_area_entered(
+                            &self.host,
+                            area_id.as_str(),
+                            other_area_id.as_str(),
+                        );
+                    }
+                    PhysicsEvent::AreaExited {
+                        area_id,
+                        other_area_id,
+                    } => {
+                        let _ = pite_script::fire_area_exited(
+                            &self.host,
+                            area_id.as_str(),
+                            other_area_id.as_str(),
+                        );
+                    }
+                }
+            }
+
+            self.physics_accumulator -= FIXED_STEP;
+        }
+
         for slot in &mut self.slots {
             if slot.errored {
                 continue;
@@ -1585,5 +1872,229 @@ mod tests {
             (after + 5.0).abs() < 1e-6,
             "enemy should recoil to x=-5, got {after}"
         );
+    }
+
+    #[test]
+    fn physics_character_and_raycast_e2e() {
+        let _guard = SERIAL.lock().unwrap();
+
+        let dir = std::env::temp_dir().join("pite-physics-e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(
+            dir.join("pite.toml"),
+            "[project]\nname = \"physics-test\"\n",
+        )
+        .unwrap();
+
+        let scene = r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Root"
+
+[[node]]
+id = "floor"
+type = "StaticBody2D"
+name = "Floor"
+parent = "root"
+
+[node.props]
+position = [0.0, 100.0]
+
+[[node]]
+id = "floor_shape"
+type = "CollisionShape2D"
+name = "Shape"
+parent = "floor"
+
+[node.props]
+shape = "box"
+size = [200.0, 20.0]
+
+[[node]]
+id = "player"
+type = "CharacterBody2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+position = [0.0, 0.0]
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+
+[[node]]
+id = "player_shape"
+type = "CollisionShape2D"
+name = "Shape"
+parent = "player"
+
+[node.props]
+shape = "box"
+size = [20.0, 20.0]
+"#;
+        std::fs::write(dir.join("scenes").join("main.ptscn"), scene).unwrap();
+
+        let script = r#"import pite
+
+class Player(pite.CharacterBody2D):
+    def _physics_process(self, dt):
+        self.velocity = (0.0, 300.0)
+        self.move_and_slide()
+        hit = pite.raycast((0.0, 0.0), (0.0, 150.0))
+        if hit is not None and hit.get("body") == "floor":
+            pass
+"#;
+        std::fs::write(dir.join("scripts").join("player.py"), script).unwrap();
+
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        for _ in 0..30 {
+            session.update(0.016);
+        }
+
+        let player_y =
+            session
+                .host
+                .with_tree(|t| match t.get(&NodeId::from("player".to_string())) {
+                    Some(n) => match n.props.get("position") {
+                        Some(PropValue::Vec2(_, y)) => *y,
+                        _ => f64::NAN,
+                    },
+                    None => f64::NAN,
+                });
+
+        assert!(
+            (player_y - 80.0).abs() < 1.0,
+            "Player should rest on floor at y=80, got {player_y}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn physics_area2d_signal_e2e() {
+        let _guard = SERIAL.lock().unwrap();
+
+        let dir = std::env::temp_dir().join("pite-physics-area-e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"area-test\"\n").unwrap();
+
+        let scene = r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Root"
+
+[[node]]
+id = "zone"
+type = "Area2D"
+name = "Zone"
+parent = "root"
+
+[node.props]
+position = [0.0, 60.0]
+
+[node.script]
+path = "res://scripts/zone.py"
+class = "Zone"
+
+[[node]]
+id = "zone_shape"
+type = "CollisionShape2D"
+name = "Shape"
+parent = "zone"
+
+[node.props]
+shape = "box"
+size = [60.0, 60.0]
+
+[[node]]
+id = "player"
+type = "CharacterBody2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+position = [0.0, 0.0]
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+
+[[node]]
+id = "player_shape"
+type = "CollisionShape2D"
+name = "Shape"
+parent = "player"
+
+[node.props]
+shape = "box"
+size = [20.0, 20.0]
+"#;
+        std::fs::write(dir.join("scenes").join("main.ptscn"), scene).unwrap();
+
+        let player_script = r#"import pite
+
+class Player(pite.CharacterBody2D):
+    def _physics_process(self, dt):
+        self.velocity = (0.0, 200.0)
+        self.move_and_slide()
+"#;
+        std::fs::write(dir.join("scripts").join("player.py"), player_script).unwrap();
+
+        let zone_script = r#"import pite
+
+class Zone(pite.Area2D):
+    def _ready(self):
+        self.body_entered.connect(self.on_body)
+
+    def on_body(self, body_id):
+        self.position = (999.0, 999.0)
+"#;
+        std::fs::write(dir.join("scripts").join("zone.py"), zone_script).unwrap();
+
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        for _ in 0..30 {
+            session.update(0.016);
+            let zp = session
+                .host
+                .with_tree(|t| match t.get(&NodeId::from("zone".to_string())) {
+                    Some(n) => match n.props.get("position") {
+                        Some(PropValue::Vec2(x, y)) => (*x, *y),
+                        _ => (0.0, 0.0),
+                    },
+                    None => (0.0, 0.0),
+                });
+            if zp == (999.0, 999.0) {
+                break;
+            }
+        }
+
+        let zone_pos = session
+            .host
+            .with_tree(|t| match t.get(&NodeId::from("zone".to_string())) {
+                Some(n) => match n.props.get("position") {
+                    Some(PropValue::Vec2(x, y)) => (*x, *y),
+                    _ => (0.0, 0.0),
+                },
+                None => (0.0, 0.0),
+            });
+
+        assert_eq!(
+            zone_pos,
+            (999.0, 999.0),
+            "Area2D body_entered signal should move zone to (999, 999)"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

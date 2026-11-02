@@ -9,7 +9,14 @@
 - Editor code pane opens config text files (`toml`/`cfg`/`ini`/`json`/`yaml`/`yml`) for plain editing; LSP completion, hover, and diagnostics stay Python-only.
 - Editor code pane highlights Python and config text (keywords, strings, numbers, comments, `[...]` headers) in palette colors.
 - Editor menus reorganized: `Scene` (new/open/recent/save/save-as/quit, native dialogs, `Ctrl+N/O/Shift+S/Q` shortcuts), `Project`, and `Help` (repo/issues links, about, clipboard debug info); the `Run` menu is gone, transport buttons remain.
-- MacOS support (both dor editor and games) with cross-compile added. 
+- MacOS support (both dor editor and games) with cross-compile added.
+- 2D physics subsystem with Rapier2D: pure-Rust 2D physics powered by `rapier2d 0.23` in a new workspace crate `pite-physics`, running in a fixed 60 Hz simulation loop (`dt = 1/60`) and driving `_physics_process(delta)` in Python scripts.
+  - New node types: `StaticBody2D` (immobile bodies), `CharacterBody2D` (kinematic controller with `move_and_slide()`), `RigidBody2D` (dynamic forces and gravity), `Area2D` (trigger zones), and `CollisionShape2D` (`box`, `circle`, and `capsule` geometric colliders).
+  - Kinematic character controller: `move_and_slide()` computes sliding obstacle collision response against solid geometry while ignoring trigger sensors, automatically updating velocity and contact flags (`is_on_floor()`, `is_on_wall()`, `is_on_ceiling()`) relative to `up_direction`.
+  - Dynamic rigid bodies: `apply_impulse((x, y))` and `apply_force((x, y))` for simulation, with configurable `mass`, `gravity_scale`, and `lock_rotation`.
+  - Area trigger signals: `Area2D` emits engine-owned `body_entered`, `body_exited`, `area_entered`, and `area_exited` signals with node ID arguments.
+  - Spatial raycasts: `pite.raycast(from, to, mask=1)` performs line intersection queries against solid obstacles, returning intersection point, surface normal, distance, collider node, and body node.
+  - Editor visualization and inspection: `pite-editor` paints semi-transparent collision shape wireframe overlays (`box`, `circle`, `capsule`) directly in the viewport in design mode, with shape dropdowns and physics property controls in the Inspector.
 
 ## v0.2.0
 
