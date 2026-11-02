@@ -35,7 +35,7 @@ try {
   if (-not $expected) { throw "could not find checksum for $bundle in SHA256SUMS" }
   $actual = (Get-FileHash (Join-Path $work $bundle) -Algorithm SHA256).Hash.ToLower()
   if ($actual -ne $expected.ToLower()) {
-    throw "checksum mismatch for $bundle: expected $expected, got $actual"
+    throw "checksum mismatch for ${bundle}: expected $expected, got $actual"
   }
 
   New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
