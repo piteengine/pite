@@ -22,7 +22,7 @@ cargo fmt --all -- --check
 cargo build --workspace --locked
 cargo test --workspace
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
-cargo run -p pite-cli -- check
+cargo run -p pite -- check
 ```
 
 ## Release bump checklist
@@ -49,7 +49,7 @@ export LD_LIBRARY_PATH=/path/to/python3.12/lib:$LD_LIBRARY_PATH
 - On WSL without Wayland, the editor needs the X11 backend:
 
 ```sh
-WINIT_UNIX_BACKEND=x11 cargo run -p pite-cli -- edit
+WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit
 ```
 
 ## License

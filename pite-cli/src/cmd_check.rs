@@ -751,8 +751,11 @@ texture = "res://assets/gone.png"
             "import pite\n\nclass Sfx(pite.Node):\n    def _ready(self):\n        pite.play(\"res://assets/music.ogg\")\n        pite.play(\"res://assets/bad.mp3\")\n",
         )
         .expect("write script");
-        const FIXTURE_OGG: &[u8] = include_bytes!("../../pite-audio/fixtures/sine.ogg");
-        std::fs::write(root.join("assets").join("music.ogg"), FIXTURE_OGG).unwrap();
+        std::fs::write(
+            root.join("assets").join("music.ogg"),
+            pite_audio::fixtures::FIXTURE_OGG,
+        )
+        .unwrap();
         std::fs::write(root.join("assets").join("bad.mp3"), b"ID3_NOT_A_VALID_MP3").unwrap();
 
         let files = scanned(&["res://assets/music.ogg", "res://assets/bad.mp3"]);

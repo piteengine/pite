@@ -5,7 +5,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/pite-physics"
+keywords = ["game-engine", "physics", "2d", "rapier2d"]
+categories = ["game-engines", "science"]
+readme = "README.md"
+publish = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 anyhow.workspace = true

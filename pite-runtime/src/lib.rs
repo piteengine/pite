@@ -1014,9 +1014,11 @@ struct App {
     render_errors: u32,
 }
 
+pub const DEFAULT_ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
+
 fn window_icon() -> Option<winit::window::Icon> {
-    const PNG: &[u8] = include_bytes!("../../assets/icon.png");
-    let img = image::load_from_memory_with_format(PNG, image::ImageFormat::Png).ok()?;
+    let img =
+        image::load_from_memory_with_format(DEFAULT_ICON_PNG, image::ImageFormat::Png).ok()?;
     let rgba = img.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
     winit::window::Icon::from_rgba(rgba.into_raw(), width, height).ok()

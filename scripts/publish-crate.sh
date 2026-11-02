@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Idempotent single-crate publish for the crates.io workflow.
-# Usage: publish-crate.sh <crate> [--wait-for <dep-crate>]
+# Usage: publish-crate.sh <crate> [--wait-for <dep-crate>]...
 # Skips when this workspace version is already live; optionally waits for
-# a dependency crate to reach the index first (pite-scene → pite-core).
+# dependency crates to reach the index first.
 set -euo pipefail
 
 crate=$1
+shift
 ver=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
 api="https://crates.io/api/v1/crates"
 ua="pite-publish-workflow"
@@ -19,14 +20,23 @@ if live "$crate"; then
   exit 0
 fi
 
-if [ "${2:-}" = "--wait-for" ]; then
-  dep=$3
-  for i in $(seq 1 30); do
-    live "$dep" && break
-    echo "$dep $ver not in index yet (attempt $i/30) — waiting 60s"
-    sleep 60
-  done
-  live "$dep" || { echo "$dep $ver never appeared in the index"; exit 1; }
-fi
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --wait-for)
+      dep="$2"
+      shift 2
+      for i in $(seq 1 30); do
+        live "$dep" && break
+        echo "$dep $ver not in index yet (attempt $i/30) — waiting 60s"
+        sleep 60
+      done
+      live "$dep" || { echo "$dep $ver never appeared in the index"; exit 1; }
+      ;;
+    *)
+      echo "unknown argument: $1"
+      exit 1
+      ;;
+  esac
+done
 
 cargo publish -p "$crate"

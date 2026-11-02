@@ -31,6 +31,12 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1 | iex
 ```
 
+Or install with `cargo`:
+
+```sh
+cargo install pite
+```
+
 Then:
 
 ```sh
@@ -48,7 +54,7 @@ pite run
 pite check
 ```
 
-Install once, then use `pite`. Running plain `pite` inside a project opens the visual editor. `new` scaffolds a project (blank or templated), `run` plays a scene (defaults to the project's main scene), `edit` opens the visual editor, `check` validates project integrity (`--reimport-assets` syncs moved assets and hashes), `toolchain` manages standalone runtimes for offline export, and `vendor` pins third-party Python packages. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
+Install once, then use `pite`. Running plain `pite` inside a project opens the visual editor. `new` scaffolds a project (blank or templated), `run` plays a scene (defaults to the project's main scene), `edit` opens the visual editor, `check` validates project integrity (`--reimport-assets` syncs moved assets and hashes), `toolchain` manages standalone runtimes for offline export, and `vendor` pins third-party Python packages. Building from source instead: `cargo build --release -p pite -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
 
 ### Export & Toolchains
 
@@ -135,7 +141,7 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 
 | Crate | Role |
 |---|---|
-| `pite-cli` | `pite` binary: new / run / check / edit / export / vendor / toolchain |
+| `pite` | `pite` binary: new / run / check / edit / export / vendor / toolchain (in `pite-cli/`) |
 | `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
@@ -149,8 +155,9 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 | `pite-project` | `pite.toml`, `res://` paths, templates |
 | `pite-export` | Desktop export (binary + resolved content) |
 
-Published on crates.io, versioned lockstep with the engine:
+All 13 crates are published on crates.io, versioned lockstep with the engine:
 
+- [`pite`](https://crates.io/crates/pite) [![crates.io](https://img.shields.io/crates/v/pite)](https://crates.io/crates/pite) [![docs.rs](https://img.shields.io/docsrs/pite)](https://docs.rs/pite)
 - [`pite-core`](https://crates.io/crates/pite-core) [![crates.io](https://img.shields.io/crates/v/pite-core)](https://crates.io/crates/pite-core) [![docs.rs](https://img.shields.io/docsrs/pite-core)](https://docs.rs/pite-core)
 - [`pite-project`](https://crates.io/crates/pite-project) [![crates.io](https://img.shields.io/crates/v/pite-project)](https://crates.io/crates/pite-project) [![docs.rs](https://img.shields.io/docsrs/pite-project)](https://docs.rs/pite-project)
 - [`pite-scene`](https://crates.io/crates/pite-scene) [![crates.io](https://img.shields.io/crates/v/pite-scene)](https://crates.io/crates/pite-scene) [![docs.rs](https://img.shields.io/docsrs/pite-scene)](https://docs.rs/pite-scene)

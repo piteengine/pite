@@ -1,11 +1,21 @@
 [package]
 name = "pite-export"
-description = "Desktop export: runnable directory with engine binary and resolved game content."
+description = "Cross-platform export packager and standalone player bundler for Pite."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/pite-export"
+keywords = ["game-engine", "export", "bundler", "packaging"]
+categories = ["game-engines", "development-tools::cargo-plugins"]
+readme = "README.md"
+publish = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 anyhow.workspace = true

@@ -3114,28 +3114,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pite-assets"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "pite-render",
- "serde",
- "toml",
-]
-
-[[package]]
-name = "pite-audio"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "cpal",
- "hound",
- "symphonia",
- "tracing",
-]
-
-[[package]]
-name = "pite-cli"
+name = "pite"
 version = "0.3.0"
 dependencies = [
  "anyhow",
@@ -3155,6 +3134,27 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zip",
+]
+
+[[package]]
+name = "pite-assets"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "pite-render",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "pite-audio"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "hound",
+ "symphonia",
+ "tracing",
 ]
 
 [[package]]

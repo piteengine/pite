@@ -271,8 +271,8 @@ pub fn find_stubs_dir(start: &Path) -> Option<PathBuf> {
 /// never shipped these files, and the walk-up search above finds nothing
 /// there. `pite.py` is the source sibling the checker needs beside `pite.pyi`
 /// (the real module is native via PyO3); types always come from the stubs.
-const EMBEDDED_STUBS: &str = include_str!("../../python/pite/pite.pyi");
-const EMBEDDED_SOURCE: &str = include_str!("../../python/pite/pite.py");
+const EMBEDDED_STUBS: &str = include_str!("../python/pite.pyi");
+const EMBEDDED_SOURCE: &str = include_str!("../python/pite.py");
 
 /// Write the embedded stubs into `dir`, skipping files that already match.
 /// Returns the dir for `extraPaths`.

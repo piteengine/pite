@@ -46,11 +46,11 @@ fn fonts() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "Inter".to_string(),
-        egui::FontData::from_static(include_bytes!("../../fonts/Inter-Regular.ttf")).into(),
+        egui::FontData::from_static(pite_render::text::FONT_BYTES).into(),
     );
     fonts.font_data.insert(
         "JetBrainsMono".to_string(),
-        egui::FontData::from_static(include_bytes!("../../fonts/JetBrainsMono-Regular.ttf")).into(),
+        egui::FontData::from_static(include_bytes!("../fonts/JetBrainsMono-Regular.ttf")).into(),
     );
     fonts
         .families

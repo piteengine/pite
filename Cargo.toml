@@ -29,7 +29,7 @@ publish = false
 [workspace.dependencies]
 # internal
 pite-assets = { path = "pite-assets", version = "0.3.0" }
-pite-cli = { path = "pite-cli", version = "0.3.0" }
+pite = { path = "pite-cli", version = "0.3.0" }
 pite-core = { path = "pite-core", version = "0.3.0" }
 pite-editor = { path = "pite-editor", version = "0.3.0" }
 pite-project = { path = "pite-project", version = "0.3.0" }

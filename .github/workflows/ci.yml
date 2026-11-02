@@ -116,4 +116,4 @@ jobs:
         with:
           cache-key: workspace
       - name: Run pite check on the repo (locked deps, like the release)
-        run: cargo run --locked -p pite-cli -- check
+        run: cargo run --locked -p pite -- check

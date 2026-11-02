@@ -2,7 +2,7 @@
 use ab_glyph::{Font, FontArc, PxScale};
 use anyhow::{Context, Result};
 
-pub const FONT_BYTES: &[u8] = include_bytes!("../../fonts/Inter-Regular.ttf");
+pub const FONT_BYTES: &[u8] = include_bytes!("../fonts/Inter-Regular.ttf");
 
 pub struct BakedText {
     pub rgba: Vec<u8>,

@@ -35,6 +35,12 @@ impl DecodedAudio {
     }
 }
 
+pub mod fixtures {
+    pub const FIXTURE_OGG: &[u8] = include_bytes!("../fixtures/sine.ogg");
+    pub const FIXTURE_MP3: &[u8] = include_bytes!("../fixtures/sine.mp3");
+    pub const FIXTURE_FLAC: &[u8] = include_bytes!("../fixtures/sine.flac");
+}
+
 pub trait AudioBackend: Send {
     fn play(&mut self, audio: &DecodedAudio, volume: f32) -> u64;
     fn stop(&mut self, id: u64);

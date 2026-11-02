@@ -1,4 +1,4 @@
-# Publish the three public crates to crates.io — separate from release.yml
+# Publish all 13 workspace crates to crates.io — separate from release.yml
 # so engine bundles and registry publishes re-run independently.
 #
 # Auth: `CARGO_REGISTRY_TOKEN` repo secret (classic crates.io API token).
@@ -21,18 +21,18 @@ permissions:
 
 jobs:
   publish:
-    name: Publish pite crates (core → scene → project)
+    name: Publish pite crates (all 13 crates)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
 
-      - name: "Set up the build environment (no Python/ALSA: pure crates)"
+      - name: Set up build environment (with Python 3.12 and ALSA)
         uses: ./.github/actions/rust-python-env
         with:
-          python: "false"
-          alsa: "false"
+          python: "true"
+          alsa: "true"
           cache-key: publish
 
       - name: Tag must equal workspace version (lockstep)
@@ -62,14 +62,74 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-core
 
+      - name: Publish pite-physics (waits for core)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-physics --wait-for pite-core
+
+      - name: Publish pite-audio
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-audio
+
       - name: Publish pite-scene (waits for live core)
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-scene --wait-for pite-core
 
+      - name: Publish pite-render (waits for live core)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-render --wait-for pite-core
+
       - name: Publish pite-project (waits for live scene)
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-project --wait-for pite-scene
+
+      - name: Publish pite-assets (waits for live render)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-assets --wait-for pite-render
+
+      - name: Publish pite-export (waits for live project and render)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-export --wait-for pite-project --wait-for pite-render
+
+      - name: Publish pite-script (waits for live assets, audio, and physics)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-script --wait-for pite-assets --wait-for pite-audio --wait-for pite-physics
+
+      - name: Publish pite-runtime (waits for live script)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-runtime --wait-for pite-script
+
+      - name: Publish pite-editor (waits for live runtime and export)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-editor --wait-for pite-runtime --wait-for pite-export
+
+      - name: Publish pite-player (waits for live runtime)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-player --wait-for pite-runtime
+
+      - name: Publish pite CLI (waits for live editor and player)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite --wait-for pite-editor --wait-for pite-player

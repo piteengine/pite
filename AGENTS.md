@@ -10,17 +10,17 @@ cargo build --workspace --locked
 cargo test --workspace --locked
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke   # needs pyright==1.1.411, gated off by default
 PITE_BUNDLE_SMOKE=1 cargo test -p pite-export --lib                   # real CPython download; CI-only, slow
-cargo run --locked -p pite-cli -- check
+cargo run --locked -p pite -- check
 ```
 
-- Single crate: `cargo test -p <crate>` (e.g. `-p pite-scene`). Focused check: `cargo run -p pite-cli -- check --path <dir>`; `--strict` promotes warnings, `--json` gives machine report. With no `--path` outside a project it falls back to `examples/minimal-2d`.
+- Single crate: `cargo test -p <crate>` (e.g. `-p pite-scene`). Focused check: `cargo run -p pite -- check --path <dir>`; `--strict` promotes warnings, `--json` gives machine report. With no `--path` outside a project it falls back to `examples/minimal-2d`.
 - Build needs CPython 3.12 dev headers + ALSA headers or it fails to link: `libasound2-dev pkg-config` on Debian/Ubuntu, plus `export PYO3_PYTHON=$(which python3.12)` and `LD_LIBRARY_PATH` pointing at its `LIBDIR`.
-- WSL without Wayland: `WINIT_UNIX_BACKEND=x11 cargo run -p pite-cli -- edit`.
-- `pite` dogfood flow: `new` → `cd <project>` → `edit` → `check` → `run`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` (with automatic download fallback to toolchain cache if missing) — from a source checkout build both: `cargo build --release -p pite-cli -p pite-player`.
+- WSL without Wayland: `WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit`.
+- `pite` dogfood flow: `new` → `cd <project>` → `edit` → `check` → `run`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` (with automatic download fallback to toolchain cache if missing) — from a source checkout build both: `cargo build --release -p pite -p pite-player`.
 
 ## Architecture (crate → role)
 
-`pite-cli` (the `pite` binary) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
+`pite` (the `pite` binary, in `pite-cli/`) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
 
 ## Gotchas agents miss
 

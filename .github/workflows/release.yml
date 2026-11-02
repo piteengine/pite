@@ -37,7 +37,7 @@ jobs:
           cache-key: release
       - name: Build the engine and player (locked deps)
         shell: bash
-        run: cargo build --release --locked -p pite-cli -p pite-player
+        run: cargo build --release --locked -p pite -p pite-player
       - name: Stage the release files under platform names
         shell: bash
         run: |

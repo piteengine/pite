@@ -1,11 +1,21 @@
 [package]
 name = "pite-runtime"
-description = "Game runner: window, main loop and subsystem wiring."
+description = "Game runtime engine: windowing, main loop, fixed physics tick, and hot reload."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/pite-runtime"
+keywords = ["game-engine", "runtime", "windowing", "hot-reload"]
+categories = ["game-engines"]
+readme = "README.md"
+publish = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 anyhow.workspace = true

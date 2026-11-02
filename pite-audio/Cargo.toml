@@ -1,11 +1,21 @@
 [package]
 name = "pite-audio"
-description = "AudioBackend trait plus bundled WAV playback engine for Pite."
+description = "Audio decoding and playback engine for Pite: WAV, OGG, MP3, FLAC."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/pite-audio"
+keywords = ["game-engine", "audio", "symphonia", "cpal"]
+categories = ["game-engines", "multimedia::audio"]
+readme = "README.md"
+publish = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 anyhow.workspace = true
