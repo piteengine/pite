@@ -12,16 +12,22 @@ class Player(pite.Node2D):
         self.position = (100.0, 200.0)
 
     def _process(self, delta: float):
-        x, y = self.position
-        self.position = (x + self.speed * delta, y)
+        if pite.held.right:
+            self.position.x += self.speed * delta
 ```
 
 ## Rules
 
 - One file exports one class; attach with `path` + `class` in the scene file. `snake_case` everywhere.
 - `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
-- `position` is a plain `(x, y)` float tuple, synced both ways with the scene tree each frame. `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float` and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping). Non-positive `wait_time` never fires. Connect during `_ready` like `Button.pressed` — no declaration needed, `Label` adds `text: str` (same two-way sync — set it and the screen updates). `Button` extends `Node2D` with `text` plus a `size` prop (`[w, h]`, default `[120, 40]`).
-- The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`.
+- `position` is a mutable `Vec2` proxy backed directly by the engine's node transform. You can mutate `.x` and `.y` in-place (`self.position.x += 10`), reassign with a tuple or vector (`self.position = (100, 200)`), or unpack as a tuple (`x, y = self.position`). `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float` and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping). Non-positive `wait_time` never fires. Connect during `_ready` like `Button.pressed` — no declaration needed, `Label` adds `text: str` (same direct update — set it and the screen updates). `Button` extends `Node2D` with `text` plus a `size` prop (`[w, h]`, default `[120, 40]`).
+- Declarative node descriptors: declare child or node references as class attributes:
+  ```python
+  sprite = pite.child("Sprite2D")
+  target = pite.node("../Target")
+  ```
+  Descriptors resolve once on first access and cache the proxy. A missing node raises `KeyError`.
+- The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`. Repeated `get_node` calls are automatically cached.
 - Talk across nodes with direct calls through `get_node`, which returns a proxy to the live node:
 
 ```python
@@ -41,14 +47,13 @@ class Player(pite.Node2D):
     hit = pite.signal(int)
 
     def _process(self, delta):
-        if pite.pressed("Space"):
+        if pite.pressed.space:
             self.hit.emit(1)
-
 ```
 
 - `pite.signal(...)` takes payload types, bare or as strings (`pite.signal(int, "str")`). Both `hit = pite.signal(int)` and the annotated `hit: pite.signal(int)` form declare the same signal.
 - Emitting the wrong arity or type fails loudly; emitting an undeclared signal fails loudly. There are no untyped string signals.
-- `connect(handler)` takes a bound method of a live node; when that node drops, its connections go with it — emitting afterwards simply skips it, no crash.
+- `connect(handler)` connects any Python callable (bound methods, lambdas, free functions).
 - `Button` clicks arrive as a zero-payload `pressed` signal fired by the engine (press-inside plus release-inside). `pressed` belongs to the `Button` type itself — just connect it, no declaration needed (re-declaring it is harmless):
 
 ```python
@@ -63,14 +68,15 @@ class HitButton(pite.Button):
 ## Input
 
 ```python
-if pite.held("ArrowRight"):
-    x += self.speed * delta
-if pite.pressed("Space"):
-    x += 10.0
+if pite.held.right:
+    self.position.x += self.speed * delta
+if pite.pressed.space:
+    self.position.x += 10.0
 ```
 
-- `held(key)` is true while down (continuous movement); `pressed(key)` fires on the single frame it goes down (single steps); `released(key)` on the frame it comes up. `mouse()` returns the cursor `(x, y)` in pixels.
-- Key names: `A`–`Z`, `0`–`9`, `ArrowLeft/Right/Up/Down`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Shift`, `Control`, `Alt`, plus `MouseLeft/MouseRight/MouseMiddle`. Input is pumped on the main thread and visible inside `_process`.
+- `pite.held.<key>` is true while down (continuous movement); `pite.pressed.<key>` fires on the single frame it goes down (single steps); `pite.released.<key>` on the frame it comes up. `mouse()` returns a `Vec2` with `.x` and `.y` (and tuple unpacking `x, y = pite.mouse()`).
+- Key attributes: `space`, `enter`, `escape`, `tab`, `backspace`, `shift`, `ctrl`, `alt`, `left`, `right`, `up`, `down`, `mouse_left`, `mouse_right`, `mouse_middle`, `a`–`z`, `num0`–`num9`.
+- String-based input calls (e.g., `pite.held("Space")`) are deprecated and raise `TypeError`. Input is pumped on the main thread and visible inside `_process` and `_physics_process`.
 
 ## Audio
 
@@ -104,21 +110,19 @@ class Player(pite.CharacterBody2D):
     speed: float = 200.0
 
     def _physics_process(self, delta: float):
-        vx, vy = self.velocity
-        if pite.held("ArrowRight"):
-            vx = self.speed
-        elif pite.held("ArrowLeft"):
-            vx = -self.speed
+        if pite.held.right:
+            self.velocity.x = self.speed
+        elif pite.held.left:
+            self.velocity.x = -self.speed
         else:
-            vx = 0.0
+            self.velocity.x = 0.0
 
         # Gravity
-        vy += 980.0 * delta
+        self.velocity.y += 980.0 * delta
 
-        if pite.pressed("Space") and self.is_on_floor():
-            vy = -400.0
+        if pite.pressed.space and self.is_on_floor():
+            self.velocity.y = -400.0
 
-        self.velocity = (vx, vy)
         self.move_and_slide()
 ```
 

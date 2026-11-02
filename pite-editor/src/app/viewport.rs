@@ -134,7 +134,8 @@ impl EditorApp {
     pub(super) fn stop(&mut self) {
         pite_script::input_clear();
         match GameSession::open(&self.scene_path, false) {
-            Ok(session) => {
+            Ok(mut session) => {
+                session.set_pause_on_error(true);
                 self.session = session;
                 self.playing = false;
                 self.viewport_dirty = true;

@@ -116,7 +116,8 @@ impl EditorApp {
 
     pub(super) fn open_scene_file(&mut self, file: &Path) {
         match GameSession::open(file, false) {
-            Ok(session) => {
+            Ok(mut session) => {
+                session.set_pause_on_error(true);
                 self.session = session;
                 self.scene_path = file.to_path_buf();
                 self.project_dir = pite_project::find_project_root(file);

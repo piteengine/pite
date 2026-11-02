@@ -3,24 +3,28 @@
 //! future backends (or a mock for tests) plug in without touching runtime.
 
 mod audio;
+pub mod descriptor;
 mod host;
 mod input;
 pub mod physics_bridge;
 mod python;
+pub mod vec2;
 
 use anyhow::Result;
 
+pub use descriptor::{child, node, PyChildDescriptor, PyNodeDescriptor};
 pub use host::{
     fire_area_entered, fire_area_exited, fire_body_entered, fire_body_exited, fire_pressed,
-    fire_timeout, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost,
+    fire_timeout, proxy_for, resolve_caller, resolve_caller_py, set_current_host, NodeProxy,
+    ScriptHost,
 };
 pub use input::{
     input_begin_frame, input_clear, input_held, input_mouse, input_pressed, input_released,
     input_set_key, input_set_mouse,
 };
 pub use physics_bridge::{current_physics, set_current_physics, with_physics};
-pub use python::is_stdlib_module;
-pub use python::Pyo3Backend;
+pub use python::{is_stdlib_module, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError};
+pub use vec2::Vec2;
 
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];
 
@@ -83,6 +87,10 @@ pub trait ScriptBackend {
     fn set_wait_time(&mut self, _wait: f64) {}
 
     fn last_error(&self) -> Option<String> {
+        None
+    }
+
+    fn last_script_error(&self) -> Option<ScriptError> {
         None
     }
 }

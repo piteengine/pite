@@ -108,7 +108,8 @@ pub struct EditorApp {
 
 impl EditorApp {
     pub fn new(scene: &Path) -> Result<Self> {
-        let session = GameSession::open(scene, false)?;
+        let mut session = GameSession::open(scene, false)?;
+        session.set_pause_on_error(true);
         let project_dir = pite_project::find_project_root(scene);
         let view_size = project_dir
             .as_deref()
@@ -170,6 +171,21 @@ impl EditorApp {
     }
 
     pub(super) fn drain_script_errors(&mut self) {
+        if let Some(err) = self.session.take_last_error() {
+            self.playing = false;
+            let log_msg = if !err.traceback.is_empty() {
+                format!("{}\n{}", err.message, err.traceback)
+            } else {
+                err.message.clone()
+            };
+            self.log(log_msg);
+            if let Some(file) = &err.file {
+                let p = Path::new(file);
+                if p.exists() {
+                    self.open_asset(p);
+                }
+            }
+        }
         for err in self.session.errors() {
             if self.seen_errors.insert(err.clone()) {
                 self.log(err);

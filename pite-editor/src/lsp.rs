@@ -1505,8 +1505,15 @@ mod tests {
         }
 
         // Completion inside `self.` — proves the open + completion round-trip.
-        // `x, y = self.position` is line 11 (0-based); the dot sits at column 20.
-        let found = smoke_await_completion(&mut client, &uri, 11, 20);
+        let (dot_line, dot_col) = text
+            .lines()
+            .enumerate()
+            .find_map(|(l, line)| {
+                let col = line.find("self.")? + 5;
+                Some((l as u32, col as u32))
+            })
+            .expect("smoke script contains `self.`");
+        let found = smoke_await_completion(&mut client, &uri, dot_line, dot_col);
         assert!(!found.is_empty(), "smoke: completion came back empty");
         assert!(
             found.iter().any(|i| i.label == "position"),
@@ -1518,7 +1525,7 @@ mod tests {
         // server buffer only; the dogfood file on disk is never touched.
         let broken = format!("{text}\nundefined_smoke_name_xyz\n");
         client.did_change(&uri, &broken).expect("didChange sends");
-        let after = smoke_await_completion(&mut client, &uri, 11, 20);
+        let after = smoke_await_completion(&mut client, &uri, dot_line, dot_col);
         assert!(
             after.iter().any(|i| i.label == "position"),
             "smoke: completion broke after didChange, got {:?}",

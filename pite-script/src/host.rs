@@ -40,6 +40,8 @@ pub struct ScriptHost {
     instances: Mutex<HashMap<String, Py<PyAny>>>,
     signals: Mutex<HashMap<String, SignalRegistry>>,
     connections: Mutex<HashMap<(String, String), Vec<(String, String)>>>,
+    callable_connections: Mutex<HashMap<(String, String), Vec<Py<PyAny>>>>,
+    proxy_cache: Mutex<HashMap<(String, String), Py<NodeProxy>>>,
 }
 
 pub const SIGNAL_TYPES: &[&str] = &["int", "float", "str", "bool"];
@@ -59,7 +61,69 @@ impl ScriptHost {
             instances: Mutex::new(HashMap::new()),
             signals: Mutex::new(HashMap::new()),
             connections: Mutex::new(HashMap::new()),
+            callable_connections: Mutex::new(HashMap::new()),
+            proxy_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn get_node_position(&self, id: &str) -> Option<(f64, f64)> {
+        use pite_core::PropValue;
+        let tree = self.tree.lock().unwrap();
+        let node = tree.get(&NodeId::from(id.to_string()))?;
+        match node.props.get("position") {
+            Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
+            _ => Some((0.0, 0.0)),
+        }
+    }
+
+    pub fn set_node_position(&self, id: &str, x: f64, y: f64) {
+        use pite_core::PropValue;
+        let mut tree = self.tree.lock().unwrap();
+        if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
+            node.props
+                .insert("position".to_string(), PropValue::Vec2(x, y));
+        }
+    }
+
+    pub fn set_node_text(&self, id: &str, text: &str) {
+        use pite_core::PropValue;
+        let mut tree = self.tree.lock().unwrap();
+        if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
+            node.props
+                .insert("text".to_string(), PropValue::Str(text.to_string()));
+        }
+    }
+
+    pub fn set_node_size(&self, id: &str, w: f64, h: f64) {
+        use pite_core::PropValue;
+        let mut tree = self.tree.lock().unwrap();
+        if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
+            node.props.insert("size".to_string(), PropValue::Vec2(w, h));
+        }
+    }
+
+    pub fn resolve_proxy(
+        self: &std::sync::Arc<Self>,
+        py: Python<'_>,
+        caller: &str,
+        path: &str,
+    ) -> anyhow::Result<Py<NodeProxy>> {
+        let key = (caller.to_string(), path.to_string());
+        {
+            let cache = self.proxy_cache.lock().unwrap();
+            if let Some(proxy) = cache.get(&key) {
+                return Ok(proxy.clone_ref(py));
+            }
+        }
+        let target = self
+            .resolve(caller, path)
+            .ok_or_else(|| anyhow::anyhow!("{caller}: get_node({path:?}) found nothing"))?;
+        let proxy = Py::new(py, proxy_for(self.clone(), target))?;
+        self.proxy_cache
+            .lock()
+            .unwrap()
+            .insert(key, proxy.clone_ref(py));
+        Ok(proxy)
     }
 
     pub fn register(&self, node: impl Into<String>, instance: Py<PyAny>) {
@@ -167,6 +231,31 @@ impl ScriptHost {
         Ok(())
     }
 
+    pub fn connect_callable(
+        &self,
+        _py: Python<'_>,
+        source: &str,
+        signal: &str,
+        callable: Py<PyAny>,
+    ) -> anyhow::Result<()> {
+        let signals = self.signals.lock().unwrap();
+        if signals
+            .get(source)
+            .and_then(|reg| reg.get(signal))
+            .is_none()
+        {
+            anyhow::bail!("{source}: connect to unknown signal {signal:?}");
+        }
+        drop(signals);
+        self.callable_connections
+            .lock()
+            .unwrap()
+            .entry((source.to_string(), signal.to_string()))
+            .or_default()
+            .push(callable);
+        Ok(())
+    }
+
     pub fn emit(
         &self,
         py: Python<'_>,
@@ -193,6 +282,22 @@ impl ScriptHost {
             let value = coerce_payload(want, &arg)
                 .with_context(|| format!("{source}: signal {signal:?} arg {i} wants {want}"))?;
             values.push(value);
+        }
+        let callables: Vec<Py<PyAny>> = self
+            .callable_connections
+            .lock()
+            .unwrap()
+            .get(&(source.to_string(), signal.to_string()))
+            .map(|list| list.iter().map(|c| c.clone_ref(py)).collect())
+            .unwrap_or_default();
+        if !callables.is_empty() {
+            let py_args: Vec<Py<PyAny>> = values.iter().map(|v| v.to_object(py)).collect();
+            let tuple = PyTuple::new(py, py_args).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for c in callables {
+                c.bind(py)
+                    .call(tuple.clone(), None)
+                    .map_err(|e| anyhow::anyhow!("callable raised: {e}"))?;
+            }
         }
         let targets: Vec<(String, String)> = self
             .connections
@@ -240,6 +345,14 @@ impl ScriptHost {
                 targets.retain(|(t, _)| t != node);
                 !targets.is_empty()
             });
+        self.callable_connections
+            .lock()
+            .unwrap()
+            .retain(|(src, _), _| src != node);
+        self.proxy_cache
+            .lock()
+            .unwrap()
+            .retain(|(src, _), _| src != node);
     }
 }
 
@@ -303,7 +416,7 @@ pub struct NodeProxy {
 #[pymethods]
 impl NodeProxy {
     #[getter]
-    fn position(&self) -> PyResult<(f64, f64)> {
+    fn position(&self) -> PyResult<crate::vec2::Vec2> {
         use pite_core::PropValue;
         self.host.with_tree(|tree| {
             let node = tree
@@ -315,21 +428,31 @@ impl NodeProxy {
                     ))
                 })?;
             match node.props.get("position") {
-                Some(PropValue::Vec2(x, y)) => Ok((*x, *y)),
-                _ => Ok((0.0, 0.0)),
+                Some(PropValue::Vec2(x, y)) => Ok(crate::vec2::Vec2::new(*x, *y)),
+                _ => Ok(crate::vec2::Vec2::new(0.0, 0.0)),
             }
         })
     }
 
     #[setter]
-    fn set_position(&self, pos: (f64, f64)) {
+    fn set_position(&self, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let (x, y) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+            (v.x, v.y)
+        } else if let Ok(t) = val.extract::<(f64, f64)>() {
+            t
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "position must be Vec2 or (x, y) tuple",
+            ));
+        };
         use pite_core::PropValue;
         self.host.with_tree_mut(|tree| {
             if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
                 node.props
-                    .insert("position".to_string(), PropValue::Vec2(pos.0, pos.1));
+                    .insert("position".to_string(), PropValue::Vec2(x, y));
             }
         });
+        Ok(())
     }
 
     #[getter]
@@ -362,7 +485,7 @@ impl NodeProxy {
     }
 
     #[getter]
-    fn size(&self) -> PyResult<(f64, f64)> {
+    fn size(&self) -> PyResult<crate::vec2::Vec2> {
         use pite_core::PropValue;
         self.host.with_tree(|tree| {
             let node = tree
@@ -374,21 +497,30 @@ impl NodeProxy {
                     ))
                 })?;
             match node.props.get("size") {
-                Some(PropValue::Vec2(w, h)) => Ok((*w, *h)),
-                _ => Ok((0.0, 0.0)),
+                Some(PropValue::Vec2(w, h)) => Ok(crate::vec2::Vec2::new(*w, *h)),
+                _ => Ok(crate::vec2::Vec2::new(0.0, 0.0)),
             }
         })
     }
 
     #[setter]
-    fn set_size(&self, size: (f64, f64)) {
+    fn set_size(&self, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let (w, h) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+            (v.x, v.y)
+        } else if let Ok(t) = val.extract::<(f64, f64)>() {
+            t
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "size must be Vec2 or (w, h) tuple",
+            ));
+        };
         use pite_core::PropValue;
         self.host.with_tree_mut(|tree| {
             if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
-                node.props
-                    .insert("size".to_string(), PropValue::Vec2(size.0, size.1));
+                node.props.insert("size".to_string(), PropValue::Vec2(w, h));
             }
         });
+        Ok(())
     }
 
     fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<Py<PyAny>> {
@@ -429,12 +561,15 @@ impl BoundSignal {
 #[pymethods]
 impl BoundSignal {
     fn connect(&self, py: Python<'_>, callable: Bound<'_, PyAny>) -> PyResult<()> {
-        let (target, handler) = bound_target(&callable)
-            .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
-        let _ = py;
-        self.host
-            .connect(&self.node, &self.signal, &target, &handler)
-            .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
+        if let Ok((target, handler)) = bound_target(&callable) {
+            self.host
+                .connect(&self.node, &self.signal, &target, &handler)
+                .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
+        } else {
+            self.host
+                .connect_callable(py, &self.node, &self.signal, callable.into_any().unbind())
+                .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
+        }
     }
 
     #[pyo3(signature = (*args))]
@@ -455,6 +590,15 @@ pub fn resolve_caller(caller: &str, path: &str) -> anyhow::Result<NodeProxy> {
         .resolve(caller, path)
         .ok_or_else(|| anyhow::anyhow!("{caller}: get_node({path:?}) found nothing"))?;
     Ok(proxy_for(host, target))
+}
+
+pub fn resolve_caller_py(
+    py: Python<'_>,
+    caller: &str,
+    path: &str,
+) -> anyhow::Result<Py<NodeProxy>> {
+    let host = current_host().ok_or_else(|| anyhow::anyhow!("get_node has no script host"))?;
+    host.resolve_proxy(py, caller, path)
 }
 
 pub fn fire_pressed(host: &ScriptHost, id: &str) -> anyhow::Result<()> {

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Python API redesign with direct handles and vector math:
+  - `Vec2` class: native 2D math type supporting vector operations (`+`, `-`, `*`, `/`), in-place mutation (`+=`, `-=`, `*=`, `/=`), indexing (`[0]`, `[1]`), tuple sequence unpacking (`x, y = self.position`), and `.length()` / `.normalized()`.
+  - Direct engine transform mutations: mutating `self.position.x` or assigning `self.position = (x, y)` directly updates `ScriptHost`, deleting the redundant end-of-frame Python `getattr` and string-allocation sync pass.
+  - Attribute-based input API: `pite.held.<key>`, `pite.pressed.<key>`, and `pite.released.<key>` (e.g. `pite.held.right`, `pite.pressed.space`), with `TypeError` raised on string calls like `pite.held("Space")`.
+  - Declarative node descriptors: `pite.child("Name")` and `pite.node("../Path")` descriptors with automatic first-access proxy caching.
+  - Node proxy caching: repeated `get_node()` lookups are cached in `ScriptHost` to eliminate tree walks.
+  - Hybrid signal callbacks: `signal.connect()` accepts arbitrary Python callables (lambdas, standalone functions, bound methods) alongside engine-dispatched signals.
+  - Editor pause-on-error: script exceptions during gameplay automatically pause the editor, log formatted Python tracebacks, and open the failing script.
+
 - Download fallback for export: `pite export` automatically downloads the target platform's `pite-player` release archive when absent beside the engine binary, caching it under `~/.cache/pite/toolchains/players/` (or `PITE_PLAYER_DIR`).
 - Standalone and all-platform player release assets: release workflow publishes standalone player bundles for each platform (`pite-player-vx.y.z-linux.tar.gz`, `windows.zip`, `macos.tar.gz`) alongside all-platforms player archives (`pite-player-vx.y.z-allplatforms.tar.gz` and `.zip`).
 - Expanded audio formats and containers: pure-Rust decoding via `symphonia` brings support for Ogg Vorbis (`.ogg`), MP3 (`.mp3`), FLAC (`.flac`), and extended WAV (8/16/24/32-bit int and 32-bit float) to `pite.play` and `pite-audio`. `pite-assets` adds `OggImporter`, `Mp3Importer`, and `FlacImporter` for project scanning and manifest tracking, and `pite check` validates decodability across all supported audio formats.

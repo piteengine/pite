@@ -103,6 +103,8 @@ pub struct GameSession {
     timers: std::collections::HashMap<String, f64>,
     physics: Arc<Mutex<PhysicsWorld>>,
     physics_accumulator: f64,
+    pub pause_on_error: bool,
+    pub last_error: Option<pite_script::ScriptError>,
 }
 
 impl GameSession {
@@ -127,6 +129,8 @@ impl GameSession {
             timers: std::collections::HashMap::new(),
             physics,
             physics_accumulator: 0.0,
+            pause_on_error: false,
+            last_error: None,
         };
         pite_script::set_current_host(session.host.clone());
         pite_script::set_current_physics(Some(session.physics.clone()));
@@ -141,6 +145,14 @@ impl GameSession {
 
     pub fn host(&self) -> &Arc<ScriptHost> {
         &self.host
+    }
+
+    pub fn set_pause_on_error(&mut self, pause: bool) {
+        self.pause_on_error = pause;
+    }
+
+    pub fn take_last_error(&mut self) -> Option<pite_script::ScriptError> {
+        self.last_error.take()
     }
 
     pub fn resolve_path(&self, res_path: &str) -> PathBuf {
@@ -439,20 +451,26 @@ impl GameSession {
                         slot.errored = true;
                     }
                 }
-                self.host.with_tree(|tree| {
-                    if let Some((x, y)) = seed_position(tree, &id) {
-                        slot.backend.set_position(x, y);
-                    }
-                    if let Some(text) = seed_text(tree, &id) {
-                        slot.backend.set_text(&text);
-                    }
-                    if let Some((w, h)) = seed_size(tree, &id) {
-                        slot.backend.set_size(w, h);
-                    }
-                    if let Some(wait) = seed_wait(tree, &id) {
-                        slot.backend.set_wait_time(wait);
-                    }
+                let seeds = self.host.with_tree(|tree| {
+                    (
+                        seed_position(tree, &id),
+                        seed_text(tree, &id),
+                        seed_size(tree, &id),
+                        seed_wait(tree, &id),
+                    )
                 });
+                if let Some((x, y)) = seeds.0 {
+                    slot.backend.set_position(x, y);
+                }
+                if let Some(text) = seeds.1 {
+                    slot.backend.set_text(&text);
+                }
+                if let Some((w, h)) = seeds.2 {
+                    slot.backend.set_size(w, h);
+                }
+                if let Some(wait) = seeds.3 {
+                    slot.backend.set_wait_time(wait);
+                }
                 self.slots.push(slot);
                 continue;
             }
@@ -464,20 +482,26 @@ impl GameSession {
             backend.set_host(self.host.clone());
             match backend.load(&path.to_string_lossy(), &class) {
                 Ok(()) => {
-                    self.host.with_tree(|tree| {
-                        if let Some((x, y)) = seed_position(tree, &id) {
-                            backend.set_position(x, y);
-                        }
-                        if let Some(text) = seed_text(tree, &id) {
-                            backend.set_text(&text);
-                        }
-                        if let Some((w, h)) = seed_size(tree, &id) {
-                            backend.set_size(w, h);
-                        }
-                        if let Some(wait) = seed_wait(tree, &id) {
-                            backend.set_wait_time(wait);
-                        }
+                    let seeds = self.host.with_tree(|tree| {
+                        (
+                            seed_position(tree, &id),
+                            seed_text(tree, &id),
+                            seed_size(tree, &id),
+                            seed_wait(tree, &id),
+                        )
                     });
+                    if let Some((x, y)) = seeds.0 {
+                        backend.set_position(x, y);
+                    }
+                    if let Some(text) = seeds.1 {
+                        backend.set_text(&text);
+                    }
+                    if let Some((w, h)) = seeds.2 {
+                        backend.set_size(w, h);
+                    }
+                    if let Some(wait) = seeds.3 {
+                        backend.set_wait_time(wait);
+                    }
                     let mut errored = false;
                     if let Err(e) = backend.call_ready() {
                         tracing::error!(node = %id, "{e:#}");
@@ -747,6 +771,9 @@ impl GameSession {
                 if let Err(e) = slot.backend.call_physics_process(FIXED_STEP) {
                     tracing::error!(node = %slot.id, "physics process error: {e:#}");
                     slot.errored = true;
+                    if self.pause_on_error && self.last_error.is_none() {
+                        self.last_error = slot.backend.last_script_error();
+                    }
                 }
                 if let Some((x, y)) = slot.backend.position() {
                     let mut lock = self.physics.lock().unwrap();
@@ -830,28 +857,9 @@ impl GameSession {
             if let Err(e) = slot.backend.call_process(delta) {
                 tracing::error!(node = %slot.id, "{e:#}");
                 slot.errored = true;
-            }
-            if let Some((x, y)) = slot.backend.position() {
-                self.host.with_tree_mut(|tree| {
-                    if let Some(node) = tree.get_mut(&slot.id) {
-                        node.props
-                            .insert("position".to_string(), PropValue::Vec2(x, y));
-                    }
-                });
-            }
-            if let Some(text) = slot.backend.text() {
-                self.host.with_tree_mut(|tree| {
-                    if let Some(node) = tree.get_mut(&slot.id) {
-                        node.props.insert("text".to_string(), PropValue::Str(text));
-                    }
-                });
-            }
-            if let Some((w, h)) = slot.backend.size() {
-                self.host.with_tree_mut(|tree| {
-                    if let Some(node) = tree.get_mut(&slot.id) {
-                        node.props.insert("size".to_string(), PropValue::Vec2(w, h));
-                    }
-                });
+                if self.pause_on_error && self.last_error.is_none() {
+                    self.last_error = slot.backend.last_script_error();
+                }
             }
             if let Some(wait) = slot.backend.wait_time() {
                 self.host.with_tree_mut(|tree| {
@@ -1503,8 +1511,6 @@ mod tests {
 
     fn click(session: &mut GameSession, down: (f64, f64), up: (f64, f64)) {
         use pite_script::{input_begin_frame, input_set_key, input_set_mouse};
-        // Mirror the real loop, which syncs the viewport from the renderer
-        // every frame: clicks map 1:1 only at the design size.
         let (w, h) = session.design_size().unwrap_or((800, 600));
         session.set_viewport(w, h);
         input_set_mouse(down.0, down.1);
@@ -1584,7 +1590,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    const WALKER: &str = "import pite\n\nclass Walker(pite.Node2D):\n    def _process(self, delta):\n        x, y = self.position\n        if pite.held(\"T-WalkRight\"):\n            x += 200.0 * delta\n        if pite.pressed(\"T-Step\"):\n            x += 10.0\n        self.position = (x, y)\n";
+    const WALKER: &str = "import pite\n\nclass Walker(pite.Node2D):\n    def _process(self, delta):\n        if pite.held.right:\n            self.position.x += 200.0 * delta\n        if pite.pressed.space:\n            self.position.x += 10.0\n";
 
     fn walker_x(session: &GameSession) -> f64 {
         session
@@ -1608,12 +1614,12 @@ mod tests {
         let mut session = GameSession::open(&scene, true).unwrap();
 
         input_begin_frame();
-        input_set_key("T-WalkRight", true);
+        input_set_key("ArrowRight", true);
         session.update(0.5);
         assert!((walker_x(&session) - 100.0).abs() < 1e-6);
 
         input_begin_frame();
-        input_set_key("T-Step", true);
+        input_set_key("Space", true);
         session.update(0.5);
         let after_step = walker_x(&session);
         assert!((after_step - 210.0).abs() < 1e-6);
@@ -1621,12 +1627,12 @@ mod tests {
         input_begin_frame();
         session.update(0.5);
         assert!((walker_x(&session) - 310.0).abs() < 1e-6);
-        input_set_key("T-WalkRight", false);
-        input_set_key("T-Step", false);
+        input_set_key("ArrowRight", false);
+        input_set_key("Space", false);
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    const STEPPER: &str = "import pite\n\nclass Walker(pite.Node2D):\n    def _process(self, delta):\n        x, y = self.position\n        if pite.pressed(\"T-EdgeStep\"):\n            x += 10.0\n        self.position = (x, y)\n";
+    const STEPPER: &str = "import pite\n\nclass Walker(pite.Node2D):\n    def _process(self, delta):\n        if pite.pressed.space:\n            self.position.x += 10.0\n";
 
     #[test]
     fn frame_delivers_production_order_edges_exactly_once() {
@@ -1640,7 +1646,7 @@ mod tests {
         // Production order: the OS event lands between frames, so the
         // edge is set BEFORE frame() with no begin_frame in between.
         // (frame() itself retires edges at its end.)
-        input_set_key("T-EdgeStep", true);
+        input_set_key("Space", true);
         session.frame(0.5);
         assert!((walker_x(&session) - 10.0).abs() < 1e-6);
         session.frame(0.5);
@@ -1648,7 +1654,7 @@ mod tests {
             (walker_x(&session) - 10.0).abs() < 1e-6,
             "edge must be consumed exactly once"
         );
-        input_set_key("T-EdgeStep", false);
+        input_set_key("Space", false);
         pite_script::input_begin_frame();
         std::fs::remove_dir_all(&dir).ok();
     }

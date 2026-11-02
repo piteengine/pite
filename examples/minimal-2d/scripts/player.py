@@ -9,16 +9,14 @@ class Player(pite.Node2D):
         self.position = (160.0, 240.0)
 
     def _process(self, delta: float):
-        x, y = self.position
-        if pite.held("ArrowRight"):
-            x += self.speed * delta
-        if pite.held("ArrowLeft"):
-            x -= self.speed * delta
-        if pite.held("ArrowDown"):
-            y += self.speed * delta
-        if pite.held("ArrowUp"):
-            y -= self.speed * delta
-        if pite.pressed("Space"):
-            x += 10.0
+        if pite.held.right:
+            self.position.x += self.speed * delta
+        if pite.held.left:
+            self.position.x -= self.speed * delta
+        if pite.held.down:
+            self.position.y += self.speed * delta
+        if pite.held.up:
+            self.position.y -= self.speed * delta
+        if pite.pressed.space:
+            self.position.x += 10.0
             self.hit.emit(1)
-        self.position = (x, y)
