@@ -212,7 +212,7 @@ pub(crate) fn read_payload_types(types: &[Bound<'_, PyAny>]) -> PyResult<Vec<Str
     Ok(out)
 }
 
-#[pyclass(skip_from_py_object, name = "Signal")]
+#[pyclass(name = "Signal")]
 #[derive(Clone)]
 pub(crate) struct PySignalDecl {
     #[pyo3(get)]

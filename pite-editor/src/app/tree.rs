@@ -146,7 +146,7 @@ impl EditorApp {
         let hresp = ui.horizontal(|ui| {
             if !is_root {
                 let g = ui.dnd_drag_source(
-                    egui::Id::new(("tree-grip", id_str.clone())),
+                    egui::Id::unique(("tree-grip", id_str.clone())),
                     id_str.clone(),
                     |ui| {
                         ui.allocate_exact_size(

@@ -205,7 +205,11 @@ impl EditorApp {
         // framed content instead of content pinned to the top-left corner.
         let (outer, _outer_painter) = ui.allocate_painter(avail, egui::Sense::hover());
         let view_rect = egui::Rect::from_center_size(outer.rect.center(), fitted);
-        let resp = ui.interact(view_rect, ui.id().with("viewport"), egui::Sense::hover());
+        let resp = ui.interact(
+            view_rect,
+            ui.scope_id().with("viewport"),
+            egui::Sense::hover(),
+        );
         let painter = ui.painter_at(view_rect);
         self.viewport_hovered = resp.hovered();
         self.viewport_rect = Some(view_rect);

@@ -164,7 +164,7 @@ impl EditorApp {
                             let _ = wrap_width;
                             crate::highlight::layout(ui, text.as_str(), &ext)
                         };
-                    let edit_id = egui::Id::new("code-editor");
+                    let edit_id = egui::Id::unique("code-editor");
                     let before_len = self.code_text.len();
                     // Completion keys are consumed before the editor sees them:
                     // arrows move the selection and Enter accepts, so typing
@@ -332,7 +332,7 @@ impl EditorApp {
     /// it. Callers scroll the outer area to the line themselves: the TextEdit
     /// only scrolls on text/selection changes, never on a stored cursor.
     pub(super) fn jump_to_line(&mut self, ctx: &egui::Context, line: usize) {
-        let edit_id = egui::Id::new("code-editor");
+        let edit_id = egui::Id::unique("code-editor");
         let byte = lsp::line_start_byte(&self.code_text, line);
         let index = self.code_text[..byte].chars().count();
         Self::store_code_cursor(ctx, index);
@@ -340,7 +340,7 @@ impl EditorApp {
     }
 
     pub(super) fn store_code_cursor(ctx: &egui::Context, char_index: usize) {
-        let edit_id = egui::Id::new("code-editor");
+        let edit_id = egui::Id::unique("code-editor");
         if let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ctx, edit_id) {
             let cursor = egui::text::CCursor::new(char_index);
             state
