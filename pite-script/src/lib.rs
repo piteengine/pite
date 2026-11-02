@@ -5,17 +5,20 @@
 mod audio;
 mod host;
 mod input;
+pub mod physics_bridge;
 mod python;
 
 use anyhow::Result;
 
 pub use host::{
-    fire_pressed, fire_timeout, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost,
+    fire_area_entered, fire_area_exited, fire_body_entered, fire_body_exited, fire_pressed,
+    fire_timeout, proxy_for, resolve_caller, set_current_host, NodeProxy, ScriptHost,
 };
 pub use input::{
     input_begin_frame, input_clear, input_held, input_mouse, input_pressed, input_released,
     input_set_key, input_set_mouse,
 };
+pub use physics_bridge::{current_physics, set_current_physics, with_physics};
 pub use python::is_stdlib_module;
 pub use python::Pyo3Backend;
 
@@ -40,6 +43,9 @@ pub trait ScriptBackend {
     fn load(&mut self, path: &str, class: &str) -> Result<()>;
     fn call_ready(&mut self) -> Result<()>;
     fn call_process(&mut self, delta: f64) -> Result<()>;
+    fn call_physics_process(&mut self, _delta: f64) -> Result<()> {
+        Ok(())
+    }
     fn reload(&mut self) -> Result<()>;
 
     fn position(&self) -> Option<(f64, f64)> {
@@ -47,6 +53,16 @@ pub trait ScriptBackend {
     }
 
     fn set_position(&mut self, _x: f64, _y: f64) {}
+
+    fn velocity(&self) -> Option<(f64, f64)> {
+        None
+    }
+
+    fn set_velocity(&mut self, _vx: f64, _vy: f64) {}
+
+    fn set_on_floor(&mut self, _on_floor: bool) {}
+    fn set_on_wall(&mut self, _on_wall: bool) {}
+    fn set_on_ceiling(&mut self, _on_ceiling: bool) {}
 
     fn text(&self) -> Option<String> {
         None

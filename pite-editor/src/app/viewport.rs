@@ -266,5 +266,115 @@ impl EditorApp {
                 );
             }
         }
+        if !self.playing {
+            draw_collision_overlays(&self.session, &painter, view_rect, (view_w, view_h));
+        }
+    }
+}
+
+struct CollisionGizmo {
+    shape_type: String,
+    center: (f64, f64),
+    size: (f64, f64),
+    radius: f64,
+    height: f64,
+    disabled: bool,
+}
+
+fn draw_collision_overlays(
+    session: &GameSession,
+    painter: &egui::Painter,
+    view_rect: egui::Rect,
+    view_size: (u32, u32),
+) {
+    let gizmos: Vec<CollisionGizmo> = session.host().with_tree(|tree| {
+        tree.iter()
+            .filter(|n| n.type_name == "CollisionShape2D")
+            .map(|n| {
+                let shape_type = match n.props.get("shape") {
+                    Some(PropValue::Str(s)) => s.clone(),
+                    _ => "box".to_string(),
+                };
+                let size = match n.props.get("size") {
+                    Some(PropValue::Vec2(w, h)) => (*w, *h),
+                    _ => (32.0, 32.0),
+                };
+                let radius = match n.props.get("radius") {
+                    Some(PropValue::Num(r)) => *r,
+                    _ => 16.0,
+                };
+                let height = match n.props.get("height") {
+                    Some(PropValue::Num(h)) => *h,
+                    _ => 32.0,
+                };
+                let disabled = match n.props.get("disabled") {
+                    Some(PropValue::Bool(b)) => *b,
+                    _ => false,
+                };
+                let center = pite_core::global_position(tree, &n.id);
+                CollisionGizmo {
+                    shape_type,
+                    center,
+                    size,
+                    radius,
+                    height,
+                    disabled,
+                }
+            })
+            .collect()
+    });
+
+    if gizmos.is_empty() {
+        return;
+    }
+
+    let (cam, _) = session.camera_view();
+    let zoom = session.effective_zoom();
+    let (view_w, view_h) = view_size;
+    let scale = (view_rect.width() / view_w as f32) * zoom as f32;
+
+    for gizmo in gizmos {
+        let (sx, sy) = pite_render::world_to_screen(gizmo.center, cam, zoom, (view_w, view_h));
+        let vp_x = view_rect.min.x + (sx / view_w as f32) * view_rect.width();
+        let vp_y = view_rect.min.y + (sy / view_h as f32) * view_rect.height();
+        let center_pos = egui::pos2(vp_x, vp_y);
+
+        let (fill_col, stroke_col) = if gizmo.disabled {
+            (
+                egui::Color32::from_rgba_unmultiplied(160, 160, 160, 35),
+                egui::Color32::from_rgb(160, 160, 160),
+            )
+        } else {
+            (
+                egui::Color32::from_rgba_unmultiplied(72, 220, 140, 50),
+                egui::Color32::from_rgb(72, 220, 140),
+            )
+        };
+        let stroke = egui::Stroke::new(1.5, stroke_col);
+
+        match gizmo.shape_type.as_str() {
+            "circle" => {
+                let r = (gizmo.radius as f32 * scale).max(1.0);
+                painter.circle_filled(center_pos, r, fill_col);
+                painter.circle_stroke(center_pos, r, stroke);
+            }
+            "capsule" => {
+                let r = (gizmo.radius as f32 * scale).max(1.0);
+                let half_h = (gizmo.height as f32 * 0.5 * scale).max(0.0);
+                let rect = egui::Rect::from_center_size(
+                    center_pos,
+                    egui::vec2(r * 2.0, half_h * 2.0 + r * 2.0),
+                );
+                painter.rect_filled(rect, r, fill_col);
+                painter.rect_stroke(rect, r, stroke, egui::StrokeKind::Middle);
+            }
+            _ => {
+                let w = (gizmo.size.0 as f32 * scale).max(2.0);
+                let h = (gizmo.size.1 as f32 * scale).max(2.0);
+                let rect = egui::Rect::from_center_size(center_pos, egui::vec2(w, h));
+                painter.rect_filled(rect, 0.0, fill_col);
+                painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Middle);
+            }
+        }
     }
 }

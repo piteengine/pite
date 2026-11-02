@@ -15,6 +15,7 @@ winit.workspace = true
 notify = "8"
 pite-audio.workspace = true
 pite-core.workspace = true
+pite-physics.workspace = true
 pite-scene.workspace = true
 pite-render.workspace = true
 pite-script.workspace = true

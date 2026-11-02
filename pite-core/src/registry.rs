@@ -11,7 +11,8 @@ pub type NodeFactory = Box<dyn Fn(NodeId) -> Node + Send + Sync>;
 /// never a core match-statement edit.
 ///
 /// Registered set: `Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`,
-/// `Label`, `Button`.
+/// `Label`, `Button`, `StaticBody2D`, `CharacterBody2D`, `RigidBody2D`,
+/// `Area2D`, `CollisionShape2D`.
 pub struct NodeTypeRegistry {
     factories: HashMap<String, NodeFactory>,
 }
@@ -20,7 +21,18 @@ impl NodeTypeRegistry {
     pub fn new() -> Self {
         let mut factories: HashMap<String, NodeFactory> = HashMap::new();
         for type_name in [
-            "Node", "Node2D", "Sprite2D", "Camera2D", "Timer", "Label", "Button",
+            "Node",
+            "Node2D",
+            "Sprite2D",
+            "Camera2D",
+            "Timer",
+            "Label",
+            "Button",
+            "StaticBody2D",
+            "CharacterBody2D",
+            "RigidBody2D",
+            "Area2D",
+            "CollisionShape2D",
         ] {
             factories.insert(
                 type_name.to_string(),

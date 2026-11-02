@@ -139,6 +139,7 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 | `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
+| `pite-physics` | Pure-Rust 2D physics subsystem (`rapier2d`): rigid bodies, character controller, triggers, raycasts |
 | `pite-render` | `Renderer2D` trait (wgpu seam) |
 | `pite-script` | Embedded Python (`pite` module) |
 | `pite-scene` | TOML scenes, instantiation, validation, binary cache |

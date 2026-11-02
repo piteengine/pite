@@ -29,7 +29,7 @@ cargo run -p pite-cli -- check
 
 The `v*` tag flow automates almost nothing — bump these by hand, every release:
 
-- `Cargo.toml`: `version` + all 12 internal `pite-*` path-dep pins (nothing enforces lockstep; `cargo publish` breaks otherwise).
+- `Cargo.toml`: `version` + all 13 internal `pite-*` path-dep pins (nothing enforces lockstep; `cargo publish` breaks otherwise).
 - `CHANGELOG.md`: move notes from `## Unreleased` to the release heading.
 - MSRV proof re-runs automatically (weekly + manual); if it goes red, fix code or raise `rust-version`.
 - Only when the toolchain changes: `python_bundle.rs` (`PINNED_PYTHON`, `PINNED_BUILD`, filenames, checksums).

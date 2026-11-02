@@ -143,6 +143,306 @@ impl PyButton {
     }
 }
 
+#[pyclass(extends = PyNode2D, subclass, name = "StaticBody2D")]
+struct PyStaticBody2D {
+    #[pyo3(get, set)]
+    collision_layer: u32,
+    #[pyo3(get, set)]
+    collision_mask: u32,
+}
+
+#[pymethods]
+impl PyStaticBody2D {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
+            .add_subclass(PyStaticBody2D {
+                collision_layer: 1,
+                collision_mask: 1,
+            })
+    }
+}
+
+#[pyclass(extends = PyNode2D, subclass, name = "CharacterBody2D")]
+struct PyCharacterBody2D {
+    #[pyo3(get, set)]
+    velocity: (f64, f64),
+    #[pyo3(get, set)]
+    up_direction: (f64, f64),
+    #[pyo3(get, set)]
+    collision_layer: u32,
+    #[pyo3(get, set)]
+    collision_mask: u32,
+    #[pyo3(get, set)]
+    _is_on_floor: bool,
+    #[pyo3(get, set)]
+    _is_on_wall: bool,
+    #[pyo3(get, set)]
+    _is_on_ceiling: bool,
+}
+
+#[pymethods]
+impl PyCharacterBody2D {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
+            .add_subclass(PyCharacterBody2D {
+                velocity: (0.0, 0.0),
+                up_direction: (0.0, -1.0),
+                collision_layer: 1,
+                collision_mask: 1,
+                _is_on_floor: false,
+                _is_on_wall: false,
+                _is_on_ceiling: false,
+            })
+    }
+
+    fn is_on_floor(&self) -> bool {
+        self._is_on_floor
+    }
+
+    fn is_on_wall(&self) -> bool {
+        self._is_on_wall
+    }
+
+    fn is_on_ceiling(&self) -> bool {
+        self._is_on_ceiling
+    }
+
+    fn move_and_slide(slf: &Bound<'_, Self>) -> PyResult<bool> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let node_id = pite_core::NodeId::from(node_path);
+        let (vel, up) = {
+            let b = slf.borrow();
+            (b.velocity, b.up_direction)
+        };
+
+        let dt = 1.0 / 60.0;
+        let res = crate::with_physics(|world| {
+            world.move_and_slide(
+                &node_id,
+                (vel.0 as f32, vel.1 as f32),
+                dt as f32,
+                (up.0 as f32, up.1 as f32),
+            )
+        });
+
+        if let Some(res) = res {
+            {
+                let mut b = slf.borrow_mut();
+                b.velocity = (res.velocity.0 as f64, res.velocity.1 as f64);
+                b._is_on_floor = res.is_on_floor;
+                b._is_on_wall = res.is_on_wall;
+                b._is_on_ceiling = res.is_on_ceiling;
+            }
+            if let Some(Some(new_pos)) = crate::with_physics(|w| w.get_body_position(&node_id)) {
+                slf.setattr("position", new_pos)?;
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[pyclass(extends = PyNode2D, subclass, name = "RigidBody2D")]
+struct PyRigidBody2D {
+    #[pyo3(get, set)]
+    mass: f64,
+    #[pyo3(get, set)]
+    gravity_scale: f64,
+    #[pyo3(get, set)]
+    restitution: f64,
+    #[pyo3(get, set)]
+    friction: f64,
+    #[pyo3(get, set)]
+    lock_rotation: bool,
+    #[pyo3(get, set)]
+    collision_layer: u32,
+    #[pyo3(get, set)]
+    collision_mask: u32,
+}
+
+#[pymethods]
+impl PyRigidBody2D {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
+            .add_subclass(PyRigidBody2D {
+                mass: 1.0,
+                gravity_scale: 1.0,
+                restitution: 0.0,
+                friction: 0.5,
+                lock_rotation: false,
+                collision_layer: 1,
+                collision_mask: 1,
+            })
+    }
+
+    fn apply_impulse(slf: &Bound<'_, Self>, impulse: (f64, f64)) -> PyResult<()> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let node_id = pite_core::NodeId::from(node_path);
+        crate::with_physics(|w| w.apply_impulse(&node_id, (impulse.0 as f32, impulse.1 as f32)));
+        Ok(())
+    }
+
+    fn apply_force(slf: &Bound<'_, Self>, force: (f64, f64)) -> PyResult<()> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let node_id = pite_core::NodeId::from(node_path);
+        crate::with_physics(|w| w.apply_force(&node_id, (force.0 as f32, force.1 as f32)));
+        Ok(())
+    }
+}
+
+#[pyclass(extends = PyNode2D, subclass, name = "Area2D")]
+struct PyArea2D {
+    #[pyo3(get, set)]
+    collision_layer: u32,
+    #[pyo3(get, set)]
+    collision_mask: u32,
+}
+
+#[pymethods]
+impl PyArea2D {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
+            .add_subclass(PyArea2D {
+                collision_layer: 1,
+                collision_mask: 1,
+            })
+    }
+
+    #[getter]
+    fn body_entered(slf: &Bound<'_, Self>) -> PyResult<crate::host::BoundSignal> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+        })?;
+        Ok(crate::host::BoundSignal::with_host(
+            host,
+            node_path,
+            "body_entered".to_string(),
+        ))
+    }
+
+    #[getter]
+    fn body_exited(slf: &Bound<'_, Self>) -> PyResult<crate::host::BoundSignal> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+        })?;
+        Ok(crate::host::BoundSignal::with_host(
+            host,
+            node_path,
+            "body_exited".to_string(),
+        ))
+    }
+
+    #[getter]
+    fn area_entered(slf: &Bound<'_, Self>) -> PyResult<crate::host::BoundSignal> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+        })?;
+        Ok(crate::host::BoundSignal::with_host(
+            host,
+            node_path,
+            "area_entered".to_string(),
+        ))
+    }
+
+    #[getter]
+    fn area_exited(slf: &Bound<'_, Self>) -> PyResult<crate::host::BoundSignal> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+        })?;
+        Ok(crate::host::BoundSignal::with_host(
+            host,
+            node_path,
+            "area_exited".to_string(),
+        ))
+    }
+}
+
+#[pyclass(extends = PyNode2D, subclass, name = "CollisionShape2D")]
+struct PyCollisionShape2D {
+    #[pyo3(get, set)]
+    shape: String,
+    #[pyo3(get, set)]
+    size: (f64, f64),
+    #[pyo3(get, set)]
+    radius: f64,
+    #[pyo3(get, set)]
+    height: f64,
+    #[pyo3(get, set)]
+    disabled: bool,
+}
+
+#[pymethods]
+impl PyCollisionShape2D {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D {
+                position: (0.0, 0.0),
+            })
+            .add_subclass(PyCollisionShape2D {
+                shape: "box".to_string(),
+                size: (32.0, 32.0),
+                radius: 16.0,
+                height: 32.0,
+                disabled: false,
+            })
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (from, to, mask = 0xFFFFFFFF))]
+fn raycast(
+    py: Python<'_>,
+    from: (f64, f64),
+    to: (f64, f64),
+    mask: u32,
+) -> PyResult<Option<Py<PyAny>>> {
+    let hit = crate::with_physics(|w| {
+        w.raycast(
+            (from.0 as f32, from.1 as f32),
+            (to.0 as f32, to.1 as f32),
+            mask,
+        )
+    })
+    .flatten();
+
+    if let Some(h) = hit {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("point", (h.point.0 as f64, h.point.1 as f64))?;
+        dict.set_item("normal", (h.normal.0 as f64, h.normal.1 as f64))?;
+        dict.set_item("distance", h.distance as f64)?;
+        dict.set_item("collider", h.collider_node.as_str())?;
+        dict.set_item(
+            "body",
+            h.body_node.as_ref().map(|b| b.as_str()).unwrap_or(""),
+        )?;
+        Ok(Some(dict.into_any().unbind()))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Frame names in a sprite-sheet atlas (`res://…atlas.json`).
 #[pyfunction]
 fn frames(atlas_ref: &str) -> PyResult<Vec<String>> {
@@ -165,6 +465,12 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTimer>()?;
     m.add_class::<PyLabel>()?;
     m.add_class::<PyButton>()?;
+    m.add_class::<PyStaticBody2D>()?;
+    m.add_class::<PyCharacterBody2D>()?;
+    m.add_class::<PyRigidBody2D>()?;
+    m.add_class::<PyArea2D>()?;
+    m.add_class::<PyCollisionShape2D>()?;
+    m.add_function(wrap_pyfunction!(raycast, m)?)?;
     m.add_function(wrap_pyfunction!(held, m)?)?;
     m.add_function(wrap_pyfunction!(pressed, m)?)?;
     m.add_function(wrap_pyfunction!(released, m)?)?;
@@ -526,6 +832,10 @@ impl ScriptBackend for Pyo3Backend {
         self.call_opt("_process", Some(delta))
     }
 
+    fn call_physics_process(&mut self, delta: f64) -> Result<()> {
+        self.call_opt("_physics_process", Some(delta))
+    }
+
     fn reload(&mut self) -> Result<()> {
         let pos = self.position();
         let text = self.text();
@@ -564,6 +874,50 @@ impl ScriptBackend for Pyo3Backend {
         Python::attach(|py| {
             if let Some(inst) = &self.instance {
                 let _ = inst.bind(py).setattr("position", (x, y));
+            }
+        });
+    }
+
+    fn velocity(&self) -> Option<(f64, f64)> {
+        Python::attach(|py| {
+            self.instance
+                .as_ref()?
+                .bind(py)
+                .getattr("velocity")
+                .ok()?
+                .extract()
+                .ok()
+        })
+    }
+
+    fn set_velocity(&mut self, vx: f64, vy: f64) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("velocity", (vx, vy));
+            }
+        });
+    }
+
+    fn set_on_floor(&mut self, on_floor: bool) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("_is_on_floor", on_floor);
+            }
+        });
+    }
+
+    fn set_on_wall(&mut self, on_wall: bool) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("_is_on_wall", on_wall);
+            }
+        });
+    }
+
+    fn set_on_ceiling(&mut self, on_ceiling: bool) {
+        Python::attach(|py| {
+            if let Some(inst) = &self.instance {
+                let _ = inst.bind(py).setattr("_is_on_ceiling", on_ceiling);
             }
         });
     }

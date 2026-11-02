@@ -464,3 +464,39 @@ pub fn fire_pressed(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
 pub fn fire_timeout(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
     Python::attach(|py| host.emit(py, id, "timeout", &PyTuple::empty(py)))
 }
+
+pub fn fire_body_entered(host: &ScriptHost, area_id: &str, body_id: &str) -> anyhow::Result<()> {
+    Python::attach(|py| {
+        let arg = PyTuple::new(py, [body_id])?;
+        host.emit(py, area_id, "body_entered", &arg)
+    })
+}
+
+pub fn fire_body_exited(host: &ScriptHost, area_id: &str, body_id: &str) -> anyhow::Result<()> {
+    Python::attach(|py| {
+        let arg = PyTuple::new(py, [body_id])?;
+        host.emit(py, area_id, "body_exited", &arg)
+    })
+}
+
+pub fn fire_area_entered(
+    host: &ScriptHost,
+    area_id: &str,
+    other_area_id: &str,
+) -> anyhow::Result<()> {
+    Python::attach(|py| {
+        let arg = PyTuple::new(py, [other_area_id])?;
+        host.emit(py, area_id, "area_entered", &arg)
+    })
+}
+
+pub fn fire_area_exited(
+    host: &ScriptHost,
+    area_id: &str,
+    other_area_id: &str,
+) -> anyhow::Result<()> {
+    Python::attach(|py| {
+        let arg = PyTuple::new(py, [other_area_id])?;
+        host.emit(py, area_id, "area_exited", &arg)
+    })
+}
