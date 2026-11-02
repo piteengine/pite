@@ -36,7 +36,7 @@ class = "Player"
 - All paths are project-relative (`res://…`); absolute paths are forbidden.
 - Every `res://` string in `props` is an asset ref: `pite check` errors on missing
   files and tells you where a renamed asset went (uid-tracked, see `assets.md`).
-  Run `pite reimport` after renaming or editing assets outside the editor.
+  Run `pite check --reimport-assets` after renaming or editing assets outside the editor.
 
 ## Cache
 

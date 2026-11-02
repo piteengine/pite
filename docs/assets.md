@@ -6,7 +6,7 @@ stability across renames comes from a uid sidecar, not from the reference syntax
 
 ## Manifest (`assets.pite.toml`)
 
-`pite reimport` scans the project root (png, wav, ogg, mp3, flac; `target/`, `dist/`,
+`pite check --reimport-assets` scans the project root (png, wav, ogg, mp3, flac; `target/`, `dist/`,
 `.git/`, hidden dirs, and dotfiles skipped) and writes `assets.pite.toml`:
 `[[asset]]` entries of `{ path, uid, hash, size }`, sorted by path. The uid is
 opaque and assigned once. The manifest is a local import cache — gitignored,
@@ -18,7 +18,7 @@ Every `res://` string in node props (main scene + instanced scenes) and every
 `play("…")` literal must resolve to a file, else `check` errors:
 
 - `references missing asset "res://…"` — nothing on disk, no uid match.
-- `references moved asset "res://…" (now at "res://…"); run 'pite reimport'` —
+- `references moved asset "res://…" (now at "res://…"); run 'pite check --reimport-assets'` —
   the path is gone but the uid (content hash) was found elsewhere.
 - `asset "res://…" is never referenced by a reachable scene` — the file is
   scanned but nothing reachable uses it (warning only, never an error).
@@ -27,12 +27,12 @@ Every `res://` string in node props (main scene + instanced scenes) and every
   scripts, atlas sheets via their sidecar, and the manifest icon. Assets used
   only by uninstantiated scenes or loose scripts stay silent by design.
 
-## `pite reimport`
+## Reimporting assets (`pite check --reimport-assets`)
 
 Re-runs the matching importer over added/changed files (png: magic bytes, wav:
 `RIFF…WAVE`, ogg: `OggS`, mp3: ID3/frame sync, flac: `fLaC`), updates the manifest, and
 rewrites quote-wrapped `res://` refs in `.ptscn` / `.py` files when a uid moved.
-Single files that fail import are reported, not fatal to the rest. `check` itself never writes.
+Single files that fail import are reported, not fatal to the rest. `check` itself never writes unless `--reimport-assets` is passed.
 
 ## Importers (`pite-assets`)
 

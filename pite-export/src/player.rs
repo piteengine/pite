@@ -137,8 +137,10 @@ pub fn download_and_extract_player(platform: &str) -> Result<PathBuf> {
     let archive_path = target_dir.join(&archive_name);
     let url = player_download_url(platform, &tag);
 
+    eprintln!("info: downloading player binary for {platform} ({archive_name})...");
     tracing::info!(platform = %platform, url = %url, "downloading pite-player binary");
     download_file(&url, &archive_path, platform)?;
+    eprintln!("info: extracting player binary for {platform}...");
 
     let extract_res = if archive_name.ends_with(".zip") {
         unpack_zip(&archive_path, &target_dir)
@@ -180,6 +182,7 @@ pub fn ensure_player_binary(platform: &str) -> Result<PathBuf> {
 }
 
 fn download_file(url: &str, dest: &Path, platform: &str) -> Result<()> {
+    use std::io::IsTerminal;
     if let Some(path_str) = url.strip_prefix("file://") {
         let src = Path::new(path_str);
         std::fs::copy(src, dest)
@@ -189,21 +192,14 @@ fn download_file(url: &str, dest: &Path, platform: &str) -> Result<()> {
 
     let tool = downloader()?;
     let _ = std::fs::remove_file(dest);
-    let result = std::process::Command::new(tool)
-        .args([
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--location",
-            "--retry",
-            "3",
-            "--retry-delay",
-            "3",
-        ])
-        .arg(url)
-        .arg("--output")
-        .arg(dest)
-        .status();
+    let mut cmd = std::process::Command::new(tool);
+    cmd.args(["--fail", "--location", "--retry", "3", "--retry-delay", "3"]);
+    if std::io::stderr().is_terminal() {
+        cmd.arg("--progress-bar");
+    } else {
+        cmd.args(["--silent", "--show-error"]);
+    }
+    let result = cmd.arg(url).arg("--output").arg(dest).status();
     match result {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => {

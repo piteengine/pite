@@ -8,7 +8,8 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(name = "pite-player", version, about = "Pite export player")]
 struct Cli {
-    #[arg(long)]
+    /// Scene file to run (res:// path or filesystem path).
+    #[arg(value_name = "SCENE")]
     scene: String,
 }
 

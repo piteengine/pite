@@ -34,21 +34,33 @@ irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1 | iex
 Then:
 
 ```sh
-pite new hello --template minimal-2d
-pite run --scene examples/minimal-2d/scenes/main.ptscn
+# Create a new project (blank by default, or pass --template minimal-2d)
+pite new hello
+
+# Enter the project and launch the visual editor (or run `pite edit`)
+cd hello
+pite
+
+# Run the game (defaults to main_scene, or pass a scene path)
+pite run
+
+# Validate assets, scripts, and scenes (add --reimport-assets to sync moved files)
 pite check
-pite edit --scene examples/minimal-2d/scenes/main.ptscn
 ```
 
-Install once, then use `pite`. `new` scaffolds a project, `run` plays a scene (defaults to the project's main scene), `check` validates it, `edit` opens the editor, `vendor` pins third-party Python packages. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
+Install once, then use `pite`. Running plain `pite` inside a project opens the visual editor. `new` scaffolds a project (blank or templated), `run` plays a scene (defaults to the project's main scene), `edit` opens the visual editor, `check` validates project integrity (`--reimport-assets` syncs moved assets and hashes), `toolchain` manages standalone runtimes for offline export, and `vendor` pins third-party Python packages. Building from source instead: `cargo build --release -p pite-cli -p pite-player` (needs CPython 3.12 dev headers, see `CONTRIBUTING.md`).
 
-### Export
+### Export & Toolchains
 
 ```sh
+# Pre-cache toolchains (CPython + player binaries) for offline export
+pite toolchain download
+
+# Export a standalone game for any platform
 pite export linux
 ```
 
-`export linux|windows|macos` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files, plus `vendor/` for third-party Python packages. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship player binaries for all platforms, so any machine exports for any platform with no download and no compiler. When a player sibling is absent, export falls back to downloading and caching the platform's player template.
+`export linux|windows|macos` writes a runnable directory (`dist/<name>-<platform>/`) with the lean player binary (no editor), a launcher script, a manual for how to run, and only the referenced game content. Provides `[export] include` in `pite.toml` for extra files, plus `vendor/` for third-party Python packages. The player is resolved as `--binary`, else a `pite-player` sibling of `pite` — engine bundles ship player binaries for all platforms, so any machine exports for any platform with no download and no compiler. When a player sibling is absent, export falls back to downloading and caching the platform's player template into `~/.cache/pite/toolchains`. Use `pite toolchain status|download|verify|clean` to manage these toolchain artifacts.
 
 Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`) and ships in the exported game. The exported game runs with no system Python installed. Passing `--no-bundle-python` falls back to end-user's system Python 3.12 (`PITE_PYTHON` overrides detection).
 
@@ -123,7 +135,7 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 
 | Crate | Role |
 |---|---|
-| `pite-cli` | `pite` binary: new / run / check / reimport / edit / export / vendor |
+| `pite-cli` | `pite` binary: new / run / check / edit / export / vendor / toolchain |
 | `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
@@ -148,7 +160,7 @@ Published on crates.io, versioned lockstep with the engine:
 |---|---|
 | [`docs/scene-format.md`](docs/scene-format.md) | `.ptscn` TOML, instantiation, the scene cache |
 | [`docs/scripting-api.md`](docs/scripting-api.md) | Python API: nodes, signals, input, audio, text, imports |
-| [`docs/assets.md`](docs/assets.md) | `res://` refs, uid manifest, `pite reimport` |
+| [`docs/assets.md`](docs/assets.md) | `res://` refs, uid manifest, asset reimport |
 | [`docs/editor.md`](docs/editor.md) | Panels, viewport, save, tree ops, settings, completion |
 | [`docs/manifest.md`](docs/manifest.md) | `pite.toml` fields, defaults, vendor, check rules |
 | [`docs/lsp.md`](docs/lsp.md) | Pinned pyright server, completion/hover/diagnostics |

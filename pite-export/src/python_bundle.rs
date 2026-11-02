@@ -137,12 +137,17 @@ pub fn ensure_archive(spec: &BundleSpec) -> Result<PathBuf> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
+    eprintln!(
+        "info: downloading pinned Python {} runtime for {} ({})...",
+        PINNED_PYTHON, spec.platform, spec.file
+    );
     let url = format!("{RELEASE_BASE}/{PINNED_BUILD}/{}", spec.file);
     download(&url, &path)?;
     if let Err(e) = verify(spec, &path) {
         let _ = std::fs::remove_file(&path);
         return Err(e);
     }
+    eprintln!("info: verified Python runtime ({})", spec.file);
     Ok(path)
 }
 
@@ -177,22 +182,16 @@ pub fn verify(spec: &BundleSpec, path: &Path) -> Result<()> {
 }
 
 pub(crate) fn download(url: &str, dest: &Path) -> Result<()> {
+    use std::io::IsTerminal;
     let tool = downloader()?;
-    let result = std::process::Command::new(&tool)
-        .args([
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--location",
-            "--retry",
-            "3",
-            "--retry-delay",
-            "3",
-        ])
-        .arg(url)
-        .arg("--output")
-        .arg(dest)
-        .status();
+    let mut cmd = std::process::Command::new(&tool);
+    cmd.args(["--fail", "--location", "--retry", "3", "--retry-delay", "3"]);
+    if std::io::stderr().is_terminal() {
+        cmd.arg("--progress-bar");
+    } else {
+        cmd.args(["--silent", "--show-error"]);
+    }
+    let result = cmd.arg(url).arg("--output").arg(dest).status();
     match result {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => bail!(

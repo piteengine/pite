@@ -300,9 +300,19 @@ const TEMPLATE_PLAYER_PNG: &[u8] = &[
     9, 251, 3, 253, 42, 134, 227, 138, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
-pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf> {
-    if template != "minimal-2d" {
-        anyhow::bail!("unknown template {template:?} (only \"minimal-2d\" exists)");
+/// Minimal blank `main.ptscn` for projects created without a template.
+pub fn blank_scene() -> String {
+    format!(
+        "format_version = {}\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n",
+        pite_scene::FORMAT_VERSION
+    )
+}
+
+pub fn create_project(dest: &Path, name: &str, template: Option<&str>) -> Result<PathBuf> {
+    if let Some(t) = template {
+        if t != "minimal-2d" {
+            anyhow::bail!("unknown template {t:?} (supported: \"minimal-2d\", or omit for blank)");
+        }
     }
     let dir = if dest.file_name().map(|n| n == name).unwrap_or(false) {
         dest.to_path_buf()
@@ -319,9 +329,13 @@ pub fn create_project(dest: &Path, name: &str, template: &str) -> Result<PathBuf
         dir.join(MANIFEST_FILE),
         TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
     )?;
-    std::fs::write(dir.join("scenes").join("main.ptscn"), template_scene())?;
-    std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
-    std::fs::write(dir.join("assets").join("player.png"), TEMPLATE_PLAYER_PNG)?;
+    if template == Some("minimal-2d") {
+        std::fs::write(dir.join("scenes").join("main.ptscn"), template_scene())?;
+        std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
+        std::fs::write(dir.join("assets").join("player.png"), TEMPLATE_PLAYER_PNG)?;
+    } else {
+        std::fs::write(dir.join("scenes").join("main.ptscn"), blank_scene())?;
+    }
     Ok(dir)
 }
 
@@ -446,6 +460,24 @@ mod tests {
         );
         assert!(errors.iter().any(|e| e.contains("0x")), "got {errors:?}");
         assert!(errors.iter().any(|e| e.contains("icon")), "got {errors:?}");
+    }
+
+    #[test]
+    fn create_project_blank_and_template() {
+        let root = tmpdir("new-blank");
+        let dir = create_project(&root, "blank_game", None).unwrap();
+        assert!(dir.join(MANIFEST_FILE).is_file());
+        assert!(dir.join("scenes").join("main.ptscn").is_file());
+        assert!(!dir.join("scripts").join("player.py").exists());
+        assert!(!dir.join("assets").join("player.png").exists());
+        std::fs::remove_dir_all(&root).ok();
+
+        let root2 = tmpdir("new-tmpl");
+        let dir2 = create_project(&root2, "tmpl_game", Some("minimal-2d")).unwrap();
+        assert!(dir2.join(MANIFEST_FILE).is_file());
+        assert!(dir2.join("scripts").join("player.py").is_file());
+        assert!(dir2.join("assets").join("player.png").is_file());
+        std::fs::remove_dir_all(&root2).ok();
     }
 
     #[test]

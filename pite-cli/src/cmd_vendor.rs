@@ -190,7 +190,7 @@ pub fn find_wheel(vendor_dir: &Path, dist: &str, version: &str) -> Result<PathBu
 fn project_root() -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     pite_project::find_project_root(&cwd)
-        .with_context(|| "pite vendor must run inside a project (no pite.toml above cwd)")
+        .with_context(|| "no pite.toml found above cwd; run inside a project")
 }
 
 fn pip_program() -> String {
@@ -251,6 +251,7 @@ pub fn add(spec: &str, zipped: bool, unpacked: bool) -> Result<()> {
     let root = project_root()?;
     let mut manifest = pite_project::load_manifest(&root)?;
     let pinned = parse_spec(spec)?;
+    eprintln!("info: downloading wheel(s) for {pinned} via pip...");
     let requested = normalize_dist(pinned.split("==").next().unwrap_or(&pinned));
     let tmp = std::env::temp_dir().join(format!("pite-vendor-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -437,6 +438,10 @@ pub fn list() -> Result<()> {
     let vendor_dir = root.join(VENDOR_DIR);
     let mut names: Vec<&String> = manifest.vendor.keys().collect();
     names.sort_unstable();
+    if names.is_empty() {
+        println!("no packages vendored (use 'pite vendor add <package>' to vendor one)");
+        return Ok(());
+    }
     for name in names {
         let entry = &manifest.vendor[name];
         let present = find_wheel(&vendor_dir, name, &entry.version).is_ok()
@@ -459,6 +464,10 @@ pub fn verify() -> Result<()> {
     let mut bad = 0;
     let mut names: Vec<&String> = manifest.vendor.keys().collect();
     names.sort_unstable();
+    if names.is_empty() {
+        println!("no packages vendored to verify");
+        return Ok(());
+    }
     for name in names {
         let entry = &manifest.vendor[name];
         let hash = find_wheel(&vendor_dir, name, &entry.version)
@@ -467,11 +476,11 @@ pub fn verify() -> Result<()> {
         match hash {
             Ok(h) if h == entry.sha256 => println!("{name} ok"),
             Ok(_) => {
-                println!("{name} MISMATCH");
+                eprintln!("{name} MISMATCH");
                 bad += 1;
             }
             Err(e) => {
-                println!("{name} MISSING ({e:#})");
+                eprintln!("{name} MISSING ({e:#})");
                 bad += 1;
             }
         }

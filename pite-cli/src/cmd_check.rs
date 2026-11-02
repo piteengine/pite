@@ -15,7 +15,7 @@ struct CheckReport {
     cache: Vec<String>,
 }
 
-pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
+pub fn run(path: Option<&str>, reimport_assets: bool, strict: bool, json: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let start = match path {
         Some(p) => {
@@ -45,13 +45,49 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
         Some(root) => root,
         None => {
             errors.push(format!(
-                "no {} found above {}",
+                "no {} found above {}; run inside a project or pass --path",
                 pite_project::MANIFEST_FILE,
                 start.display()
             ));
             start.clone()
         }
     };
+
+    if reimport_assets && errors.is_empty() {
+        let old = pite_assets::load_registry(&root).unwrap_or_default();
+        let files = pite_assets::scan_files(&root).unwrap_or_default();
+        let (_next, scan) = pite_assets::reconcile(&old, &files);
+        let (_reg, report) = pite_assets::reimport_project(&root)?;
+        if !json {
+            println!("scanned {} asset(s)", scan.scanned);
+            for added in &scan.added {
+                println!("added: {added}");
+            }
+            for (old_path, new_path) in &scan.renamed {
+                println!("renamed: {old_path} -> {new_path}");
+            }
+            for removed in &scan.removed {
+                println!("removed: {removed}");
+            }
+            for changed in &scan.changed {
+                println!("changed: {changed}");
+            }
+            println!("reimported {} asset(s)", report.reimported.len());
+            for r in &report.reimported {
+                println!("reimported: {r}");
+            }
+            for r in &report.refs_updated {
+                println!("refs updated: {r}");
+            }
+        }
+        if !report.failed.is_empty() {
+            for f in &report.failed {
+                eprintln!("error: failed to reimport {f}");
+            }
+            std::process::exit(1);
+        }
+    }
+
     let manifest = if errors.is_empty() {
         match pite_project::load_manifest(&root) {
             Ok(m) => Some(m),
@@ -157,7 +193,7 @@ pub fn run(path: Option<&str>, strict: bool, json: bool) -> Result<()> {
         }
     }
     if failed {
-        anyhow::bail!("check failed");
+        std::process::exit(1);
     }
     Ok(())
 }
@@ -346,7 +382,7 @@ fn check_scene_ref(
                     .filter(|new| *new != s);
                 if let Some(new) = moved_to {
                     errors.push(format!(
-                        "scene {}: node {:?} references moved asset {s:?} (now at {new:?}); run 'pite reimport'",
+                        "scene {}: node {:?} references moved asset {s:?} (now at {new:?}); run 'pite check --reimport-assets'",
                         path.display(),
                         node.id
                     ));

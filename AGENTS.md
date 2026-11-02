@@ -16,7 +16,7 @@ cargo run --locked -p pite-cli -- check
 - Single crate: `cargo test -p <crate>` (e.g. `-p pite-scene`). Focused check: `cargo run -p pite-cli -- check --path <dir>`; `--strict` promotes warnings, `--json` gives machine report. With no `--path` outside a project it falls back to `examples/minimal-2d`.
 - Build needs CPython 3.12 dev headers + ALSA headers or it fails to link: `libasound2-dev pkg-config` on Debian/Ubuntu, plus `export PYO3_PYTHON=$(which python3.12)` and `LD_LIBRARY_PATH` pointing at its `LIBDIR`.
 - WSL without Wayland: `WINIT_UNIX_BACKEND=x11 cargo run -p pite-cli -- edit`.
-- `pite` dogfood flow: `new --template minimal-2d` → `run --scene …` → `check` → `edit --scene …`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` (with automatic download fallback to toolchain cache if missing) — from a source checkout build both: `cargo build --release -p pite-cli -p pite-player`.
+- `pite` dogfood flow: `new` → `cd <project>` → `edit` → `check` → `run`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` (with automatic download fallback to toolchain cache if missing) — from a source checkout build both: `cargo build --release -p pite-cli -p pite-player`.
 
 ## Architecture (crate → role)
 
@@ -25,7 +25,7 @@ cargo run --locked -p pite-cli -- check
 ## Gotchas agents miss
 
 - **Scenes**: `.ptscn` TOML is source of truth; binary `_cache/<stem>.<hash>.bin` beside it is derived. Node ids are human strings, never UUIDs. Unknown `props` warn and survive saves (forward compat) — don't "clean" them. Saves are byte-stable (sorted prop keys); `[[instance]]` entries stay as entries with edits recorded as `"node.prop"` overrides, never inlined.
-- **Assets**: all refs are `res://` project-relative strings; absolute paths are forbidden. After renaming/moving an asset outside the editor, run `pite reimport` (rewrites refs by uid); `check` never writes. Orphan-asset warnings only consider scenes transitively reachable from `main_scene`.
+- **Assets**: all refs are `res://` project-relative strings; absolute paths are forbidden. After renaming/moving an asset outside the editor, run `pite check --reimport-assets` (rewrites refs by uid); `check` without `--reimport-assets` never writes. Orphan-asset warnings only consider scenes transitively reachable from `main_scene`.
 - **Deps**: exports drop `site-packages`; third-party imports die in an export unless vendored (`pite vendor add pkg==ver` → project `vendor/`, pinned in `[vendor]`). `pite check` warns per offending import; non-vendored sibling modules need `[export] include` to ship.
 - **Scripts**: one file = one class inheriting `pite.*`, `snake_case`. Missing `_ready`/`_process` is a no-op, never an error. Cross-node calls go through `get_node("../Name")`; a miss raises `KeyError`. Signals are typed (`pite.signal(int)`); `Button.pressed` and `Timer.timeout` (fires each `wait_time` seconds, looping; non-positive never fires) are engine-owned — just `connect`, don't declare.
 - **Logging**: `tracing` everywhere — never `println!`/`log::` in engine code.

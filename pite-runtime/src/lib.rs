@@ -803,13 +803,13 @@ pub fn resolve_scene_arg(scene: &str) -> Result<PathBuf> {
     Ok(if p.is_absolute() { p } else { cwd.join(p) })
 }
 
-/// Default scene when `--scene` is omitted: the enclosing project's
+/// Default scene when scene argument is omitted: the enclosing project's
 /// `main_scene`. Same rule `pite edit` uses with no scene; outside a
 /// project it fails loudly instead of guessing.
 pub fn resolve_default_scene() -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     let root = pite_project::find_project_root(&cwd)
-        .with_context(|| "no --scene given and no pite.toml found above cwd")?;
+        .with_context(|| "no scene given and no pite.toml found above cwd")?;
     let main = pite_project::load_manifest(&root)?.project.main_scene;
     Ok(match main.strip_prefix("res://") {
         Some(rel) => root.join(rel),

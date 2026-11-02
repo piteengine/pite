@@ -22,8 +22,10 @@ next to the engine binary. Engine bundles ship player binaries for all supported
 platforms, so cross-platform export needs no download and no compiler. When the player
 binary is missing beside the engine (e.g. after a bare `cargo install`), export
 automatically downloads the release archive for the target platform and caches the
-player binary in `~/.cache/pite/toolchains/players/` (or `PITE_PLAYER_DIR`). Without
-network access or when offline, export fails and tells you to pass `--binary`.
+player binary in `~/.cache/pite/toolchains/player/` (or `PITE_TOOLCHAIN_DIR`). You can
+also pre-cache players and runtimes for offline export using `pite toolchain download`. Without
+network access or when offline, export fails and tells you to pass `--binary` or pre-download
+the toolchain.
 
 ## Python
 

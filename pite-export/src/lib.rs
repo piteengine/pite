@@ -294,7 +294,7 @@ fn unix_launcher(
                  export DYLD_LIBRARY_PATH\n\
                  PYTHONPATH=\"$HERE/{zip_rel}\"\n\
                  export PYTHONPATH\n\
-                 exec \"$HERE/bin/{bin}\" --scene \"$HERE/game/{main_rel}\" \"$@\"\n",
+                 exec \"$HERE/bin/{bin}\" \"$HERE/game/{main_rel}\" \"$@\"\n",
                 lib_rel = rel_to(out, lib_dir),
                 zip_rel = rel_to(out, &bundle.stdlib_zip),
             )
@@ -309,7 +309,7 @@ fn unix_launcher(
              echo \"This export has no bundled interpreter; install CPython 3.12 or set PITE_PYTHON.\" >&2\n\
              exit 1\n\
              fi\n\
-              exec \"$HERE/bin/{bin}\" --scene \"$HERE/game/{main_rel}\" \"$@\"\n"
+              exec \"$HERE/bin/{bin}\" \"$HERE/game/{main_rel}\" \"$@\"\n"
         ),
     }
 }
@@ -355,7 +355,7 @@ fn windows_launcher(
         Some(_) => format!(
             "@echo off\r\n\
              set HERE=%~dp0\r\n\
-             \"%HERE%bin\\{bin}\" --scene \"%HERE%game/{main_rel}\" %*\r\n"
+             \"%HERE%bin\\{bin}\" \"%HERE%game/{main_rel}\" %*\r\n"
         ),
         None => format!(
             "@echo off\r\n\
@@ -367,7 +367,7 @@ fn windows_launcher(
              echo This export has no bundled interpreter; install CPython 3.12 or set PITE_PYTHON. 1>&2\r\n\
              exit /b 1\r\n\
              )\r\n\
-             \"%HERE%bin\\{bin}\" --scene \"%HERE%game/{main_rel}\" %*\r\n"
+             \"%HERE%bin\\{bin}\" \"%HERE%game/{main_rel}\" %*\r\n"
         ),
     }
 }
@@ -712,8 +712,8 @@ def _once():
         assert!(!game_has(out, "assets/orphan.png"));
         assert!(out.join("bin").join("fixt").is_file());
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
-        assert!(sh.contains("--scene"));
-        assert!(!sh.contains(" run --scene"));
+        assert!(sh.contains("bin/fixt"));
+        assert!(!sh.contains(" run "));
         assert!(sh.contains("game/scenes/main.ptscn"));
         assert!(out.join("README.txt").is_file());
         std::fs::remove_dir_all(&dir).ok();
@@ -1348,7 +1348,7 @@ def _once():
         assert!(out.join("run.sh").is_file());
         let sh = std::fs::read_to_string(out.join("run.sh")).unwrap();
         assert!(sh.contains("needs system Python 3.12"));
-        assert!(sh.contains("--scene"));
+        assert!(sh.contains("game/scenes/main.ptscn"));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(out).ok();
     }
