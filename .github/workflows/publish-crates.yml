@@ -5,7 +5,7 @@
 # OIDC trusted publishing was dropped: GitHub issues no OIDC variables to
 # this workflow's jobs, so there is nothing for cargo to exchange.
 # First release was manual (`cargo login`); tags publish via this workflow.
-# The tag MUST equal the workspace version (v0.2.0 ↔ 0.2.0) — lockstep (§0.4).
+# The tag MUST equal the workspace version (v0.3.0 ↔ 0.3.0) — lockstep (§0.4).
 # The version check below fails the run loudly otherwise.
 name: Publish crates to crates.io
 

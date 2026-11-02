@@ -310,16 +310,16 @@ mod tests {
     #[test]
     fn archive_name_formats() {
         assert_eq!(
-            player_archive_name("windows", "v0.2.0"),
-            "pite-player-v0.2.0-windows.zip"
+            player_archive_name("windows", "v0.3.0"),
+            "pite-player-v0.3.0-windows.zip"
         );
         assert_eq!(
-            player_archive_name("linux", "v0.2.0"),
-            "pite-player-v0.2.0-linux.tar.gz"
+            player_archive_name("linux", "v0.3.0"),
+            "pite-player-v0.3.0-linux.tar.gz"
         );
         assert_eq!(
-            player_archive_name("macos", "v0.2.0"),
-            "pite-player-v0.2.0-macos.tar.gz"
+            player_archive_name("macos", "v0.3.0"),
+            "pite-player-v0.3.0-macos.tar.gz"
         );
     }
 }

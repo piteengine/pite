@@ -1236,7 +1236,7 @@ def _once():
         std::fs::create_dir_all(&archive_src).unwrap();
         let bin_src = archive_src.join("pite-player-linux");
         std::fs::write(&bin_src, "downloaded-player-content").unwrap();
-        let archive_tar = dir.join("pite-player-v0.2.0-linux.tar.gz");
+        let archive_tar = dir.join("pite-player-v0.3.0-linux.tar.gz");
 
         let status = std::process::Command::new("tar")
             .args([
@@ -1272,7 +1272,7 @@ def _once():
         let fake_exe = dir.join("pite");
         std::fs::write(&fake_exe, "x").unwrap();
         let cache = dir.join("cache");
-        let archive_zip = dir.join("pite-player-v0.2.0-windows.zip");
+        let archive_zip = dir.join("pite-player-v0.3.0-windows.zip");
 
         {
             let file = std::fs::File::create(&archive_zip).unwrap();

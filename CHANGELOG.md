@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0
+
 - Hot reload reliability and asset watching:
   - Editor hot reload: `poll_watch` now runs continuously while editing (when `playing == false`) so external script or scene modifications reload without starting gameplay.
   - Scene filter: hot reload only rebuilds the active scene when the touched `.ptscn` matches the main scene or its transitively instantiated sub-scenes, ignoring unrelated scene files.

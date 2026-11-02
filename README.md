@@ -120,16 +120,16 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 
 ## Status
 
-**v0.2 is out:**
-- `pite vendor` pulls third-party Python packages (wheels + deps) into `vendor/`, version- and hash-pinned; exports still need no Python install
-- `pite check` warns on third-party imports in game scripts
-- `pite run` without `--scene` starts the project's `main_scene`
-- 1280×720 is now a design resolution: the window opens maximized and scales with correct click mapping
-- Editor code pane got a real gutter: line numbers, clickable errors, completion popup
-- `import pite` resolves everywhere, even with no checkout
-- `Project Settings…` edits every manifest field
+**v0.3 is out:**
+- 2D physics subsystem powered by Rapier2D: StaticBody2D, CharacterBody2D (with `move_and_slide`), RigidBody2D, Area2D triggers, CollisionShape2D (`box`, `circle`, `capsule`), and raycasting
+- Python API redesign: `Vec2` math class with tuple unpacking, direct handle mutations, attribute-based input (`pite.held.<key>`, `pite.pressed.<key>`), declarative node descriptors (`pite.child`, `pite.node`), proxy caching, and hybrid signal callbacks
+- Hot reload reliability: continuous editor idle reload, scene reload isolation, Python state and physics velocity preservation, and asset cache invalidation
+- Audio support expanded: pure-Rust Symphonia decoding for Ogg Vorbis, MP3, FLAC, and multi-format WAV
+- Scene extension `.ptscn` (was `.pitescene`)
+- Automatic player download fallback for `pite export` with standalone and multi-platform release archives
+- MacOS cross-compilation and export support
 
-**Previous:** v0.1-m5 (export slimming: Linux 247→52 MB, Windows 75→20 MB), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`CHANGELOG.md`](CHANGELOG.md).
+**Previous:** v0.2.0 (vendor dependencies, window scaling, editor gutter and completion), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Workspace
 

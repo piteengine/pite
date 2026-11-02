@@ -5,7 +5,7 @@ Locked field set. Every field has a default, so old projects parse untouched; un
 ```toml
 [project]
 name = "my-game"
-pite_version = "0.2.0"
+pite_version = "0.3.0"
 main_scene = "res://scenes/main.ptscn"
 python = "3.12"
 author = ""
