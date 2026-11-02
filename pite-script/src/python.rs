@@ -9,7 +9,7 @@ use pyo3::PyClassInitializer;
 use std::collections::HashMap;
 
 use crate::host::NodeProxy;
-use crate::{resolve_caller, ScriptBackend};
+use crate::ScriptBackend;
 
 #[pyclass(subclass, name = "Node")]
 struct PyNode {
@@ -26,26 +26,47 @@ impl PyNode {
         }
     }
 
-    fn get_node(&self, py: Python<'_>, path: &str) -> PyResult<Py<NodeProxy>> {
-        let proxy = resolve_caller(&self.node_path, path)
-            .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))?;
-        Py::new(py, proxy)
+    fn get_node(slf: &Bound<'_, Self>, path: &str) -> PyResult<Py<NodeProxy>> {
+        let py = slf.py();
+        let node_path = slf.borrow().node_path.clone();
+        crate::resolve_caller_py(py, &node_path, path)
+            .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
     }
 }
 
 #[pyclass(extends = PyNode, subclass, name = "Node2D")]
 struct PyNode2D {
-    #[pyo3(get, set)]
-    position: (f64, f64),
+    position: Py<crate::vec2::Vec2>,
 }
 
 #[pymethods]
 impl PyNode2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new()).add_subclass(PyNode2D {
-            position: (0.0, 0.0),
-        })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new()).add_subclass(PyNode2D { position: pos }))
+    }
+
+    #[getter]
+    fn position(&self, py: Python<'_>) -> Py<crate::vec2::Vec2> {
+        self.position.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_position(&self, py: Python<'_>, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let mut b = self.position.borrow_mut(py);
+        if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+            b.set_x(v.x());
+            b.set_y(v.y());
+        } else if let Ok((x, y)) = val.extract::<(f64, f64)>() {
+            b.set_x(x);
+            b.set_y(y);
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "position must be Vec2 or (x, y) tuple",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -62,16 +83,15 @@ struct PySprite2D {
 #[pymethods]
 impl PySprite2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PySprite2D {
                 texture: String::new(),
                 atlas: String::new(),
                 frame: String::new(),
-            })
+            }))
     }
 }
 
@@ -81,12 +101,11 @@ struct PyCamera2D;
 #[pymethods]
 impl PyCamera2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
-            .add_subclass(PyCamera2D)
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
+            .add_subclass(PyCamera2D))
     }
 }
 
@@ -106,7 +125,7 @@ impl PyTimer {
 
 #[pyclass(extends = PyNode, subclass, name = "Label")]
 struct PyLabel {
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     text: String,
 }
 
@@ -118,28 +137,77 @@ impl PyLabel {
             text: String::new(),
         })
     }
+
+    #[setter]
+    fn set_text(slf: &Bound<'_, Self>, text: String) -> PyResult<()> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        if let Some(host) = crate::host::current_host() {
+            host.set_node_text(&node_path, &text);
+        }
+        let mut b = slf.borrow_mut();
+        b.text = text;
+        Ok(())
+    }
 }
 
 #[pyclass(extends = PyNode2D, subclass, name = "Button")]
 struct PyButton {
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     text: String,
-    #[pyo3(get, set)]
-    size: (f64, f64),
+    size: Py<crate::vec2::Vec2>,
 }
 
 #[pymethods]
 impl PyButton {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        let size = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PyButton {
                 text: String::new(),
-                size: (0.0, 0.0),
-            })
+                size,
+            }))
+    }
+
+    #[setter]
+    fn set_text(slf: &Bound<'_, Self>, text: String) -> PyResult<()> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        if let Some(host) = crate::host::current_host() {
+            host.set_node_text(&node_path, &text);
+        }
+        let mut b = slf.borrow_mut();
+        b.text = text;
+        Ok(())
+    }
+
+    #[getter]
+    fn size(&self, py: Python<'_>) -> Py<crate::vec2::Vec2> {
+        self.size.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_size(slf: &Bound<'_, Self>, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let (w, h) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+            (v.x(), v.y())
+        } else if let Ok(t) = val.extract::<(f64, f64)>() {
+            t
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "size must be Vec2 or (w, h) tuple",
+            ));
+        };
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        if let Some(host) = crate::host::current_host() {
+            host.set_node_size(&node_path, w, h);
+        }
+        let py = slf.py();
+        let b = slf.borrow();
+        let mut s = b.size.borrow_mut(py);
+        s.set_x(w);
+        s.set_y(h);
+        Ok(())
     }
 }
 
@@ -154,24 +222,21 @@ struct PyStaticBody2D {
 #[pymethods]
 impl PyStaticBody2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PyStaticBody2D {
                 collision_layer: 1,
                 collision_mask: 1,
-            })
+            }))
     }
 }
 
 #[pyclass(extends = PyNode2D, subclass, name = "CharacterBody2D")]
 struct PyCharacterBody2D {
-    #[pyo3(get, set)]
-    velocity: (f64, f64),
-    #[pyo3(get, set)]
-    up_direction: (f64, f64),
+    velocity: Py<crate::vec2::Vec2>,
+    up_direction: Py<crate::vec2::Vec2>,
     #[pyo3(get, set)]
     collision_layer: u32,
     #[pyo3(get, set)]
@@ -187,20 +252,65 @@ struct PyCharacterBody2D {
 #[pymethods]
 impl PyCharacterBody2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        let vel = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        let up = Py::new(py, crate::vec2::Vec2::new(0.0, -1.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PyCharacterBody2D {
-                velocity: (0.0, 0.0),
-                up_direction: (0.0, -1.0),
+                velocity: vel,
+                up_direction: up,
                 collision_layer: 1,
                 collision_mask: 1,
                 _is_on_floor: false,
                 _is_on_wall: false,
                 _is_on_ceiling: false,
-            })
+            }))
+    }
+
+    #[getter]
+    fn velocity(&self, py: Python<'_>) -> Py<crate::vec2::Vec2> {
+        self.velocity.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_velocity(&self, py: Python<'_>, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let mut b = self.velocity.borrow_mut(py);
+        if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+            b.set_x(v.x());
+            b.set_y(v.y());
+        } else if let Ok((vx, vy)) = val.extract::<(f64, f64)>() {
+            b.set_x(vx);
+            b.set_y(vy);
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "velocity must be Vec2 or (vx, vy) tuple",
+            ));
+        }
+        Ok(())
+    }
+
+    #[getter]
+    fn up_direction(&self, py: Python<'_>) -> Py<crate::vec2::Vec2> {
+        self.up_direction.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_up_direction(&self, py: Python<'_>, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let mut b = self.up_direction.borrow_mut(py);
+        if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+            b.set_x(v.x());
+            b.set_y(v.y());
+        } else if let Ok((ux, uy)) = val.extract::<(f64, f64)>() {
+            b.set_x(ux);
+            b.set_y(uy);
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "up_direction must be Vec2 or (ux, uy) tuple",
+            ));
+        }
+        Ok(())
     }
 
     fn is_on_floor(&self) -> bool {
@@ -216,11 +326,14 @@ impl PyCharacterBody2D {
     }
 
     fn move_and_slide(slf: &Bound<'_, Self>) -> PyResult<bool> {
+        let py = slf.py();
         let node_path: String = slf.getattr("node_path")?.extract()?;
         let node_id = pite_core::NodeId::from(node_path);
         let (vel, up) = {
             let b = slf.borrow();
-            (b.velocity, b.up_direction)
+            let v = b.velocity.borrow(py);
+            let u = b.up_direction.borrow(py);
+            ((v.x(), v.y()), (u.x(), u.y()))
         };
 
         let dt = 1.0 / 60.0;
@@ -235,8 +348,13 @@ impl PyCharacterBody2D {
 
         if let Some(res) = res {
             {
+                let b = slf.borrow();
+                let mut v = b.velocity.borrow_mut(py);
+                v.set_x(res.velocity.0 as f64);
+                v.set_y(res.velocity.1 as f64);
+            }
+            {
                 let mut b = slf.borrow_mut();
-                b.velocity = (res.velocity.0 as f64, res.velocity.1 as f64);
                 b._is_on_floor = res.is_on_floor;
                 b._is_on_wall = res.is_on_wall;
                 b._is_on_ceiling = res.is_on_ceiling;
@@ -272,11 +390,10 @@ struct PyRigidBody2D {
 #[pymethods]
 impl PyRigidBody2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PyRigidBody2D {
                 mass: 1.0,
                 gravity_scale: 1.0,
@@ -285,7 +402,7 @@ impl PyRigidBody2D {
                 lock_rotation: false,
                 collision_layer: 1,
                 collision_mask: 1,
-            })
+            }))
     }
 
     fn apply_impulse(slf: &Bound<'_, Self>, impulse: (f64, f64)) -> PyResult<()> {
@@ -314,15 +431,14 @@ struct PyArea2D {
 #[pymethods]
 impl PyArea2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PyArea2D {
                 collision_layer: 1,
                 collision_mask: 1,
-            })
+            }))
     }
 
     #[getter]
@@ -395,18 +511,17 @@ struct PyCollisionShape2D {
 #[pymethods]
 impl PyCollisionShape2D {
     #[new]
-    fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new())
-            .add_subclass(PyNode2D {
-                position: (0.0, 0.0),
-            })
+    fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
             .add_subclass(PyCollisionShape2D {
                 shape: "box".to_string(),
                 size: (32.0, 32.0),
                 radius: 16.0,
                 height: 32.0,
                 disabled: false,
-            })
+            }))
     }
 }
 
@@ -470,19 +585,150 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRigidBody2D>()?;
     m.add_class::<PyArea2D>()?;
     m.add_class::<PyCollisionShape2D>()?;
+    m.add_class::<crate::vec2::Vec2>()?;
+    m.add_class::<PyInputQuery>()?;
+    m.add_class::<crate::descriptor::PyChildDescriptor>()?;
+    m.add_class::<crate::descriptor::PyNodeDescriptor>()?;
+    m.add(
+        "held",
+        PyInputQuery {
+            kind: InputQueryKind::Held,
+        },
+    )?;
+    m.add(
+        "pressed",
+        PyInputQuery {
+            kind: InputQueryKind::Pressed,
+        },
+    )?;
+    m.add(
+        "released",
+        PyInputQuery {
+            kind: InputQueryKind::Released,
+        },
+    )?;
     m.add_function(wrap_pyfunction!(raycast, m)?)?;
-    m.add_function(wrap_pyfunction!(held, m)?)?;
-    m.add_function(wrap_pyfunction!(pressed, m)?)?;
-    m.add_function(wrap_pyfunction!(released, m)?)?;
     m.add_function(wrap_pyfunction!(mouse, m)?)?;
     m.add_function(wrap_pyfunction!(signal, m)?)?;
     m.add_class::<PySignalDecl>()?;
     m.add_function(wrap_pyfunction!(frames, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::descriptor::child, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::descriptor::node, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::play, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::stop, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::set_volume, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::is_playing, m)?)?;
     Ok(())
+}
+
+fn map_key_attr(attr: &str) -> &'static str {
+    match attr {
+        "space" => "Space",
+        "enter" | "return" => "Enter",
+        "escape" | "esc" => "Escape",
+        "tab" => "Tab",
+        "backspace" => "Backspace",
+        "shift" => "Shift",
+        "ctrl" | "control" => "Control",
+        "alt" => "Alt",
+        "left" | "arrow_left" => "ArrowLeft",
+        "right" | "arrow_right" => "ArrowRight",
+        "up" | "arrow_up" => "ArrowUp",
+        "down" | "arrow_down" => "ArrowDown",
+        "mouse_left" | "mouse1" => "MouseLeft",
+        "mouse_right" | "mouse2" => "MouseRight",
+        "mouse_middle" | "mouse3" => "MouseMiddle",
+        "a" => "A",
+        "b" => "B",
+        "c" => "C",
+        "d" => "D",
+        "e" => "E",
+        "f" => "F",
+        "g" => "G",
+        "h" => "H",
+        "i" => "I",
+        "j" => "J",
+        "k" => "K",
+        "l" => "L",
+        "m" => "M",
+        "n" => "N",
+        "o" => "O",
+        "p" => "P",
+        "q" => "Q",
+        "r" => "R",
+        "s" => "S",
+        "t" => "T",
+        "u" => "U",
+        "v" => "V",
+        "w" => "W",
+        "x" => "X",
+        "y" => "Y",
+        "z" => "Z",
+        "num0" | "zero" => "0",
+        "num1" | "one" => "1",
+        "num2" | "two" => "2",
+        "num3" | "three" => "3",
+        "num4" | "four" => "4",
+        "num5" | "five" => "5",
+        "num6" | "six" => "6",
+        "num7" | "seven" => "7",
+        "num8" | "eight" => "8",
+        "num9" | "nine" => "9",
+        _ => "",
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputQueryKind {
+    Held,
+    Pressed,
+    Released,
+}
+
+impl InputQueryKind {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Held => "held",
+            Self::Pressed => "pressed",
+            Self::Released => "released",
+        }
+    }
+}
+
+#[pyclass(name = "InputQuery")]
+pub struct PyInputQuery {
+    pub(crate) kind: InputQueryKind,
+}
+
+#[pymethods]
+impl PyInputQuery {
+    fn __getattr__(&self, name: &str) -> bool {
+        let key = map_key_attr(name);
+        let key_str = if key.is_empty() { name } else { key };
+        match self.kind {
+            InputQueryKind::Held => crate::input_held(key_str),
+            InputQueryKind::Pressed => crate::input_pressed(key_str),
+            InputQueryKind::Released => crate::input_released(key_str),
+        }
+    }
+
+    #[pyo3(signature = (*_args, **_kwargs))]
+    fn __call__(
+        &self,
+        _args: &Bound<'_, pyo3::types::PyTuple>,
+        _kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
+    ) -> PyResult<()> {
+        let n = self.kind.name();
+        Err(pyo3::exceptions::PyTypeError::new_err(format!(
+            "pite.{n} is an attribute-based accessor. Use 'pite.{n}.<key>' instead (e.g. pite.{n}.space, pite.{n}.right). Passing strings is no longer supported."
+        )))
+    }
+}
+
+#[pyfunction]
+fn mouse() -> crate::vec2::Vec2 {
+    let (x, y) = crate::input_mouse();
+    crate::vec2::Vec2::new(x, y)
 }
 
 #[pyfunction]
@@ -557,26 +803,6 @@ impl PySignalDecl {
     }
 }
 
-#[pyfunction]
-fn held(key: &str) -> bool {
-    crate::input_held(key)
-}
-
-#[pyfunction]
-fn pressed(key: &str) -> bool {
-    crate::input_pressed(key)
-}
-
-#[pyfunction]
-fn released(key: &str) -> bool {
-    crate::input_released(key)
-}
-
-#[pyfunction]
-fn mouse() -> (f64, f64) {
-    crate::input_mouse()
-}
-
 static INIT: Once = Once::new();
 
 fn ensure_init() {
@@ -616,15 +842,49 @@ pub fn is_stdlib_module(name: &str) -> bool {
     })
 }
 
-fn format_error(py: Python<'_>, err: PyErr, ctx: &str) -> String {
-    let tb = err
+#[derive(Debug, Clone)]
+pub struct ScriptError {
+    pub message: String,
+    pub file: Option<String>,
+    pub line: Option<usize>,
+    pub traceback: String,
+}
+
+pub fn extract_script_error(py: Python<'_>, err: &PyErr, ctx: &str) -> ScriptError {
+    let mut file = None;
+    let mut line = None;
+    if let Some(tb) = err.traceback(py) {
+        let mut curr = Some(tb);
+        while let Some(t) = curr {
+            let frame = t.getattr("tb_frame").ok();
+            if let Some(f) = frame {
+                let code = f.getattr("f_code").ok();
+                if let Some(c) = code {
+                    if let Ok(filename) =
+                        c.getattr("co_filename").and_then(|x| x.extract::<String>())
+                    {
+                        let lineno = t
+                            .getattr("tb_lineno")
+                            .and_then(|x| x.extract::<usize>())
+                            .unwrap_or(0);
+                        file = Some(filename);
+                        line = Some(lineno);
+                    }
+                }
+            }
+            curr = t.getattr("tb_next").ok().and_then(|n| n.extract().ok());
+        }
+    }
+    let tb_str = err
         .traceback(py)
         .and_then(|t| t.format().ok())
         .unwrap_or_default();
-    if tb.is_empty() {
-        format!("{ctx}: {err}")
-    } else {
-        format!("{ctx}: {err}\n{tb}")
+    let message = format!("{ctx}: {err}");
+    ScriptError {
+        message,
+        file,
+        line,
+        traceback: tb_str,
     }
 }
 
@@ -634,6 +894,7 @@ pub struct Pyo3Backend {
     class: String,
     instance: Option<Py<PyAny>>,
     last_error: Option<String>,
+    last_script_error: Option<ScriptError>,
     host: Option<std::sync::Arc<crate::ScriptHost>>,
     pending_signals: Vec<(String, Vec<String>)>,
 }
@@ -647,6 +908,7 @@ impl Pyo3Backend {
             class: String::new(),
             instance: None,
             last_error: None,
+            last_script_error: None,
             host: None,
             pending_signals: Vec::new(),
         }
@@ -659,6 +921,17 @@ impl Pyo3Backend {
             } else {
                 self.pending_signals.clear();
             }
+        }
+        if let Some(inst) = &self.instance {
+            Python::attach(|py| {
+                if let Ok(pos_attr) = inst.bind(py).getattr("position") {
+                    if let Ok(mut vec2_bound) =
+                        pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
+                    {
+                        vec2_bound.set_target(host.clone(), self.node_path.clone());
+                    }
+                }
+            });
         }
         self.host = Some(host);
     }
@@ -775,6 +1048,13 @@ impl Pyo3Backend {
             let owned: Py<PyAny> = instance.into();
             owned.bind(py).setattr("node_path", &self.node_path)?;
             if let Some(host) = &self.host {
+                if let Ok(pos_attr) = owned.bind(py).getattr("position") {
+                    if let Ok(mut vec2_bound) =
+                        pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
+                    {
+                        vec2_bound.set_target(host.clone(), self.node_path.clone());
+                    }
+                }
                 host.register(self.node_path.clone(), owned.clone_ref(py));
             }
             self.instance = Some(owned);
@@ -807,7 +1087,9 @@ impl Pyo3Backend {
                 None => callable.call0(),
             };
             if let Err(err) = result {
-                let msg = format_error(py, err, &ctx);
+                let script_err = extract_script_error(py, &err, &ctx);
+                let msg = script_err.message.clone();
+                self.last_script_error = Some(script_err);
                 self.last_error = Some(msg.clone());
                 anyhow::bail!("{msg}");
             }
@@ -821,6 +1103,7 @@ impl ScriptBackend for Pyo3Backend {
         self.file = PathBuf::from(path);
         self.class = class.to_string();
         self.last_error = None;
+        self.last_script_error = None;
         self.exec()
     }
 
@@ -860,13 +1143,15 @@ impl ScriptBackend for Pyo3Backend {
 
     fn position(&self) -> Option<(f64, f64)> {
         Python::attach(|py| {
-            self.instance
-                .as_ref()?
-                .bind(py)
-                .getattr("position")
-                .ok()?
-                .extract()
-                .ok()
+            let inst = self.instance.as_ref()?.bind(py);
+            let attr = inst.getattr("position").ok()?;
+            if let Ok(v) = attr.extract::<crate::vec2::Vec2>() {
+                Some((v.x(), v.y()))
+            } else if let Ok(t) = attr.extract::<(f64, f64)>() {
+                Some(t)
+            } else {
+                None
+            }
         })
     }
 
@@ -880,13 +1165,15 @@ impl ScriptBackend for Pyo3Backend {
 
     fn velocity(&self) -> Option<(f64, f64)> {
         Python::attach(|py| {
-            self.instance
-                .as_ref()?
-                .bind(py)
-                .getattr("velocity")
-                .ok()?
-                .extract()
-                .ok()
+            let inst = self.instance.as_ref()?.bind(py);
+            let attr = inst.getattr("velocity").ok()?;
+            if let Ok(v) = attr.extract::<crate::vec2::Vec2>() {
+                Some((v.x(), v.y()))
+            } else if let Ok(t) = attr.extract::<(f64, f64)>() {
+                Some(t)
+            } else {
+                None
+            }
         })
     }
 
@@ -944,13 +1231,15 @@ impl ScriptBackend for Pyo3Backend {
 
     fn size(&self) -> Option<(f64, f64)> {
         Python::attach(|py| {
-            self.instance
-                .as_ref()?
-                .bind(py)
-                .getattr("size")
-                .ok()?
-                .extract()
-                .ok()
+            let inst = self.instance.as_ref()?.bind(py);
+            let attr = inst.getattr("size").ok()?;
+            if let Ok(v) = attr.extract::<crate::vec2::Vec2>() {
+                Some((v.x(), v.y()))
+            } else if let Ok(t) = attr.extract::<(f64, f64)>() {
+                Some(t)
+            } else {
+                None
+            }
         })
     }
 
@@ -984,6 +1273,10 @@ impl ScriptBackend for Pyo3Backend {
 
     fn last_error(&self) -> Option<String> {
         self.last_error.clone()
+    }
+
+    fn last_script_error(&self) -> Option<ScriptError> {
+        self.last_script_error.clone()
     }
 }
 
@@ -1231,10 +1524,10 @@ class Sizer(pite.Button):
 import pite
 
 class Sensor(pite.Node2D):
-    tripped: pite.signal(int, "str")
+    tripped = pite.signal(int, "str")
 
     def _process(self, delta):
-        if pite.pressed("T-Trip"):
+        if pite.pressed.space:
             self.tripped.emit(7, "hi")
 "#;
 
@@ -1290,8 +1583,9 @@ class Listener(pite.Node2D):
         listener.load(&listener_file, "Listener").unwrap();
         listener.call_ready().unwrap();
 
+        crate::input_clear();
         crate::input_begin_frame();
-        crate::input_set_key("T-Trip", true);
+        crate::input_set_key("Space", true);
         sensor.call_process(0.016).unwrap();
         assert_eq!(listener.position(), Some((7.0, 0.0)));
         Python::attach(|py| {
@@ -1324,10 +1618,69 @@ class Listener(pite.Node2D):
         });
 
         host.disconnect_node("l");
+        crate::input_clear();
         crate::input_begin_frame();
-        crate::input_set_key("T-Trip", true);
+        crate::input_set_key("Space", true);
         sensor.call_process(0.016).unwrap();
         assert_eq!(listener.position(), Some((7.0, 0.0)));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn api_redesign_vec2_input_and_descriptors() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        crate::python::ensure_init();
+
+        pyo3::Python::attach(|py| {
+            // 1. Vec2 math and operations
+            let v = crate::vec2::Vec2::new(10.0, 20.0);
+            assert_eq!(v.x(), 10.0);
+            assert_eq!(v.y(), 20.0);
+
+            let v_obj = pyo3::Bound::new(py, v).unwrap();
+            let sum: crate::vec2::Vec2 = v_obj
+                .call_method1("__add__", ((5.0, 5.0),))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(sum.x(), 15.0);
+            assert_eq!(sum.y(), 25.0);
+
+            // Unpacking x, y = vec
+            let iter = v_obj.try_iter().unwrap();
+            let items: Vec<f64> = iter
+                .map(|item| item.unwrap().extract::<f64>().unwrap())
+                .collect();
+            assert_eq!(items, vec![10.0, 20.0]);
+
+            // 2. Input queries (held, pressed, released)
+            crate::input_begin_frame();
+            crate::input_set_key("Space", true);
+
+            let held_query = pyo3::Bound::new(
+                py,
+                PyInputQuery {
+                    kind: InputQueryKind::Held,
+                },
+            )
+            .unwrap();
+            let is_space_held: bool = held_query.getattr("space").unwrap().extract().unwrap();
+            assert!(is_space_held);
+
+            // Calling pite.held("Space") raises TypeError
+            let err = held_query.call1(("Space",)).unwrap_err();
+            assert!(err.is_instance_of::<pyo3::exceptions::PyTypeError>(py));
+            assert!(err.to_string().contains("attribute-based accessor"));
+
+            let pressed_query = pyo3::Bound::new(
+                py,
+                PyInputQuery {
+                    kind: InputQueryKind::Pressed,
+                },
+            )
+            .unwrap();
+            let is_space_pressed: bool = pressed_query.getattr("space").unwrap().extract().unwrap();
+            assert!(is_space_pressed);
+        });
     }
 }
