@@ -6,10 +6,12 @@ pub mod body;
 pub mod character;
 pub mod query;
 pub mod shape;
+pub mod tilemap;
 pub mod world;
 
 pub use body::BodyKind;
 pub use character::CharacterMoveResult;
 pub use query::RaycastHit;
 pub use shape::ShapeConfig;
+pub use tilemap::{merge_tile_cells, MergedTileRect};
 pub use world::{PhysicsEvent, PhysicsWorld};

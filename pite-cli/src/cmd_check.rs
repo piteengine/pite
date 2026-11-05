@@ -350,6 +350,37 @@ fn check_scene_ref(
                 )),
             }
         }
+        if node.type_name == "TileMap2D" {
+            if let Some(map_ref) = node.props.get("tilemap").and_then(|v| v.as_str()) {
+                let map_path = if let Some(rel) = map_ref.strip_prefix("res://") {
+                    root.join(rel)
+                } else {
+                    root.join(map_ref)
+                };
+                if map_path.is_file() {
+                    match pite_scene::load_tilemap(&map_path) {
+                        Ok(doc) => {
+                            referenced.insert(normalize_asset_ref(&doc.atlas));
+                            for layer in &doc.layers {
+                                for tile in &layer.tiles {
+                                    atlas_uses.push(pite_assets::AtlasUse {
+                                        scene: path.to_string_lossy().into_owned(),
+                                        node: node.id.clone(),
+                                        atlas: doc.atlas.clone(),
+                                        frame: tile.2.clone(),
+                                    });
+                                }
+                            }
+                        }
+                        Err(e) => errors.push(format!(
+                            "scene {}: node {:?} invalid tilemap {map_ref:?}: {e:#}",
+                            path.display(),
+                            node.id
+                        )),
+                    }
+                }
+            }
+        }
         for value in node.props.values() {
             let Some(s) = value.as_str() else {
                 continue;
@@ -834,6 +865,77 @@ texture = "res://assets/gone.png"
         assert!(errors.is_empty(), "got: {errors:?}");
         assert_eq!(warnings.len(), 1, "got: {warnings:?}");
         assert!(warnings[0].contains("\"numpy\""), "got: {warnings:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_validates_tilemap_assets() {
+        let root = fixture_root(6);
+        std::fs::create_dir_all(root.join("maps")).expect("create maps dir");
+        std::fs::write(
+            root.join("scenes").join("main.ptscn"),
+            r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "map"
+type = "TileMap2D"
+name = "TileMap"
+parent = "root"
+
+[node.props]
+tilemap = "res://maps/level.ptmap"
+"#,
+        )
+        .expect("write scene");
+
+        std::fs::write(
+            root.join("maps").join("level.ptmap"),
+            r#"atlas = "res://tiles.atlas.json"
+tile_size = [16, 16]
+
+[[layer]]
+name = "ground"
+tiles = [[0, 0, "grass"], [1, 0, "dirt"]]
+"#,
+        )
+        .expect("write tilemap");
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut cache = Vec::new();
+        let mut atlas_uses = Vec::new();
+        let mut visited = HashSet::new();
+        let mut referenced = HashSet::new();
+        let registry = pite_assets::UidRegistry::default();
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+
+        check_scene_ref(
+            &root,
+            "res://scenes/main.ptscn",
+            &mut errors,
+            &mut warnings,
+            &mut cache,
+            &mut atlas_uses,
+            &registry,
+            &by_path,
+            &by_hash,
+            &mut visited,
+            &mut referenced,
+        );
+
+        assert!(errors.is_empty(), "got: {errors:?}");
+        assert!(referenced.contains("res://maps/level.ptmap"));
+        assert!(referenced.contains("res://tiles.atlas.json"));
+        assert_eq!(atlas_uses.len(), 2);
+        assert_eq!(atlas_uses[0].frame, "grass");
+        assert_eq!(atlas_uses[1].frame, "dirt");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

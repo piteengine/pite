@@ -42,6 +42,7 @@ pub struct ScriptHost {
     connections: Mutex<HashMap<(String, String), Vec<(String, String)>>>,
     callable_connections: Mutex<HashMap<(String, String), Vec<Py<PyAny>>>>,
     proxy_cache: Mutex<HashMap<(String, String), Py<NodeProxy>>>,
+    tilemaps: Mutex<HashMap<String, pite_scene::TileMapDoc>>,
 }
 
 pub const SIGNAL_TYPES: &[&str] = &["int", "float", "str", "bool"];
@@ -63,6 +64,7 @@ impl ScriptHost {
             connections: Mutex::new(HashMap::new()),
             callable_connections: Mutex::new(HashMap::new()),
             proxy_cache: Mutex::new(HashMap::new()),
+            tilemaps: Mutex::new(HashMap::new()),
         }
     }
 
@@ -100,6 +102,82 @@ impl ScriptHost {
         if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
             node.props.insert("size".to_string(), PropValue::Vec2(w, h));
         }
+    }
+
+    pub fn get_tilemap_cell(
+        &self,
+        node_id: &str,
+        layer: usize,
+        col: i32,
+        row: i32,
+    ) -> Option<String> {
+        let maps = self.tilemaps.lock().unwrap();
+        let doc = maps.get(node_id)?;
+        doc.get_cell(layer, col, row).map(|s| s.to_string())
+    }
+
+    pub fn set_tilemap_cell(&self, node_id: &str, layer: usize, col: i32, row: i32, frame: &str) {
+        let mut maps = self.tilemaps.lock().unwrap();
+        if let Some(doc) = maps.get_mut(node_id) {
+            doc.set_cell(layer, col, row, frame);
+        }
+    }
+
+    pub fn erase_tilemap_cell(&self, node_id: &str, layer: usize, col: i32, row: i32) -> bool {
+        let mut maps = self.tilemaps.lock().unwrap();
+        if let Some(doc) = maps.get_mut(node_id) {
+            doc.erase_cell(layer, col, row)
+        } else {
+            false
+        }
+    }
+
+    pub fn clear_tilemap(&self, node_id: &str, layer: Option<usize>) {
+        let mut maps = self.tilemaps.lock().unwrap();
+        if let Some(doc) = maps.get_mut(node_id) {
+            if let Some(l) = layer {
+                doc.clear_layer(l);
+            } else {
+                for l in 0..doc.layers.len() {
+                    doc.clear_layer(l);
+                }
+            }
+        }
+    }
+
+    pub fn get_tilemap_used_cells(&self, node_id: &str, layer: usize) -> Vec<(i32, i32)> {
+        let maps = self.tilemaps.lock().unwrap();
+        let Some(doc) = maps.get(node_id) else {
+            return Vec::new();
+        };
+        doc.used_cells(layer)
+    }
+
+    pub fn get_tilemap_layers(&self, node_id: &str) -> Vec<String> {
+        let maps = self.tilemaps.lock().unwrap();
+        let Some(doc) = maps.get(node_id) else {
+            return Vec::new();
+        };
+        doc.layers.iter().map(|l| l.name.clone()).collect()
+    }
+
+    pub fn get_tilemap_tile_size(&self, node_id: &str) -> (f64, f64) {
+        let maps = self.tilemaps.lock().unwrap();
+        if let Some(doc) = maps.get(node_id) {
+            (doc.tile_size[0] as f64, doc.tile_size[1] as f64)
+        } else {
+            (16.0, 16.0)
+        }
+    }
+
+    pub fn set_tilemap_doc(&self, node_id: &str, doc: pite_scene::TileMapDoc) {
+        let mut maps = self.tilemaps.lock().unwrap();
+        maps.insert(node_id.to_string(), doc);
+    }
+
+    pub fn get_tilemap_doc(&self, node_id: &str) -> Option<pite_scene::TileMapDoc> {
+        let maps = self.tilemaps.lock().unwrap();
+        maps.get(node_id).cloned()
     }
 
     pub fn resolve_proxy(

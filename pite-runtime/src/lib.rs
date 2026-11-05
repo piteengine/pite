@@ -303,6 +303,50 @@ impl GameSession {
                 }
             }
         }
+        let tilemap_nodes: Vec<(String, (f64, f64))> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "TileMap2D")
+                .map(|n| (n.id.to_string(), global_position(tree, &n.id)))
+                .collect()
+        });
+        for (id, pos) in tilemap_nodes {
+            if let Some(doc) = self.host.get_tilemap_doc(&id) {
+                let sidecar = self.resolve_path(&doc.atlas);
+                let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
+                let sheet_str = sheet.to_string_lossy();
+                let tile_w = doc.tile_size[0] as f64;
+                let tile_h = doc.tile_size[1] as f64;
+                let zoom = self.effective_zoom();
+                let half_w = (self.viewport.0 as f64 / 2.0) / zoom;
+                let half_h = (self.viewport.1 as f64 / 2.0) / zoom;
+                let min_x = cam.0 - half_w;
+                let max_x = cam.0 + half_w;
+                let min_y = cam.1 - half_h;
+                let max_y = cam.1 + half_h;
+
+                let min_col = ((min_x - pos.0) / tile_w).floor() as i32 - 1;
+                let max_col = ((max_x - pos.0) / tile_w).ceil() as i32 + 1;
+                let min_row = ((min_y - pos.1) / tile_h).floor() as i32 - 1;
+                let max_row = ((max_y - pos.1) / tile_h).ceil() as i32 + 1;
+
+                for layer in &doc.layers {
+                    if !layer.visible {
+                        continue;
+                    }
+                    for tile in &layer.tiles {
+                        if tile.0 >= min_col
+                            && tile.0 <= max_col
+                            && tile.1 >= min_row
+                            && tile.1 <= max_row
+                        {
+                            let cx = pos.0 + (tile.0 as f64 + 0.5) * tile_w;
+                            let cy = pos.1 + (tile.1 as f64 + 0.5) * tile_h;
+                            r.draw_sprite_frame(&sheet_str, Some(&tile.2), cx, cy)?;
+                        }
+                    }
+                }
+            }
+        }
         let labels: Vec<(String, f32, [u8; 4], (f64, f64))> = self.host.with_tree(|tree| {
             tree.iter()
                 .filter(|n| n.type_name == "Label")
@@ -457,6 +501,30 @@ impl GameSession {
             }
         }
 
+        let tilemaps: Vec<(String, String)> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "TileMap2D")
+                .filter_map(|n| {
+                    let map_path = match n.props.get("tilemap") {
+                        Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                        _ => return None,
+                    };
+                    Some((n.id.to_string(), map_path))
+                })
+                .collect()
+        });
+        for (id, map_path) in tilemaps {
+            let resolved = self.resolve_path(&map_path);
+            match pite_scene::load_tilemap(&resolved) {
+                Ok(doc) => {
+                    self.host.set_tilemap_doc(&id, doc);
+                }
+                Err(e) => {
+                    tracing::error!(node = %id, "cannot load tilemap {}: {e:#}", resolved.display());
+                }
+            }
+        }
+
         self.rebuild_physics();
         self.timers.clear();
         let mut olds: HashMap<String, ScriptSlot> = HashMap::new();
@@ -602,6 +670,9 @@ impl GameSession {
                                 scene_touched = true;
                             }
                         }
+                        Some("ptmap") => {
+                            scene_touched = true;
+                        }
                         Some("png") | Some("json") => {
                             assets_touched.insert(path);
                         }
@@ -677,6 +748,25 @@ impl GameSession {
                     }
                     "Area2D" => {
                         world.add_area(node.id.clone(), (pos.0 as f32, pos.1 as f32), rot);
+                    }
+                    "TileMap2D" => {
+                        if let Some(doc) = self.host.get_tilemap_doc(node.id.as_str()) {
+                            let tile_size = (doc.tile_size[0] as f32, doc.tile_size[1] as f32);
+                            for (idx, layer) in doc.layers.iter().enumerate() {
+                                if layer.collision_enabled {
+                                    let solid_cells = doc.solid_cells(idx);
+                                    world.add_tilemap_colliders(
+                                        &node.id,
+                                        idx,
+                                        (pos.0 as f32, pos.1 as f32),
+                                        tile_size,
+                                        &solid_cells,
+                                        layer.collision_layer,
+                                        layer.collision_mask,
+                                    );
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -2220,6 +2310,149 @@ class Zone(pite.Area2D):
             zone_pos,
             (999.0, 999.0),
             "Area2D body_entered signal should move zone to (999, 999)"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tilemap_loading_and_physics_e2e() {
+        let _guard = SERIAL.lock().unwrap();
+
+        let dir = std::env::temp_dir().join(format!("pite-tilemap-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::create_dir_all(dir.join("maps")).unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(
+            dir.join("pite.toml"),
+            "[project]\nname = \"tilemap-test\"\n",
+        )
+        .unwrap();
+
+        let atlas = r#"{
+  "texture": "res://assets/tiles.png",
+  "size": [64, 64],
+  "frames": {
+    "grass": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "wall": { "x": 32, "y": 0, "w": 32, "h": 32 }
+  }
+}"#;
+        std::fs::write(dir.join("assets").join("tiles.atlas.json"), atlas).unwrap();
+
+        let ptmap = r#"atlas = "res://assets/tiles.atlas.json"
+tile_size = [32, 32]
+
+[[layer]]
+name = "ground"
+visible = true
+collision_enabled = true
+collision_layer = 1
+collision_mask = 1
+tiles = [
+  [-1, 0, "wall"],
+  [0, 0, "wall"],
+  [1, 0, "wall"],
+]
+"#;
+        std::fs::write(dir.join("maps").join("level.ptmap"), ptmap).unwrap();
+
+        let scene = r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Root"
+
+[[node]]
+id = "tilemap"
+type = "TileMap2D"
+name = "Map"
+parent = "root"
+
+[node.props]
+tilemap = "res://maps/level.ptmap"
+position = [0.0, 100.0]
+
+[node.script]
+path = "res://scripts/map.py"
+class = "MapScript"
+
+[[node]]
+id = "player"
+type = "CharacterBody2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+position = [0.0, 0.0]
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+
+[[node]]
+id = "player_shape"
+type = "CollisionShape2D"
+name = "Shape"
+parent = "player"
+
+[node.props]
+shape = "box"
+size = [20.0, 20.0]
+"#;
+        std::fs::write(dir.join("scenes").join("main.ptscn"), scene).unwrap();
+
+        let player_script = r#"import pite
+
+class Player(pite.CharacterBody2D):
+    def _physics_process(self, dt):
+        self.velocity = (0.0, 200.0)
+        self.move_and_slide()
+"#;
+        std::fs::write(dir.join("scripts").join("player.py"), player_script).unwrap();
+
+        let map_script = r#"import pite
+
+class MapScript(pite.TileMap2D):
+    def _ready(self):
+        val = self.get_cell(0, 0)
+        assert val == "wall", f"expected wall, got {val}"
+        
+        layers = self.get_layers()
+        assert layers == ["ground"], f"got layers {layers}"
+        
+        self.set_cell(2, 0, "grass")
+        assert self.get_cell(2, 0) == "grass"
+        
+        col, row = self.world_to_map((0.0, 100.0))
+        assert (col, row) == (0, 0), f"got ({col}, {row})"
+        world = self.map_to_world(0, 0)
+        assert world.x == 16.0 and world.y == 116.0, f"got {world.x}, {world.y}"
+"#;
+        std::fs::write(dir.join("scripts").join("map.py"), map_script).unwrap();
+
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        for _ in 0..40 {
+            session.update(0.016);
+        }
+
+        let player_y =
+            session
+                .host
+                .with_tree(|t| match t.get(&NodeId::from("player".to_string())) {
+                    Some(n) => match n.props.get("position") {
+                        Some(PropValue::Vec2(_, y)) => *y,
+                        _ => f64::NAN,
+                    },
+                    None => f64::NAN,
+                });
+
+        assert!(
+            (player_y - 90.0).abs() < 2.0,
+            "Player should rest on tilemap floor at y=90, got {player_y}"
         );
 
         std::fs::remove_dir_all(&dir).ok();

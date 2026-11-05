@@ -27,6 +27,7 @@ pub fn registered_types() -> Vec<String> {
         "RigidBody2D",
         "Area2D",
         "CollisionShape2D",
+        "TileMap2D",
     ]
     .iter()
     .map(ToString::to_string)
@@ -107,6 +108,12 @@ pub fn add_node(
                 .insert("height".to_string(), PropValue::Num(32.0));
             node.props
                 .insert("disabled".to_string(), PropValue::Bool(false));
+        }
+        "TileMap2D" => {
+            node.props
+                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
+            node.props
+                .insert("tilemap".to_string(), PropValue::Str(String::new()));
         }
         _ => {}
     }
