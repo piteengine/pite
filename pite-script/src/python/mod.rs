@@ -15,7 +15,7 @@ pub(crate) mod props;
 
 use nodes::{
     PyArea2D, PyButton, PyCamera2D, PyCharacterBody2D, PyCollisionShape2D, PyLabel, PyNode,
-    PyNode2D, PyRigidBody2D, PySprite2D, PyStaticBody2D, PyTimer,
+    PyNode2D, PyRigidBody2D, PySprite2D, PyStaticBody2D, PyTileMap2D, PyTimer,
 };
 
 #[pyfunction]
@@ -78,6 +78,7 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRigidBody2D>()?;
     m.add_class::<PyArea2D>()?;
     m.add_class::<PyCollisionShape2D>()?;
+    m.add_class::<PyTileMap2D>()?;
     m.add_class::<crate::vec2::Vec2>()?;
     m.add_class::<PyInputQuery>()?;
     m.add_class::<crate::descriptor::PyChildDescriptor>()?;
@@ -1352,6 +1353,99 @@ class Listener(pite.Node2D):
             std::env::temp_dir().join(format!("pite-py-loadbase-{}", std::process::id())),
         )
         .ok();
+    }
+
+    #[test]
+    fn tilemap2d_python_api_methods() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        crate::python::ensure_init();
+
+        pyo3::Python::attach(|py| {
+            let host =
+                std::sync::Arc::new(crate::host::ScriptHost::new(pite_core::NodeTree::new()));
+            crate::host::set_current_host(host.clone());
+
+            let mut doc = pite_scene::tilemap::TileMapDoc::new("res://tiles.atlas.json", 16, 16);
+            let layer = pite_scene::tilemap::TileMapLayer::new("ground");
+            doc.layers.push(layer);
+            doc.set_cell(0, 1, 2, "grass");
+            host.set_tilemap_doc("Root/Map", doc);
+
+            let pite_mod = py.import("pite").unwrap();
+            let tilemap_cls = pite_mod.getattr("TileMap2D").unwrap();
+            let node = tilemap_cls.call0().unwrap();
+            node.setattr("node_path", "Root/Map").unwrap();
+
+            // tile_size
+            let ts: (u32, u32) = node.getattr("tile_size").unwrap().extract().unwrap();
+            assert_eq!(ts, (16, 16));
+
+            // layers
+            let layers: Vec<String> = node.getattr("layers").unwrap().extract().unwrap();
+            assert_eq!(layers, vec!["ground"]);
+
+            // get_cell
+            let cell: Option<String> = node
+                .call_method1("get_cell", (1, 2))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(cell, Some("grass".to_string()));
+
+            // set_cell
+            node.call_method1("set_cell", (3, 4, "stone")).unwrap();
+            let cell2: Option<String> = node
+                .call_method1("get_cell", (3, 4))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(cell2, Some("stone".to_string()));
+
+            // get_used_cells
+            let used: Vec<(i32, i32)> = node
+                .call_method1("get_used_cells", (0,))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(used.contains(&(1, 2)));
+            assert!(used.contains(&(3, 4)));
+
+            // erase_cell
+            let erased: bool = node
+                .call_method1("erase_cell", (1, 2))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(erased);
+            let cell_erased: Option<String> = node
+                .call_method1("get_cell", (1, 2))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(cell_erased, None);
+
+            // world_to_map / map_to_world
+            let coord: (i32, i32) = node
+                .call_method1("world_to_map", (32.0, 48.0))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(coord, (2, 3));
+            let wpos: pyo3::Bound<'_, pyo3::PyAny> =
+                node.call_method1("map_to_world", (2, 3)).unwrap();
+            let wx: f32 = wpos.getattr("x").unwrap().extract().unwrap();
+            let wy: f32 = wpos.getattr("y").unwrap().extract().unwrap();
+            assert_eq!((wx, wy), (40.0, 56.0));
+
+            // clear
+            node.call_method0("clear").unwrap();
+            let used_after: Vec<(i32, i32)> = node
+                .call_method1("get_used_cells", (0,))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(used_after.is_empty());
+        });
     }
 }
 

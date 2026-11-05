@@ -34,7 +34,7 @@ class = "Player"
 
 - `format_version` starts at 1. An unsupported version fails loudly at parse — never silently reinterpreted.
 - `root` must name a node in the list. A node whose `parent` names nothing is tolerated at load and reported by `pite check` as an error.
-- `type` must be registered (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`, `StaticBody2D`, `CharacterBody2D`, `RigidBody2D`, `Area2D`, `CollisionShape2D`); anything else is a `check` error.
+- `type` must be registered (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`, `StaticBody2D`, `CharacterBody2D`, `RigidBody2D`, `Area2D`, `CollisionShape2D`, `TileMap2D`); anything else is a `check` error.
 - `props` is open: scalars map to typed values, a 2-number array maps to `Vec2`, anything else is kept as text. **Unknown props warn and survive a save** (forward compat).
 - `script` is optional. A missing script file is a `check` warning and loads as a placeholder node — never a load failure.
 - All paths are project-relative (`res://…`); absolute paths are forbidden.
@@ -84,3 +84,10 @@ Saving preserves `[[instance]]` entries rather than inlining the subtree, and re
 
 - `Button` draws a `color` box (`size = [w, h]` in world units, default `[120, 40]`) centered on the node's global position, with its `text` captioned on top like a `Label`.
 - Clicks are press-inside plus release-inside (mouse position maps through the camera). The engine declares and fires the node's `pressed` signal itself — just connect it like any signal, no declaration needed (re-declaring is harmless).
+
+## Tilemaps
+
+- `TileMap2D` renders 2D tilemaps defined in an external `.ptmap` TOML sidecar (`tilemap = "res://maps/level.ptmap"`).
+- The `.ptmap` format specifies the atlas (`atlas = "res://...atlas.json"`), tile size (`tile_size = [w, h]`), and layers (`[[layer]]`).
+- Each layer defines `name`, `visible` (bool), `collision_enabled` (bool), `collision_layer`, `collision_mask`, optional `solid_frames`, and sparse tiles `tiles = [[col, row, "frame"], ...]`.
+- When collisions are enabled on a layer, solid tiles are greedily merged into minimal rectangular static box colliders in Rapier2D, preventing internal edge snagging.

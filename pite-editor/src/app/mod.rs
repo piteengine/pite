@@ -160,6 +160,9 @@ pub struct EditorApp {
     pub(super) asset_clipboard: Option<assets::AssetClipboardEntry>,
     pub(super) hovered_asset_folder: Option<String>,
     pub(super) custom_props: std::collections::HashMap<String, String>,
+    pub(super) tilemap_active_layer: usize,
+    pub(super) tilemap_selected_frame: Option<String>,
+    pub(super) tilemap_eraser: bool,
 }
 
 impl EditorApp {
@@ -222,6 +225,9 @@ impl EditorApp {
             asset_clipboard: None,
             hovered_asset_folder: None,
             custom_props,
+            tilemap_active_layer: 0,
+            tilemap_selected_frame: None,
+            tilemap_eraser: false,
         })
     }
 
