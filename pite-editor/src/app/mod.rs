@@ -83,9 +83,10 @@ pub struct EditorApp {
     pub(super) code_galley_dy: f32,
     pub(super) playing: bool,
     pub(super) last_frame: Instant,
-    pub(super) add_open: bool,
-    pub(super) add_type: String,
-    pub(super) add_name: String,
+    pub(super) add_node_modal: Option<tree::AddNodeModal>,
+    pub(super) rename_node_modal: Option<tree::RenameNodeModal>,
+    pub(super) instance_modal: Option<tree::InstanceSceneModal>,
+    pub(super) hovered_node_target: Option<(String, tree::DropZone)>,
     pub(super) settings: Option<SettingsDraft>,
     pub(super) open_nodes: HashSet<String>,
     pub(super) open_seen: HashSet<String>,
@@ -100,7 +101,6 @@ pub struct EditorApp {
     /// Bound to the project's window size: the viewport must frame the scene the
     /// way the game window does.
     pub(super) view_size: (u32, u32),
-    pub(super) grip_hover: Option<String>,
     pub(super) tab: Tab,
     pub(super) recent: Vec<PathBuf>,
     pub(super) about_open: bool,
@@ -147,9 +147,10 @@ impl EditorApp {
             code_galley_dy: 0.0,
             playing: false,
             last_frame: Instant::now(),
-            add_open: false,
-            add_type: "Node2D".to_string(),
-            add_name: "NewNode".to_string(),
+            add_node_modal: None,
+            rename_node_modal: None,
+            instance_modal: None,
+            hovered_node_target: None,
             settings: None,
             open_nodes: HashSet::new(),
             open_seen: HashSet::new(),
@@ -160,7 +161,6 @@ impl EditorApp {
             viewport_rect: None,
             view_size,
             viewport_dirty: true,
-            grip_hover: None,
             tab: Tab::Viewport,
             recent: Self::load_recent(),
             about_open: false,
@@ -261,12 +261,23 @@ impl eframe::App for EditorApp {
             .clone()
             .unwrap_or_else(|| PathBuf::from("."));
         self.show_asset_modals(ctx, &root);
+        self.show_node_modals(ctx);
         self.handle_os_drop(ctx, &root);
 
         if self.tab != Tab::Code {
+            if cmd(egui::Key::A) {
+                let parent = self.selected.clone().map(NodeId::from);
+                self.open_add_node_modal(parent);
+            }
+            if cmd_shift(egui::Key::A) {
+                let parent = self.selected.clone().map(NodeId::from);
+                self.open_instance_modal(parent);
+            }
             if ctx.input(|i| i.key_pressed(egui::Key::F2)) {
                 if let Some(sel) = self.selected_asset.clone() {
                     self.open_rename_modal(&sel);
+                } else if let Some(sel) = self.selected.clone().map(NodeId::from) {
+                    self.open_rename_node_modal(sel);
                 }
             }
             if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
@@ -275,6 +286,18 @@ impl eframe::App for EditorApp {
                         .join(sel.replace('/', std::path::MAIN_SEPARATOR_STR))
                         .is_dir();
                     self.open_delete_modal(&sel, is_dir);
+                } else if let Some(sel) = self.selected.clone().map(NodeId::from) {
+                    self.delete_node(&sel);
+                }
+            }
+            if cmd(egui::Key::ArrowUp) {
+                if let Some(sel) = self.selected.clone().map(NodeId::from) {
+                    self.move_sibling(&sel, -1);
+                }
+            }
+            if cmd(egui::Key::ArrowDown) {
+                if let Some(sel) = self.selected.clone().map(NodeId::from) {
+                    self.move_sibling(&sel, 1);
                 }
             }
             if cmd(egui::Key::C) {
@@ -312,7 +335,9 @@ impl eframe::App for EditorApp {
                 self.execute_asset_paste(&target_dir);
             }
             if cmd(egui::Key::D) {
-                if let Some(sel) = self.selected_asset.clone() {
+                if self.selected_asset.is_none() && self.selected.is_some() {
+                    self.duplicate_selected_node();
+                } else if let Some(sel) = self.selected_asset.clone() {
                     self.execute_asset_duplicate(&sel);
                 }
             }
@@ -333,6 +358,7 @@ impl eframe::App for EditorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.hovered_asset_folder = None;
+        self.hovered_node_target = None;
 
         egui::Panel::top("menu").show(ui, |ui| {
             // Everything lives inside the MenuBar scope: MenuBar claims the
@@ -450,15 +476,24 @@ impl eframe::App for EditorApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading("Scene");
-                    if icons::icon_button(ui, Icon::Add, "Add a child node under the selection")
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if icons::icon_button(
+                            ui,
+                            Icon::Scene,
+                            "Instantiate Child Scene… (Ctrl+Shift+A)",
+                        )
                         .clicked()
-                    {
-                        self.add_open = true;
-                    }
+                        {
+                            let parent = self.selected.clone().map(NodeId::from);
+                            self.open_instance_modal(parent);
+                        }
+                        if icons::icon_button(ui, Icon::Add, "Add Child Node… (Ctrl+A)").clicked()
+                        {
+                            let parent = self.selected.clone().map(NodeId::from);
+                            self.open_add_node_modal(parent);
+                        }
+                    });
                 });
-                if self.add_open {
-                    self.show_add_child(ui);
-                }
                 let tree_h = (ui.available_height() * 0.52).max(120.0);
                 egui::ScrollArea::vertical()
                     .id_salt("tree")
@@ -474,21 +509,34 @@ impl eframe::App for EditorApp {
                                 egui::vec2(avail.x.max(1.0), avail.y),
                                 egui::Sense::hover(),
                             );
-                            if egui::DragAndDrop::has_any_payload(ui.ctx())
-                                && resp.contains_pointer()
-                            {
+                            let has_node_dnd = egui::DragAndDrop::has_payload_of_type::<
+                                tree::NodeDndPayload,
+                            >(ui.ctx());
+                            if has_node_dnd && resp.contains_pointer() {
+                                self.hovered_node_target =
+                                    Some(("Root".to_string(), tree::DropZone::Under));
+                                ui.painter().rect_filled(
+                                    rect,
+                                    2.0,
+                                    egui::Color32::from_rgba_unmultiplied(11, 147, 135, 40),
+                                );
                                 ui.painter().rect_stroke(
                                     rect,
-                                    3.0,
-                                    egui::Stroke::new(1.5_f32, crate::theme::FAINT),
+                                    2.0,
+                                    egui::Stroke::new(
+                                        1.5_f32,
+                                        egui::Color32::from_rgb(11, 147, 135),
+                                    ),
                                     egui::StrokeKind::Middle,
                                 );
                             }
-                            if let Some(dragged) = resp.dnd_release_payload::<String>() {
+                            if let Some(dragged) =
+                                resp.dnd_release_payload::<tree::NodeDndPayload>()
+                            {
                                 if let Some(root) =
                                     self.session.host().with_tree(|t| t.root().cloned())
                                 {
-                                    let dragged_id = NodeId::from(dragged.as_str());
+                                    let dragged_id = NodeId::from(dragged.id.as_str());
                                     let result = self.session.host().with_tree_mut(|t| {
                                         let len = t.children_of(&root).len();
                                         ops::place_node(t, &dragged_id, &root, len)
@@ -695,5 +743,6 @@ impl eframe::App for EditorApp {
 
         self.show_settings(&ctx);
         self.show_asset_drag_preview(&ctx);
+        self.show_node_drag_preview(&ctx);
     }
 }

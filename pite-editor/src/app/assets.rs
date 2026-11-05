@@ -328,6 +328,43 @@ pub fn show_in_file_manager(path: &Path) {
 }
 
 impl EditorApp {
+    pub(super) fn asset_files(&self) -> Vec<PathBuf> {
+        let root = self
+            .project_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let mut out = Vec::new();
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    if name == "target"
+                        || name == "dist"
+                        || name == ".git"
+                        || name == pite_scene::cache::CACHE_DIR_NAME
+                    {
+                        continue;
+                    }
+                    if out.len() < 500 {
+                        stack.push(path);
+                    }
+                } else if out.len() < 500 {
+                    out.push(path);
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
     pub(super) fn show_asset_dir(&mut self, ui: &mut egui::Ui, root: &Path, dir: &str) {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 1.0);
         ui.spacing_mut().button_padding = egui::vec2(4.0, 1.0);

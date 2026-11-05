@@ -226,6 +226,151 @@ pub fn set_prop(tree: &mut NodeTree, id: &NodeId, key: &str, value: PropValue) -
     }
 }
 
+/// Rename display `name` of node `id`.
+pub fn rename_node(tree: &mut NodeTree, id: &NodeId, new_name: &str) -> Result<()> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        anyhow::bail!("node name cannot be empty");
+    }
+    let node = tree
+        .get_mut(id)
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+    node.name = new_name.to_string();
+    Ok(())
+}
+
+/// Recursively clone `id` and its subtree under `id`'s parent, placing it immediately after `id`.
+pub fn duplicate_node(tree: &mut NodeTree, id: &NodeId) -> Result<NodeId> {
+    if tree.root() == Some(id) {
+        anyhow::bail!("cannot duplicate the root node `{id}`");
+    }
+    let node = tree
+        .get(id)
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+    let parent = node
+        .parent
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("node `{id}` has no parent"))?;
+
+    // Collect all nodes in subtree: (old_id, old_parent_id, type_name, old_name, props, script)
+    let mut subtree = Vec::new();
+    let mut stack = vec![id.clone()];
+    while let Some(curr_id) = stack.pop() {
+        let n = tree
+            .get(&curr_id)
+            .ok_or_else(|| anyhow::anyhow!("node `{curr_id}` missing"))?;
+        let children = tree.children_of(&curr_id);
+        subtree.push((
+            curr_id.clone(),
+            n.parent.clone(),
+            n.type_name.clone(),
+            n.name.clone(),
+            n.props.clone(),
+            n.script.clone(),
+        ));
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
+
+    // Map old_id -> (new_id, new_name)
+    let mut id_map = std::collections::HashMap::new();
+    let root_old_name = &subtree[0].3;
+    let mut new_root_name = format!("{root_old_name}_copy");
+    let slug = slugify(&new_root_name);
+    let mut candidate = slug.clone();
+    let mut counter = 2;
+    while tree.contains(&NodeId::from(candidate.clone())) {
+        candidate = format!("{slug}_{counter}");
+        new_root_name = format!("{root_old_name}_copy{counter}");
+        counter += 1;
+    }
+    let new_root_id = NodeId::from(candidate);
+    id_map.insert(id.clone(), (new_root_id.clone(), new_root_name));
+
+    for (old_id, _, _, old_name, _, _) in &subtree[1..] {
+        let child_slug = slugify(old_name);
+        let mut child_cand = child_slug.clone();
+        let mut cnt = 2;
+        while tree.contains(&NodeId::from(child_cand.clone()))
+            || id_map.values().any(|(nid, _)| nid.as_str() == child_cand)
+        {
+            child_cand = format!("{child_slug}_{cnt}");
+            cnt += 1;
+        }
+        id_map.insert(old_id.clone(), (NodeId::from(child_cand), old_name.clone()));
+    }
+
+    // Insert new nodes in tree
+    for (old_id, old_parent, type_name, _, props, script) in subtree {
+        let (new_id, new_name) = id_map.get(&old_id).unwrap().clone();
+        let new_parent = if old_id == *id {
+            Some(parent.clone())
+        } else {
+            let p = old_parent.as_ref().unwrap();
+            Some(id_map.get(p).unwrap().0.clone())
+        };
+        let desc = NodeDesc {
+            id: new_id,
+            type_name,
+            name: new_name,
+            parent: new_parent,
+            props,
+            script,
+        };
+        tree.insert(desc).map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+
+    // Place new_root_id immediately after id in parent's children
+    let siblings = tree.children_of(&parent);
+    if let Some(pos) = siblings.iter().position(|s| s == id) {
+        let _ = place_node(tree, &new_root_id, &parent, pos + 1);
+    }
+
+    Ok(new_root_id)
+}
+
+/// Instantiate a scene (.ptscn) as a child under `parent`.
+pub fn instantiate_scene_as_child(
+    tree: &mut NodeTree,
+    parent: Option<NodeId>,
+    scene_path: &Path,
+) -> Result<NodeId> {
+    let stem = scene_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("inst");
+    let prefix_slug = slugify(stem);
+    let mut prefix = format!("{prefix_slug}_");
+    let mut counter = 2;
+    while tree.iter().any(|n| n.id.as_str().starts_with(&prefix)) {
+        prefix = format!("{prefix_slug}{counter}_");
+        counter += 1;
+    }
+    let (descs, root_id) = pite_scene::instantiate(scene_path, &prefix, &BTreeMap::new())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let root_node_id = NodeId::from(root_id);
+
+    let effective_parent = match parent {
+        Some(p) => {
+            if !tree.contains(&p) {
+                anyhow::bail!("parent `{p}` does not exist");
+            }
+            Some(p)
+        }
+        None => tree.root().cloned(),
+    };
+
+    for mut desc in descs {
+        if desc.id == root_node_id {
+            desc.parent = effective_parent.clone();
+        }
+        tree.insert(desc).map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+
+    Ok(root_node_id)
+}
+
 fn prop_to_toml(value: &PropValue) -> toml::Value {
     match value {
         PropValue::Str(s) => toml::Value::String(s.clone()),
@@ -931,5 +1076,39 @@ prefix = "e1_"
         let root = tree.root().cloned().unwrap();
         let err = add_node(&mut tree, Some(root), "Nope", "x").unwrap_err();
         assert!(err.to_string().contains("Nope"), "unexpected: {err:#}");
+    }
+
+    #[test]
+    fn rename_node_updates_name() {
+        let mut tree = rooted_tree();
+        let root = tree.root().cloned().unwrap();
+        let child = add_node(&mut tree, Some(root), "Sprite2D", "Player").unwrap();
+        rename_node(&mut tree, &child, "Hero").unwrap();
+        assert_eq!(tree.get(&child).unwrap().name, "Hero");
+        assert!(rename_node(&mut tree, &child, "  ").is_err());
+    }
+
+    #[test]
+    fn duplicate_node_clones_subtree_and_places_sibling() {
+        let mut tree = rooted_tree();
+        let root = tree.root().cloned().unwrap();
+        let parent_node = add_node(&mut tree, Some(root.clone()), "Node2D", "Group").unwrap();
+        let child_node =
+            add_node(&mut tree, Some(parent_node.clone()), "Sprite2D", "Coin").unwrap();
+        set_prop(&mut tree, &child_node, "value", PropValue::Int(10)).unwrap();
+
+        let dup_id = duplicate_node(&mut tree, &parent_node).unwrap();
+        assert_ne!(dup_id, parent_node);
+        assert_eq!(
+            tree.children_of(&root),
+            vec![parent_node.clone(), dup_id.clone()]
+        );
+        let dup_children = tree.children_of(&dup_id);
+        assert_eq!(dup_children.len(), 1);
+        let dup_child = &dup_children[0];
+        assert_eq!(
+            tree.get(dup_child).unwrap().props.get("value"),
+            Some(&PropValue::Int(10))
+        );
     }
 }

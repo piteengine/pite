@@ -29,6 +29,20 @@ pub enum Icon {
     Pencil,
     CaretRight,
     CaretDown,
+    // Node types:
+    Node,
+    Node2D,
+    Sprite2D,
+    Camera2D,
+    CollisionShape2D,
+    Area2D,
+    StaticBody2D,
+    CharacterBody2D,
+    RigidBody2D,
+    Control,
+    Label,
+    Button,
+    Timer,
 }
 
 impl Icon {
@@ -55,7 +69,50 @@ impl Icon {
             Self::Pencil => regular::PENCIL_SIMPLE,
             Self::CaretRight => regular::CARET_RIGHT,
             Self::CaretDown => regular::CARET_DOWN,
+            Self::Node => regular::CIRCLE,
+            Self::Node2D => regular::CUBE,
+            Self::Sprite2D => regular::IMAGE,
+            Self::Camera2D => regular::CAMERA,
+            Self::CollisionShape2D => regular::SHIELD,
+            Self::Area2D => regular::RADIO_BUTTON,
+            Self::StaticBody2D => regular::RECTANGLE,
+            Self::CharacterBody2D => regular::PERSON_SIMPLE_RUN,
+            Self::RigidBody2D => regular::BOWLING_BALL,
+            Self::Control => regular::CURSOR,
+            Self::Label => regular::TEXT_T,
+            Self::Button => regular::HAND_TAP,
+            Self::Timer => regular::TIMER,
         }
+    }
+}
+
+pub fn node_type_icon(type_name: &str) -> Icon {
+    match type_name {
+        "Node2D" => Icon::Node2D,
+        "Sprite2D" => Icon::Sprite2D,
+        "Camera2D" => Icon::Camera2D,
+        "CollisionShape2D" => Icon::CollisionShape2D,
+        "Area2D" => Icon::Area2D,
+        "StaticBody2D" => Icon::StaticBody2D,
+        "CharacterBody2D" => Icon::CharacterBody2D,
+        "RigidBody2D" => Icon::RigidBody2D,
+        "Control" => Icon::Control,
+        "Label" => Icon::Label,
+        "Button" => Icon::Button,
+        "Timer" => Icon::Timer,
+        _ => Icon::Node,
+    }
+}
+
+pub fn node_type_color(type_name: &str) -> egui::Color32 {
+    match type_name {
+        "Node2D" | "Sprite2D" | "Camera2D" => egui::Color32::from_rgb(115, 175, 235), // 2D Blue
+        "CharacterBody2D" | "RigidBody2D" | "StaticBody2D" | "Area2D" | "CollisionShape2D" => {
+            egui::Color32::from_rgb(11, 147, 135) // Physics Teal
+        }
+        "Control" | "Label" | "Button" => egui::Color32::from_rgb(120, 210, 140), // UI Green
+        "Timer" => egui::Color32::from_rgb(235, 180, 80),                         // Timer Gold
+        _ => egui::Color32::from_rgb(200, 205, 210),                              // Core Silver
     }
 }
 
