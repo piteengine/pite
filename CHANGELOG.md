@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- 2D tilemap subsystem (`TileMap2D`):
+  - Canonical `.ptmap` TOML sidecars: multi-layer tilemaps stored in human-readable TOML referencing atlas frames using sparse `[col, row, "frame"]` coordinates.
+  - Greedy 2D physics collider merging: adjacent solid tiles coalesce into maximal rectangular static box colliders in `rapier2d`, eliminating internal edge catching for character controllers and minimizing collider count.
+  - Frustum-culled batch rendering: camera viewport frustum culling automatically culls invisible tiles, batching visible tiles sharing an atlas into GPU draw calls.
+  - Python scripting API: `pite.TileMap2D` exposes `get_cell`, `set_cell`, `erase_cell`, `clear`, coordinate conversions `world_to_map` / `map_to_world`, layer introspection (`layers`, `get_used_cells`), and `tile_size`.
+  - Interactive editor tools: inspector tile palette with layer switcher and brush/eraser toggles; viewport interactive painting with snapped grid preview, left-click paint, and right-click erase with auto-saving.
+  - Project verification: `pite check` validates `.ptmap` files, confirming atlas references and tile frame usage.
+
+
 ## v0.3.0
 
 - Hot reload reliability and asset watching:

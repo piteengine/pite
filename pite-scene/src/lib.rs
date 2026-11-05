@@ -14,8 +14,13 @@ use pite_core::{NodeDesc, NodeId, NodeTree, PropValue, Props, ScriptRef};
 use serde::{Deserialize, Serialize};
 
 pub mod cache;
+pub mod tilemap;
 
 pub use cache::{CacheStatus, CACHE_VERSION};
+pub use tilemap::{
+    load_tilemap, map_to_world, parse_tilemap_str, save_tilemap, world_to_map, TileCell,
+    TileMapDoc, TileMapLayer,
+};
 
 /// Current scene format version. Bump = migrate or error loudly, never silent.
 pub const FORMAT_VERSION: u32 = 1;

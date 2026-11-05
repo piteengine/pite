@@ -268,7 +268,127 @@ impl EditorApp {
             }
         }
         if !self.playing {
+            self.handle_tilemap_viewport(ui, &painter, view_rect, (view_w, view_h));
             draw_collision_overlays(&self.session, &painter, view_rect, (view_w, view_h));
+        }
+    }
+
+    fn handle_tilemap_viewport(
+        &mut self,
+        ui: &mut egui::Ui,
+        painter: &egui::Painter,
+        view_rect: egui::Rect,
+        view_size: (u32, u32),
+    ) {
+        let Some(selected_id) = self.selected.clone() else {
+            return;
+        };
+        let node_id = pite_core::NodeId::from(selected_id.clone());
+        let is_tilemap = self
+            .session
+            .host()
+            .with_tree(|t| t.get(&node_id).is_some_and(|n| n.type_name == "TileMap2D"));
+        if !is_tilemap {
+            return;
+        }
+
+        let doc_opt = self.session.host().get_tilemap_doc(&selected_id);
+        let Some(mut doc) = doc_opt else {
+            return;
+        };
+
+        let origin = self
+            .session
+            .host()
+            .with_tree(|t| pite_core::global_position(t, &node_id));
+        let tile_size = (doc.tile_size[0] as f64, doc.tile_size[1] as f64);
+        let ((cam_x, cam_y), _cam_zoom) = self.session.camera_view();
+        let eff_zoom = self.session.effective_zoom();
+
+        let hover_pos = ui.input(|i| i.pointer.hover_pos());
+        let Some(cursor_pos) = hover_pos else {
+            return;
+        };
+        if !view_rect.contains(cursor_pos) {
+            return;
+        }
+
+        let Some(offscreen_coords) = viewport_cursor(view_rect, view_size, cursor_pos) else {
+            return;
+        };
+        let world = pite_render::screen_to_world(
+            (offscreen_coords.0 as f32, offscreen_coords.1 as f32),
+            (cam_x, cam_y),
+            eff_zoom,
+            view_size,
+        );
+        let cell = pite_scene::world_to_map(world, origin, tile_size);
+
+        // Draw preview grid cell outline
+        let cell_tl_world = (
+            origin.0 + cell.0 as f64 * tile_size.0,
+            origin.1 + cell.1 as f64 * tile_size.1,
+        );
+        let cell_br_world = (cell_tl_world.0 + tile_size.0, cell_tl_world.1 + tile_size.1);
+        let s_tl = pite_render::world_to_screen(cell_tl_world, (cam_x, cam_y), eff_zoom, view_size);
+        let s_br = pite_render::world_to_screen(cell_br_world, (cam_x, cam_y), eff_zoom, view_size);
+
+        let to_egui = |s: (f32, f32)| {
+            egui::Pos2::new(
+                view_rect.min.x + s.0 / view_size.0 as f32 * view_rect.width(),
+                view_rect.min.y + s.1 / view_size.1 as f32 * view_rect.height(),
+            )
+        };
+        let egui_rect = egui::Rect::from_min_max(to_egui(s_tl), to_egui(s_br));
+
+        let preview_color = if self.tilemap_eraser {
+            egui::Color32::from_rgba_unmultiplied(220, 50, 50, 160)
+        } else {
+            egui::Color32::from_rgba_unmultiplied(11, 147, 135, 180)
+        };
+        painter.rect_stroke(
+            egui_rect,
+            0.0,
+            egui::Stroke::new(1.5, preview_color),
+            egui::StrokeKind::Middle,
+        );
+
+        // Handle paint clicks / drags
+        let left_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary));
+        let right_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
+
+        let mut modified = false;
+        if left_down {
+            if self.tilemap_eraser {
+                if doc.erase_cell(self.tilemap_active_layer, cell.0, cell.1) {
+                    modified = true;
+                }
+            } else if let Some(frame) = &self.tilemap_selected_frame {
+                if doc.get_cell(self.tilemap_active_layer, cell.0, cell.1) != Some(frame.as_str()) {
+                    doc.set_cell(self.tilemap_active_layer, cell.0, cell.1, frame.clone());
+                    modified = true;
+                }
+            }
+        } else if right_down {
+            if doc.erase_cell(self.tilemap_active_layer, cell.0, cell.1) {
+                modified = true;
+            }
+        }
+
+        if modified {
+            let map_ref_opt = self.session.host().with_tree(|t| {
+                t.get(&node_id).and_then(|n| match n.props.get("tilemap") {
+                    Some(PropValue::Str(s)) if !s.is_empty() => Some(s.clone()),
+                    _ => None,
+                })
+            });
+            if let Some(map_ref) = map_ref_opt {
+                let fs_path = self.resolve_res(&map_ref);
+                let _ = pite_scene::save_tilemap(&fs_path, &doc);
+            }
+            self.session.host().set_tilemap_doc(&selected_id, doc);
+            self.session.rebuild_physics();
+            self.viewport_dirty = true;
         }
     }
 }

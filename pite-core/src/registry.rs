@@ -12,7 +12,7 @@ pub type NodeFactory = Box<dyn Fn(NodeId) -> Node + Send + Sync>;
 ///
 /// Registered set: `Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`,
 /// `Label`, `Button`, `StaticBody2D`, `CharacterBody2D`, `RigidBody2D`,
-/// `Area2D`, `CollisionShape2D`.
+/// `Area2D`, `CollisionShape2D`, `TileMap2D`.
 pub struct NodeTypeRegistry {
     factories: HashMap<String, NodeFactory>,
 }
@@ -33,6 +33,7 @@ impl NodeTypeRegistry {
             "RigidBody2D",
             "Area2D",
             "CollisionShape2D",
+            "TileMap2D",
         ] {
             factories.insert(
                 type_name.to_string(),

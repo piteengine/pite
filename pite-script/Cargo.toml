@@ -23,4 +23,5 @@ pite-assets.workspace = true
 pite-audio.workspace = true
 pite-core.workspace = true
 pite-physics.workspace = true
+pite-scene.workspace = true
 pyo3 = { version = "0.30", features = ["auto-initialize"] }

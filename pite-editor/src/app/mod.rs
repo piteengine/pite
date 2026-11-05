@@ -104,6 +104,9 @@ pub struct EditorApp {
     pub(super) tab: Tab,
     pub(super) recent: Vec<PathBuf>,
     pub(super) about_open: bool,
+    pub(super) tilemap_active_layer: usize,
+    pub(super) tilemap_selected_frame: Option<String>,
+    pub(super) tilemap_eraser: bool,
 }
 
 impl EditorApp {
@@ -160,6 +163,9 @@ impl EditorApp {
             tab: Tab::Viewport,
             recent: Self::load_recent(),
             about_open: false,
+            tilemap_active_layer: 0,
+            tilemap_selected_frame: None,
+            tilemap_eraser: false,
         })
     }
 

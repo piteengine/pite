@@ -28,6 +28,19 @@ before each `session.frame()`, with the cursor rescaled into offscreen
 pixels. Input stays out of the way — it only forwards while the pointer is
 over the viewport, so the code pane and shortcuts keep priority.
 
+## Tilemap editing
+
+When a `TileMap2D` node is selected in the scene tree:
+- The Inspector displays the Tilemap Editor panel:
+  - Active layer switcher and layer toggles (`visible`, `collision_enabled`).
+  - Tool mode switcher: **Brush** (paint selected tile) vs **Eraser** (erase tile).
+  - Tile palette displaying all named frames in the referenced atlas.
+- The Viewport provides interactive painting:
+  - Hovering over the viewport renders a snapped tile preview rectangle at the grid cell.
+  - Left-clicking (or dragging) paints the selected tile into the active layer.
+  - Right-clicking (or dragging) erases tiles.
+  - Edits automatically update the scene, refresh Rapier static physics colliders, and save the `.ptmap` file.
+
 ## Save scene
 
 `Scene` > `Save Scene`, the save icon button, or `Ctrl+S` / `Cmd+S`
