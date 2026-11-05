@@ -323,18 +323,48 @@ impl EditorApp {
             );
         }
 
+        let has_node_dnd = egui::DragAndDrop::has_payload_of_type::<NodeDndPayload>(ui.ctx());
+        let has_asset_dnd =
+            egui::DragAndDrop::has_payload_of_type::<super::assets::AssetDndPayload>(ui.ctx());
+
+        let is_source =
+            if let Some(dragged) = egui::DragAndDrop::payload::<NodeDndPayload>(ui.ctx()) {
+                dragged.id == id_str
+            } else {
+                false
+            };
+
+        // Check cycle: cannot drop into self or descendant
+        let is_descendant_of_dragged =
+            if let Some(dragged) = egui::DragAndDrop::payload::<NodeDndPayload>(ui.ctx()) {
+                let dragged_id = NodeId::from(dragged.id.as_str());
+                self.session.host().with_tree(|t| {
+                    let mut curr = parent_id.clone();
+                    while let Some(c) = curr {
+                        if c == dragged_id {
+                            return true;
+                        }
+                        curr = t.get(&c).and_then(|n| n.parent.clone());
+                    }
+                    false
+                })
+            } else {
+                false
+            };
+
+        let is_node_target = has_node_dnd && !is_source && row_resp.contains_pointer();
+        let is_valid_node_target = is_node_target && !is_descendant_of_dragged;
+        let is_invalid_node_target = is_node_target && is_descendant_of_dragged;
+
         // Drop zones calculation (3-2 method requested by user):
         // Center: Child (DropZone::Under)
         // Bottom edge (> 0.75): Sibling After (DropZone::After)
         // Top edge (< 0.25, ONLY for the first child of a branch): Sibling Before (DropZone::Before)
-        let has_node_dnd = egui::DragAndDrop::has_payload_of_type::<NodeDndPayload>(ui.ctx());
-        let is_hovered = row_resp.hovered();
-
-        let zone = if has_node_dnd && is_hovered {
+        let zone = if is_valid_node_target {
             let pointer_pos = ui
                 .ctx()
-                .pointer_interact_pos()
-                .or_else(|| ui.ctx().pointer_hover_pos())
+                .input(|i| i.pointer.latest_pos())
+                .or_else(|| ui.ctx().pointer_interact_pos())
                 .unwrap_or(rect.center());
             let frac = (pointer_pos.y - rect.top()) / rect.height().max(1.0);
             if is_root {
@@ -350,8 +380,31 @@ impl EditorApp {
             DropZone::None
         };
 
-        if has_node_dnd && is_hovered && zone != DropZone::None {
+        if is_valid_node_target && zone != DropZone::None {
             self.hovered_node_target = Some((name.clone(), zone));
+        }
+
+        // Asset drop target calculation
+        let is_asset_target = has_asset_dnd && row_resp.contains_pointer();
+        let is_valid_asset_target = if let Some(payload) =
+            egui::DragAndDrop::payload::<super::assets::AssetDndPayload>(ui.ctx())
+        {
+            if payload.rel_path.ends_with(".py") {
+                true
+            } else if payload.rel_path.ends_with(".png")
+                || payload.rel_path.ends_with(".atlas.json")
+            {
+                type_name == "Sprite2D"
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        let is_invalid_asset_target = is_asset_target && !is_valid_asset_target;
+
+        if is_asset_target && is_valid_asset_target {
+            self.hovered_node_target = Some((format!("Node '{name}'"), DropZone::Under));
         }
 
         // Clicks
@@ -377,57 +430,61 @@ impl EditorApp {
 
         // Drops from node dragging
         if let Some(dragged) = row_resp.dnd_release_payload::<NodeDndPayload>() {
-            self.drop_node(&dragged.id, &target, zone);
+            if is_valid_node_target {
+                self.drop_node(&dragged.id, &target, zone);
+            }
         }
 
         // Drops from asset panel (attaching script or assigning texture)
         if let Some(payload) = row_resp.dnd_release_payload::<super::assets::AssetDndPayload>() {
-            if payload.rel_path.ends_with(".py") {
-                let class_name = Path::new(&payload.rel_path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Script")
-                    .to_string();
-                let res_path = format!("res://{}", payload.rel_path);
-                self.session.host().with_tree_mut(|t| {
-                    if let Some(n) = t.get_mut(&target) {
-                        n.script = Some(pite_core::ScriptRef {
-                            path: res_path.clone(),
-                            class_name: class_name.clone(),
-                        });
-                    }
-                });
-                self.viewport_dirty = true;
-                self.log(format!("Attached script {res_path} to {target}"));
-            } else if payload.rel_path.ends_with(".png")
-                || payload.rel_path.ends_with(".atlas.json")
-            {
-                let res_path = format!("res://{}", payload.rel_path);
-                self.session.host().with_tree_mut(|t| {
-                    if let Some(n) = t.get_mut(&target) {
-                        if n.type_name == "Sprite2D" {
-                            if payload.rel_path.ends_with(".atlas.json") {
-                                n.props.insert(
-                                    "atlas".to_string(),
-                                    pite_core::PropValue::Str(res_path.clone()),
-                                );
-                            } else {
-                                n.props.insert(
-                                    "texture".to_string(),
-                                    pite_core::PropValue::Str(res_path.clone()),
-                                );
+            if is_valid_asset_target {
+                if payload.rel_path.ends_with(".py") {
+                    let class_name = Path::new(&payload.rel_path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Script")
+                        .to_string();
+                    let res_path = format!("res://{}", payload.rel_path);
+                    self.session.host().with_tree_mut(|t| {
+                        if let Some(n) = t.get_mut(&target) {
+                            n.script = Some(pite_core::ScriptRef {
+                                path: res_path.clone(),
+                                class_name: class_name.clone(),
+                            });
+                        }
+                    });
+                    self.viewport_dirty = true;
+                    self.log(format!("Attached script {res_path} to {target}"));
+                } else if payload.rel_path.ends_with(".png")
+                    || payload.rel_path.ends_with(".atlas.json")
+                {
+                    let res_path = format!("res://{}", payload.rel_path);
+                    self.session.host().with_tree_mut(|t| {
+                        if let Some(n) = t.get_mut(&target) {
+                            if n.type_name == "Sprite2D" {
+                                if payload.rel_path.ends_with(".atlas.json") {
+                                    n.props.insert(
+                                        "atlas".to_string(),
+                                        pite_core::PropValue::Str(res_path.clone()),
+                                    );
+                                } else {
+                                    n.props.insert(
+                                        "texture".to_string(),
+                                        pite_core::PropValue::Str(res_path.clone()),
+                                    );
+                                }
                             }
                         }
-                    }
-                });
-                self.viewport_dirty = true;
-                self.log(format!("Assigned {res_path} to {target}"));
+                    });
+                    self.viewport_dirty = true;
+                    self.log(format!("Assigned {res_path} to {target}"));
+                }
             }
         }
 
         // Background and Drop Target Indicators painting
         let p = ui.painter();
-        if zone == DropZone::Under {
+        if zone == DropZone::Under || (is_asset_target && is_valid_asset_target) {
             p.rect_filled(
                 rect,
                 2.0,
@@ -439,9 +496,27 @@ impl EditorApp {
                 egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
                 egui::StrokeKind::Middle,
             );
+        } else if is_invalid_node_target || is_invalid_asset_target {
+            p.rect_filled(
+                rect,
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(220, 80, 80, 30),
+            );
+            p.rect_stroke(
+                rect,
+                2.0,
+                egui::Stroke::new(1.5, egui::Color32::from_rgb(220, 80, 80)),
+                egui::StrokeKind::Middle,
+            );
+        } else if is_source && has_node_dnd {
+            p.rect_filled(
+                rect,
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12),
+            );
         } else if selected {
             p.rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
-        } else if is_hovered && !has_node_dnd {
+        } else if row_resp.hovered() && !has_node_dnd && !has_asset_dnd {
             p.rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
         }
 
@@ -648,9 +723,8 @@ impl EditorApp {
             return;
         };
         let pointer_pos = ctx
-            .pointer_interact_pos()
-            .or_else(|| ctx.pointer_hover_pos())
-            .or_else(|| ctx.pointer_latest_pos());
+            .input(|i| i.pointer.latest_pos())
+            .or_else(|| ctx.pointer_interact_pos());
         let Some(pos) = pointer_pos else {
             return;
         };

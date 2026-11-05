@@ -389,9 +389,9 @@ impl EditorApp {
             let (root_rect, root_resp) =
                 ui.allocate_exact_size(egui::vec2(row_width, 20.0), egui::Sense::click());
 
-            let is_hovered = root_resp.hovered();
+            let is_pointer_over = root_resp.contains_pointer();
 
-            if is_hovered && has_dnd {
+            if is_pointer_over && has_dnd {
                 if is_drop_target_root {
                     self.hovered_asset_folder = Some(String::new());
                     ui.painter().rect_filled(
@@ -421,7 +421,7 @@ impl EditorApp {
             } else if root_selected {
                 ui.painter()
                     .rect_filled(root_rect, 2.0, ui.visuals().selection.bg_fill);
-            } else if is_hovered && !has_dnd {
+            } else if root_resp.hovered() && !has_dnd {
                 ui.painter()
                     .rect_filled(root_rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
             }
@@ -507,6 +507,13 @@ impl EditorApp {
             let (rect, row_resp) =
                 ui.allocate_exact_size(egui::vec2(row_width, 20.0), egui::Sense::click_and_drag());
 
+            let is_source =
+                if let Some(dragged) = egui::DragAndDrop::payload::<AssetDndPayload>(ui.ctx()) {
+                    dragged.rel_path == full
+                } else {
+                    false
+                };
+
             let is_valid_drop_target =
                 if let Some(dragged) = egui::DragAndDrop::payload::<AssetDndPayload>(ui.ctx()) {
                     let dragged_parent = Path::new(&dragged.rel_path)
@@ -563,8 +570,8 @@ impl EditorApp {
                 }
             }
 
-            let is_hovered = row_resp.hovered();
-            if is_hovered && has_dnd {
+            let is_target = has_dnd && !is_source && row_resp.contains_pointer();
+            if is_target {
                 if is_valid_drop_target {
                     self.hovered_asset_folder = Some(full.clone());
                     ui.painter().rect_filled(
@@ -591,10 +598,16 @@ impl EditorApp {
                         egui::StrokeKind::Middle,
                     );
                 }
+            } else if is_source && has_dnd {
+                ui.painter().rect_filled(
+                    rect,
+                    2.0,
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12),
+                );
             } else if selected {
                 ui.painter()
                     .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
-            } else if is_hovered && !has_dnd {
+            } else if row_resp.hovered() && !has_dnd {
                 ui.painter()
                     .rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
             }
@@ -747,6 +760,13 @@ impl EditorApp {
             let (rect, row_resp) =
                 ui.allocate_exact_size(egui::vec2(row_width, 20.0), egui::Sense::click_and_drag());
 
+            let is_source =
+                if let Some(dragged) = egui::DragAndDrop::payload::<AssetDndPayload>(ui.ctx()) {
+                    dragged.rel_path == full
+                } else {
+                    false
+                };
+
             // Dropping onto a file targets this file's parent folder `dir`!
             let is_valid_drop_target =
                 if let Some(dragged) = egui::DragAndDrop::payload::<AssetDndPayload>(ui.ctx()) {
@@ -783,21 +803,13 @@ impl EditorApp {
 
             // Dropping onto a file moves into parent folder `dir`
             if let Some(dragged) = row_resp.dnd_release_payload::<AssetDndPayload>() {
-                let dragged_parent = Path::new(&dragged.rel_path)
-                    .parent()
-                    .and_then(|p| p.to_str())
-                    .unwrap_or("")
-                    .replace('\\', "/");
-                if dragged.rel_path != dir
-                    && dragged_parent != dir
-                    && !dir.starts_with(&format!("{}/", dragged.rel_path))
-                {
+                if is_valid_drop_target {
                     self.execute_asset_move(&dragged.rel_path, dir);
                 }
             }
 
-            let is_hovered = row_resp.hovered();
-            if is_hovered && has_dnd {
+            let is_target = has_dnd && !is_source && row_resp.contains_pointer();
+            if is_target {
                 if is_valid_drop_target {
                     self.hovered_asset_folder = Some(dir.to_string());
                     ui.painter().rect_filled(
@@ -824,10 +836,16 @@ impl EditorApp {
                         egui::StrokeKind::Middle,
                     );
                 }
+            } else if is_source && has_dnd {
+                ui.painter().rect_filled(
+                    rect,
+                    2.0,
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12),
+                );
             } else if selected {
                 ui.painter()
                     .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
-            } else if is_hovered && !has_dnd {
+            } else if row_resp.hovered() && !has_dnd {
                 ui.painter()
                     .rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
             }
@@ -914,9 +932,8 @@ impl EditorApp {
             return;
         };
         let pointer_pos = ctx
-            .pointer_interact_pos()
-            .or_else(|| ctx.pointer_hover_pos())
-            .or_else(|| ctx.pointer_latest_pos());
+            .input(|i| i.pointer.latest_pos())
+            .or_else(|| ctx.pointer_interact_pos());
         let Some(pos) = pointer_pos else {
             return;
         };
@@ -979,6 +996,12 @@ impl EditorApp {
                                             .color(egui::Color32::from_rgb(11, 147, 135)),
                                     );
                                 }
+                            } else if let Some((target_name, _)) = &self.hovered_node_target {
+                                ui.label(egui::RichText::new("->").weak());
+                                ui.label(
+                                    egui::RichText::new(target_name)
+                                        .color(egui::Color32::from_rgb(11, 147, 135)),
+                                );
                             }
                         });
                     });
