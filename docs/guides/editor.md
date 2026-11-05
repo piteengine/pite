@@ -183,6 +183,22 @@ When Pyright is available on your system `PATH`:
 
 ---
 
+## Tilemap Editing
+
+When a `TileMap2D` node is selected in the scene tree:
+
+- **Inspector Tilemap Panel**:
+  - Active layer switcher and layer toggles (`visible`, `collision_enabled`).
+  - Tool mode switcher: **Brush** (paint selected tile) vs **Eraser** (erase tile).
+  - Tile palette displaying all named frames in the referenced atlas.
+- **Interactive Viewport Painting**:
+  - Hovering over the viewport displays a snapped tile preview rectangle at the grid cell.
+  - Left-clicking (or dragging) paints the selected tile into the active layer.
+  - Right-clicking (or dragging) erases tiles.
+  - Edits automatically update the scene, refresh Rapier static physics colliders, and save the `.ptmap` file.
+
+---
+
 ## Save Scene and Code
 
 Pressing ++ctrl+s++ (or ++cmd+s++ on macOS), clicking the save icon button in the header toolbar, or selecting **Scene > Save** saves both the active `.ptscn` scene and any open code file (script) at once:

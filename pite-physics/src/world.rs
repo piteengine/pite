@@ -256,6 +256,50 @@ impl PhysicsWorld {
         }
     }
 
+    /// Add static merged colliders for a TileMap2D layer.
+    pub fn add_tilemap_colliders(
+        &mut self,
+        tilemap_node_id: &NodeId,
+        layer_idx: usize,
+        origin: (f32, f32),
+        tile_size: (f32, f32),
+        solid_cells: &[(i32, i32)],
+        collision_layer: u32,
+        collision_mask: u32,
+    ) {
+        let merged = crate::tilemap::merge_tile_cells(solid_cells);
+        if merged.is_empty() {
+            return;
+        }
+
+        let layer_body_id = NodeId::from(format!("{tilemap_node_id}_layer_{layer_idx}"));
+        self.add_static_body(layer_body_id.clone(), origin, 0.0);
+
+        for (i, rect) in merged.into_iter().enumerate() {
+            let shape_id = NodeId::from(format!("{layer_body_id}_rect_{i}"));
+            let w_world = rect.width as f32 * tile_size.0;
+            let h_world = rect.height as f32 * tile_size.1;
+            let offset_x = (rect.col as f32 + rect.width as f32 * 0.5) * tile_size.0;
+            let offset_y = (rect.row as f32 + rect.height as f32 * 0.5) * tile_size.1;
+
+            self.attach_shape(
+                &layer_body_id,
+                shape_id,
+                ShapeConfig::Box {
+                    width: w_world,
+                    height: h_world,
+                },
+                (offset_x, offset_y),
+                0.0,
+                false,
+                collision_layer,
+                collision_mask,
+                0.0,
+                0.0,
+            );
+        }
+    }
+
     /// Remove a node (body or shape) from the physics world.
     pub fn remove_node(&mut self, id: &NodeId) {
         if let Some(body_handle) = self.node_to_body.remove(id) {

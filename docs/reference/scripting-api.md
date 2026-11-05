@@ -115,6 +115,37 @@ pite.stop(voice)
 - `play(path, volume=1.0)` decodes the file and returns a voice id; `.wav` (8/16/24/32-bit int and float), `.ogg` (Vorbis), `.mp3`, and `.flac` are supported. Output goes to the OS default audio device; on machines with no audio device playback is simulated (a warning is logged; same API, no sound). A missing or undecodable file raises loudly — the game keeps running. `stop(id)` on an unknown id is a silent no-op, as is `set_volume` (clamped to `0.0`–`1.0`); `is_playing` on unknown ids is `False`.
 - `pite check` validates every `play("…")` literal in project scripts: the file must exist and decode.
 
+## Tilemaps
+
+```python
+class Level(pite.TileMap2D):
+    def _ready(self):
+        # Cell queries and mutations
+        tile = self.get_cell(0, 0, layer=0)
+        self.set_cell(0, 0, "grass", layer=0)
+        self.erase_cell(0, 0, layer=0)
+        self.clear(layer=None)
+
+        # Coordinate math
+        col, row = self.world_to_map(pite.mouse())
+        pos = self.map_to_world(col, row)
+
+        # Tilemap properties & introspection
+        tile_w, tile_h = self.tile_size
+        layers = self.layers
+        cells = self.get_used_cells(layer=0)
+```
+
+- `tile_size -> tuple[int, int]`: Tile dimensions `(width, height)` in pixels.
+- `layers -> list[str]`: List of layer names in the tilemap.
+- `get_cell(col, row, layer=0) -> str | None`: Returns the atlas frame name at `(col, row)`.
+- `set_cell(col, row, frame, layer=0)`: Places an atlas frame at `(col, row)`.
+- `erase_cell(col, row, layer=0) -> bool`: Erases cell at `(col, row)`.
+- `clear(layer=None)`: Clears all cells in the specified layer (or all layers if omitted).
+- `world_to_map(pos_or_x, y=None) -> tuple[int, int]`: Converts world position to grid cell `(col, row)`.
+- `map_to_world(col, row) -> Vec2`: Converts grid cell `(col, row)` to world center position.
+- `get_used_cells(layer=0) -> list[tuple[int, int]]`: Returns list of populated `(col, row)` coordinates.
+
 ## Physics
 
 Pite includes a pure-Rust 2D physics subsystem built on `rapier2d`. Simulation runs in a fixed 60 Hz loop (`dt = 1/60`), executing `_physics_process(delta)` across active scripts.

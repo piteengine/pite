@@ -12,6 +12,7 @@ mod node2d;
 mod rigid_body2d;
 mod sprite2d;
 mod static_body2d;
+mod tilemap;
 mod timer;
 
 pub(crate) use area2d::PyArea2D;
@@ -25,4 +26,5 @@ pub(crate) use node2d::PyNode2D;
 pub(crate) use rigid_body2d::PyRigidBody2D;
 pub(crate) use sprite2d::PySprite2D;
 pub(crate) use static_body2d::PyStaticBody2D;
+pub(crate) use tilemap::PyTileMap2D;
 pub(crate) use timer::PyTimer;

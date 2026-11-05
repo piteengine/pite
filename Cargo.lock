@@ -3308,6 +3308,7 @@ dependencies = [
  "pite-audio",
  "pite-core",
  "pite-physics",
+ "pite-scene",
  "pyo3",
  "tracing",
 ]

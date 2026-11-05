@@ -40,6 +40,7 @@ nav = [
           "reference/nodes/RigidBody2D.md",
           "reference/nodes/Sprite2D.md",
           "reference/nodes/StaticBody2D.md",
+          "reference/nodes/TileMap2D.md",
           "reference/nodes/Timer.md",
       ]},
   ]},

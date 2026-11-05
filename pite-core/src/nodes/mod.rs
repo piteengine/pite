@@ -20,6 +20,7 @@ pub mod physics_body2d;
 pub mod rigid_body2d;
 pub mod sprite2d;
 pub mod static_body2d;
+pub mod tilemap;
 pub mod timer;
 
 use crate::schema::NodeTypeSchema;
@@ -42,6 +43,7 @@ pub static ALL_NODES: &[&NodeTypeSchema] = &[
     &static_body2d::SCHEMA,
     &rigid_body2d::SCHEMA,
     &character_body2d::SCHEMA,
+    &tilemap::SCHEMA,
     // UI
     &label::SCHEMA,
     &button::SCHEMA,

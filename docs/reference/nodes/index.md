@@ -13,4 +13,5 @@ Every node type in the engine, derived from `pite_core::NODE_SCHEMAS` at build t
 - [`RigidBody2D`](RigidBody2D.md) — Dynamic physics body simulated by gravity, impulses, and forces.
 - [`Sprite2D`](Sprite2D.md) — Displays a 2D texture or one frame from a spritesheet atlas.
 - [`StaticBody2D`](StaticBody2D.md) — Immovable physics body: floors, walls, platforms. Never responds to impulses.
+- [`TileMap2D`](TileMap2D.md) — Renders 2D multi-layer grid tilemaps with automatic physics colliders.
 - [`Timer`](Timer.md) — Fires the engine-owned `timeout` signal every `wait_time` seconds.
