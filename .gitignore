@@ -8,3 +8,4 @@ _cache/
 .pitetoolchain/
 examples/*/dist/
 .ruff_cache/
+/site
