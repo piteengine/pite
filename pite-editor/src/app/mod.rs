@@ -723,10 +723,24 @@ impl eframe::App for EditorApp {
                     });
             });
 
+        let panel_id = ui.scope_id().with("inspector");
+        let resize_id = panel_id.with("__resize");
+        let user_width_id = ui.make_persistent_id("inspector_user_width");
+        let mut user_width = ui
+            .data_mut(|d| d.get_temp::<f32>(user_width_id))
+            .unwrap_or(320.0);
+
+        if let Some(resize_resp) = ui.read_response(resize_id) {
+            if resize_resp.dragged() || resize_resp.drag_stopped() {
+                if let Some(pointer) = resize_resp.interact_pointer_pos() {
+                    user_width = (ui.max_rect().right() - pointer.x).clamp(260.0, 560.0);
+                    ui.data_mut(|d| d.insert_temp(user_width_id, user_width));
+                }
+            }
+        }
+
         egui::Panel::right("inspector")
-            .default_size(240.0)
-            .min_size(240.0)
-            .max_size(360.0)
+            .exact_size(user_width)
             .resizable(true)
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()

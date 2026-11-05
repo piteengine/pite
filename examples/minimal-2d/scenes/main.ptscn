@@ -15,6 +15,7 @@ parent = "root"
 [node.props]
 atlas = "res://assets/sheet.atlas.json"
 frame = "player"
+position = [160.0, 240.0]
 
 [node.script]
 path = "res://scripts/player.py"

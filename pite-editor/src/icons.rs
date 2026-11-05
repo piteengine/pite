@@ -28,6 +28,7 @@ pub enum Icon {
     Scissors,
     Pencil,
     Search,
+    Revert,
     CaretRight,
     CaretDown,
     // Node types:
@@ -69,6 +70,7 @@ impl Icon {
             Self::Scissors => regular::SCISSORS,
             Self::Pencil => regular::PENCIL_SIMPLE,
             Self::Search => regular::MAGNIFYING_GLASS,
+            Self::Revert => regular::ARROW_COUNTER_CLOCKWISE,
             Self::CaretRight => regular::CARET_RIGHT,
             Self::CaretDown => regular::CARET_DOWN,
             Self::Node => regular::CIRCLE,

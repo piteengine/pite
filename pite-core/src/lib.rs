@@ -14,6 +14,7 @@ mod math;
 mod node;
 mod props;
 mod registry;
+pub mod schema;
 mod signals;
 mod tree;
 
@@ -23,5 +24,9 @@ pub use math::{global_position, Vec2};
 pub use node::{Node, NodeDesc, NodeId, ScriptRef};
 pub use props::{PropValue, Props};
 pub use registry::{NodeFactory, NodeTypeRegistry};
+pub use schema::{
+    inheritance_chain, node_type_schema, type_props, DefaultPropVal, NodeTypeSchema, PropHint,
+    PropSchema, NODE_SCHEMAS,
+};
 pub use signals::{SignalDef, SignalRegistry};
 pub use tree::NodeTree;

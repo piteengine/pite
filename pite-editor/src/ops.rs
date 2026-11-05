@@ -226,6 +226,17 @@ pub fn set_prop(tree: &mut NodeTree, id: &NodeId, key: &str, value: PropValue) -
     }
 }
 
+/// Remove one prop from `id`. Unknown nodes are errors.
+pub fn remove_prop(tree: &mut NodeTree, id: &NodeId, key: &str) -> Result<()> {
+    match tree.get_mut(id) {
+        Some(node) => {
+            node.props.0.remove(key);
+            Ok(())
+        }
+        None => anyhow::bail!("node `{id}` does not exist"),
+    }
+}
+
 /// Rename display `name` of node `id`.
 pub fn rename_node(tree: &mut NodeTree, id: &NodeId, new_name: &str) -> Result<()> {
     let new_name = new_name.trim();
@@ -967,6 +978,9 @@ prefix = "e1_"
             node.props.get("title"),
             Some(&PropValue::Str("hi".to_string()))
         );
+        remove_prop(&mut tree, &root, "speed").unwrap();
+        let node2 = tree.get(&root).unwrap();
+        assert_eq!(node2.props.get("speed"), None);
     }
 
     #[test]

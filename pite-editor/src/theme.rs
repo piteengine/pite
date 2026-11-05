@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use eframe::egui;
 
-const ACCENT: egui::Color32 = egui::Color32::from_rgb(11, 147, 135);
+pub(crate) const ACCENT: egui::Color32 = egui::Color32::from_rgb(11, 147, 135);
 pub(crate) const BG: egui::Color32 = egui::Color32::from_rgb(11, 14, 17);
 const PANEL: egui::Color32 = egui::Color32::from_rgb(20, 24, 29);
 const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(42, 49, 56);

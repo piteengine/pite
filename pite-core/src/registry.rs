@@ -20,20 +20,8 @@ pub struct NodeTypeRegistry {
 impl NodeTypeRegistry {
     pub fn new() -> Self {
         let mut factories: HashMap<String, NodeFactory> = HashMap::new();
-        for type_name in [
-            "Node",
-            "Node2D",
-            "Sprite2D",
-            "Camera2D",
-            "Timer",
-            "Label",
-            "Button",
-            "StaticBody2D",
-            "CharacterBody2D",
-            "RigidBody2D",
-            "Area2D",
-            "CollisionShape2D",
-        ] {
+        for schema in crate::schema::NODE_SCHEMAS {
+            let type_name = schema.type_name;
             factories.insert(
                 type_name.to_string(),
                 Box::new(move |id: NodeId| Node::new(id, type_name)),
