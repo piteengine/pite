@@ -332,6 +332,7 @@ impl eframe::App for EditorApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.hovered_asset_folder = None;
 
         egui::Panel::top("menu").show(ui, |ui| {
             // Everything lives inside the MenuBar scope: MenuBar claims the
@@ -575,18 +576,39 @@ impl eframe::App for EditorApp {
                             };
                             if egui::DragAndDrop::has_any_payload(ui.ctx())
                                 && resp.contains_pointer()
-                                && is_drop_target_root
                             {
-                                self.hovered_asset_folder = Some(String::new());
-                                ui.painter().rect_stroke(
-                                    rect,
-                                    2.0,
-                                    egui::Stroke::new(
-                                        1.5_f32,
-                                        egui::Color32::from_rgb(11, 147, 135),
-                                    ),
-                                    egui::StrokeKind::Middle,
-                                );
+                                if is_drop_target_root {
+                                    self.hovered_asset_folder = Some(String::new());
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        2.0,
+                                        egui::Color32::from_rgba_unmultiplied(11, 147, 135, 45),
+                                    );
+                                    ui.painter().rect_stroke(
+                                        rect,
+                                        2.0,
+                                        egui::Stroke::new(
+                                            1.5_f32,
+                                            egui::Color32::from_rgb(11, 147, 135),
+                                        ),
+                                        egui::StrokeKind::Middle,
+                                    );
+                                } else {
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        2.0,
+                                        egui::Color32::from_rgba_unmultiplied(220, 80, 80, 30),
+                                    );
+                                    ui.painter().rect_stroke(
+                                        rect,
+                                        2.0,
+                                        egui::Stroke::new(
+                                            1.5_f32,
+                                            egui::Color32::from_rgb(220, 80, 80),
+                                        ),
+                                        egui::StrokeKind::Middle,
+                                    );
+                                }
                             }
                             if let Some(dragged) =
                                 resp.dnd_release_payload::<assets::AssetDndPayload>()
@@ -672,5 +694,6 @@ impl eframe::App for EditorApp {
         });
 
         self.show_settings(&ctx);
+        self.show_asset_drag_preview(&ctx);
     }
 }

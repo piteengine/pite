@@ -354,14 +354,33 @@ impl EditorApp {
 
             let is_hovered = root_resp.hovered();
 
-            if is_hovered && is_drop_target_root && has_dnd {
-                self.hovered_asset_folder = Some(String::new());
-                ui.painter().rect_stroke(
-                    root_rect,
-                    2.0,
-                    egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
-                    egui::StrokeKind::Middle,
-                );
+            if is_hovered && has_dnd {
+                if is_drop_target_root {
+                    self.hovered_asset_folder = Some(String::new());
+                    ui.painter().rect_filled(
+                        root_rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(11, 147, 135, 45),
+                    );
+                    ui.painter().rect_stroke(
+                        root_rect,
+                        2.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
+                        egui::StrokeKind::Middle,
+                    );
+                } else {
+                    ui.painter().rect_filled(
+                        root_rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(220, 80, 80, 30),
+                    );
+                    ui.painter().rect_stroke(
+                        root_rect,
+                        2.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(220, 80, 80)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
             } else if root_selected {
                 ui.painter()
                     .rect_filled(root_rect, 2.0, ui.visuals().selection.bg_fill);
@@ -508,14 +527,33 @@ impl EditorApp {
             }
 
             let is_hovered = row_resp.hovered();
-            if is_hovered && is_valid_drop_target && has_dnd {
-                self.hovered_asset_folder = Some(full.clone());
-                ui.painter().rect_stroke(
-                    rect,
-                    2.0,
-                    egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
-                    egui::StrokeKind::Middle,
-                );
+            if is_hovered && has_dnd {
+                if is_valid_drop_target {
+                    self.hovered_asset_folder = Some(full.clone());
+                    ui.painter().rect_filled(
+                        rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(11, 147, 135, 45),
+                    );
+                    ui.painter().rect_stroke(
+                        rect,
+                        2.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
+                        egui::StrokeKind::Middle,
+                    );
+                } else {
+                    ui.painter().rect_filled(
+                        rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(220, 80, 80, 30),
+                    );
+                    ui.painter().rect_stroke(
+                        rect,
+                        2.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(220, 80, 80)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
             } else if selected {
                 ui.painter()
                     .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
@@ -722,14 +760,33 @@ impl EditorApp {
             }
 
             let is_hovered = row_resp.hovered();
-            if is_hovered && is_valid_drop_target && has_dnd {
-                self.hovered_asset_folder = Some(dir.to_string());
-                ui.painter().rect_stroke(
-                    rect,
-                    2.0,
-                    egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
-                    egui::StrokeKind::Middle,
-                );
+            if is_hovered && has_dnd {
+                if is_valid_drop_target {
+                    self.hovered_asset_folder = Some(dir.to_string());
+                    ui.painter().rect_filled(
+                        rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(11, 147, 135, 45),
+                    );
+                    ui.painter().rect_stroke(
+                        rect,
+                        2.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(11, 147, 135)),
+                        egui::StrokeKind::Middle,
+                    );
+                } else {
+                    ui.painter().rect_filled(
+                        rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(220, 80, 80, 30),
+                    );
+                    ui.painter().rect_stroke(
+                        rect,
+                        2.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(220, 80, 80)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
             } else if selected {
                 ui.painter()
                     .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
@@ -813,31 +870,82 @@ impl EditorApp {
                 }
             });
         }
+    }
 
-        // Floating drag preview under cursor
-        if dir.is_empty() {
-            if let Some(payload) = egui::DragAndDrop::payload::<AssetDndPayload>(ui.ctx()) {
-                if let Some(pos) = ui.ctx().pointer_latest_pos() {
-                    egui::Area::new(egui::Id::unique("asset_drag_tooltip"))
-                        .fixed_pos(pos + egui::vec2(16.0, 16.0))
-                        .order(egui::Order::Tooltip)
-                        .interactable(false)
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                let icon_str = if payload.is_dir {
-                                    regular::FOLDER
+    pub(super) fn show_asset_drag_preview(&self, ctx: &egui::Context) {
+        let Some(payload) = egui::DragAndDrop::payload::<AssetDndPayload>(ctx) else {
+            return;
+        };
+        let pointer_pos = ctx
+            .pointer_interact_pos()
+            .or_else(|| ctx.pointer_hover_pos())
+            .or_else(|| ctx.pointer_latest_pos());
+        let Some(pos) = pointer_pos else {
+            return;
+        };
+
+        egui::Area::new(egui::Id::unique("asset_drag_preview"))
+            .fixed_pos(pos + egui::vec2(16.0, 16.0))
+            .order(egui::Order::Tooltip)
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(egui::Color32::from_rgb(20, 24, 29))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgb(11, 147, 135),
+                    ))
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        let icon_str = if payload.is_dir {
+                            regular::FOLDER
+                        } else {
+                            match payload
+                                .rel_path
+                                .rsplit('.')
+                                .next()
+                                .unwrap_or("")
+                                .to_ascii_lowercase()
+                                .as_str()
+                            {
+                                "py" => regular::FILE_CODE,
+                                "ptscn" => regular::FILM_SLATE,
+                                "toml" | "cfg" | "ini" | "json" | "yaml" | "yml" => regular::GEAR,
+                                "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" => {
+                                    regular::IMAGE
+                                }
+                                "wav" | "ogg" | "mp3" | "flac" => regular::SPEAKER_HIGH,
+                                _ => regular::FILE,
+                            }
+                        };
+                        let name = std::path::Path::new(&payload.rel_path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&payload.rel_path);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(icon_str)
+                                    .color(egui::Color32::from_rgb(11, 147, 135)),
+                            );
+                            ui.label(egui::RichText::new(name).strong());
+                            if let Some(dest) = &self.hovered_asset_folder {
+                                ui.label(egui::RichText::new("->").weak());
+                                if dest.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new("res://")
+                                            .color(egui::Color32::from_rgb(11, 147, 135)),
+                                    );
                                 } else {
-                                    regular::FILE
-                                };
-                                ui.horizontal(|ui| {
-                                    ui.label(icon_str);
-                                    ui.label(&payload.rel_path);
-                                });
-                            });
+                                    ui.label(
+                                        egui::RichText::new(format!("{dest}/"))
+                                            .color(egui::Color32::from_rgb(11, 147, 135)),
+                                    );
+                                }
+                            }
                         });
-                }
-            }
-        }
+                    });
+            });
     }
 
     pub(super) fn open_new_folder_modal(&mut self, parent_rel: &str) {
