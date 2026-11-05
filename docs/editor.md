@@ -144,10 +144,19 @@ stays plain text.
 
 ## Assets
 
-The `Assets` panel is a real file tree: collapsible folders, per-type file
-icons, click a file to open it in the `Code` tab (scenes open in the tree
-instead). `dist/`, `target/`, `.git/`, dotfiles, and the scene binary cache
-stay hidden.
+The `Assets` panel is a full-featured file pane:
+- **Tree view:** Collapsible directories with empty folder visibility, folders sorted first alphabetically, followed by files alphabetically. Single-click selects an asset with selection highlighting; double-click opens files (or toggles folders). `dist/`, `target/`, `.git/`, dotfiles, and scene binary caches stay hidden.
+- **Toolbar & creation modals:** Header `+ Folder` and `+ File` buttons (and context menu `New…`) open modal dialogs prompting for names, offering starter templates for `Script (.py)` (inheriting `pite.Node`) and `Scene (.ptscn)` (minimal valid scene).
+- **Context menu & shortcuts:** Right-click on any file or folder for:
+  - `New File…` / `New Folder…`
+  - `Cut` (`Ctrl+X`), `Copy` (`Ctrl+C`), `Paste` (`Ctrl+V`), `Duplicate` (`Ctrl+D`)
+  - `Rename…` (`F2`) with automatic reference rewriting across project scenes and scripts via `pite_assets::apply_renames`
+  - `Delete…` (`Del`) with confirmation modal
+  - `Copy Relative Path (res://…)` and `Copy Absolute Path`
+  - `Show in File Manager` (opens in OS native file explorer)
+- **OS drag-and-drop:** Files or folders dragged from external operating system applications into the Assets panel are copied into the targeted folder (or root if dropped on blank space), auto-suffixed on name collision (`file (1).ext`), and trigger project asset reimport.
+- **Internal drag-and-drop moving:** Dragging files or folders onto other directories moves them on disk (with cycle detection guarding against moving a folder into its own descendants) and automatically updates all project references.
+- **Cross-panel drag-and-drop:** Dragging a `.py` script onto a Scene Tree node attaches it as `node.script`; dragging `.png` or `.atlas.json` onto Inspector fields populates asset paths.
 
 Headless logic lives in `pite-editor/src/ops.rs` (no egui) with unit tests:
 add/remove round-trip, root removal refused, reparent cycle refused, prop

@@ -124,3 +124,118 @@ fn blank_scene_tracks_format_version() {
     );
     assert!(text.contains("id = \"root\""));
 }
+
+#[test]
+fn list_asset_dir_preserves_empty_folders_and_sorts_folders_first() {
+    let dir = std::env::temp_dir().join(format!("pite-asset-scan-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("b_empty_folder")).unwrap();
+    std::fs::create_dir_all(dir.join("a_folder")).unwrap();
+    std::fs::write(dir.join("a_folder").join("nested.txt"), "hi").unwrap();
+    std::fs::write(dir.join("z_file.py"), "# py").unwrap();
+    std::fs::write(dir.join("a_file.txt"), "txt").unwrap();
+
+    let (folders, files) = assets::list_asset_dir(&dir, "");
+    assert_eq!(folders.len(), 2);
+    assert_eq!(folders[0].name, "a_folder");
+    assert_eq!(folders[1].name, "b_empty_folder");
+
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].name, "a_file.txt");
+    assert_eq!(files[1].name, "z_file.py");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn resolve_unique_path_suffixes_collisions() {
+    let dir = std::env::temp_dir().join(format!("pite-asset-uniq-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let p1 = assets::resolve_unique_path(&dir, "sprite.png");
+    assert_eq!(p1, dir.join("sprite.png"));
+    std::fs::write(&p1, "data").unwrap();
+
+    let p2 = assets::resolve_unique_path(&dir, "sprite.png");
+    assert_eq!(p2, dir.join("sprite (1).png"));
+    std::fs::write(&p2, "data").unwrap();
+
+    let p3 = assets::resolve_unique_path(&dir, "sprite.png");
+    assert_eq!(p3, dir.join("sprite (2).png"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn resolve_duplicate_path_copies() {
+    let dir = std::env::temp_dir().join(format!("pite-asset-dup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("player.py");
+    std::fs::write(&original, "code").unwrap();
+
+    let d1 = assets::resolve_duplicate_path(&original);
+    assert_eq!(d1, dir.join("player (copy).py"));
+    std::fs::write(&d1, "code").unwrap();
+
+    let d2 = assets::resolve_duplicate_path(&original);
+    assert_eq!(d2, dir.join("player (copy 2).py"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn move_asset_rel_handles_files_and_cycles() {
+    let dir = std::env::temp_dir().join(format!("pite-asset-move-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("hero.png"), "png").unwrap();
+
+    // 1. Move file into subfolder
+    let renames = assets::move_asset_rel(&dir, "hero.png", "sub").unwrap();
+    assert_eq!(
+        renames,
+        vec![(
+            "res://hero.png".to_string(),
+            "res://sub/hero.png".to_string()
+        )]
+    );
+    assert!(dir.join("sub").join("hero.png").exists());
+    assert!(!dir.join("hero.png").exists());
+
+    // 2. Reject cyclic move: folder into its own subfolder
+    std::fs::create_dir_all(dir.join("parent").join("child")).unwrap();
+    let cycle_err = assets::move_asset_rel(&dir, "parent", "parent/child").unwrap_err();
+    assert!(format!("{cycle_err:#}").contains("Cannot move folder into itself"));
+
+    // 3. Move file back to root
+    let root_renames = assets::move_asset_rel(&dir, "sub/hero.png", "").unwrap();
+    assert_eq!(
+        root_renames,
+        vec![(
+            "res://sub/hero.png".to_string(),
+            "res://hero.png".to_string()
+        )]
+    );
+    assert!(dir.join("hero.png").exists());
+    assert!(!dir.join("sub").join("hero.png").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn rename_asset_rel_and_reference_pairs() {
+    let dir = std::env::temp_dir().join(format!("pite-asset-ren-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("old_dir")).unwrap();
+    std::fs::write(dir.join("old_dir").join("script.py"), "# code").unwrap();
+
+    let renames = assets::rename_asset_rel(&dir, "old_dir", "new_dir").unwrap();
+    assert_eq!(
+        renames,
+        vec![(
+            "res://old_dir/script.py".to_string(),
+            "res://new_dir/script.py".to_string()
+        )]
+    );
+    assert!(dir.join("new_dir").join("script.py").exists());
+    assert!(!dir.join("old_dir").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}

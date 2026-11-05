@@ -158,6 +158,49 @@ impl EditorApp {
                 grip_rect = Some(g.inner.0);
             }
             let r = ui.selectable_label(selected, format!("{name} ({type_name})"));
+            if let Some(payload) = r.dnd_release_payload::<super::assets::AssetDndPayload>() {
+                if payload.rel_path.ends_with(".py") {
+                    let class_name = std::path::Path::new(&payload.rel_path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Script")
+                        .to_string();
+                    let res_path = format!("res://{}", payload.rel_path);
+                    self.session.host().with_tree_mut(|t| {
+                        if let Some(n) = t.get_mut(&target) {
+                            n.script = Some(pite_core::ScriptRef {
+                                path: res_path.clone(),
+                                class_name: class_name.clone(),
+                            });
+                        }
+                    });
+                    self.viewport_dirty = true;
+                    self.log(format!("Attached script {res_path} to {target}"));
+                } else if payload.rel_path.ends_with(".png")
+                    || payload.rel_path.ends_with(".atlas.json")
+                {
+                    let res_path = format!("res://{}", payload.rel_path);
+                    self.session.host().with_tree_mut(|t| {
+                        if let Some(n) = t.get_mut(&target) {
+                            if n.type_name == "Sprite2D" {
+                                if payload.rel_path.ends_with(".atlas.json") {
+                                    n.props.insert(
+                                        "atlas".to_string(),
+                                        pite_core::PropValue::Str(res_path.clone()),
+                                    );
+                                } else {
+                                    n.props.insert(
+                                        "texture".to_string(),
+                                        pite_core::PropValue::Str(res_path.clone()),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                    self.viewport_dirty = true;
+                    self.log(format!("Assigned {res_path} to {target}"));
+                }
+            }
             if let Some((class, file)) = script.as_ref() {
                 let (badge, resp) =
                     ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::click());

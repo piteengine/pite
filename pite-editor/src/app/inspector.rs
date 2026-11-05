@@ -75,8 +75,17 @@ impl EditorApp {
                                         }
                                     }
                                 });
-                        } else if ui.text_edit_singleline(&mut v).changed() {
-                            self.set_prop(&node_id, &key, PropValue::Str(v));
+                        } else {
+                            let text_resp = ui.text_edit_singleline(&mut v);
+                            if text_resp.changed() {
+                                self.set_prop(&node_id, &key, PropValue::Str(v));
+                            }
+                            if let Some(payload) =
+                                text_resp.dnd_release_payload::<super::assets::AssetDndPayload>()
+                            {
+                                let res = format!("res://{}", payload.rel_path);
+                                self.set_prop(&node_id, &key, PropValue::Str(res));
+                            }
                         }
                     });
                 }
@@ -141,7 +150,7 @@ impl EditorApp {
             });
         }
 
-        match &node.script {
+        let script_ui_resp = ui.horizontal(|ui| match &node.script {
             Some(script) => {
                 ui.label(format!("script: {} ({})", script.path, script.class_name));
                 let script_path = script.path.clone();
@@ -151,7 +160,30 @@ impl EditorApp {
                 }
             }
             None => {
-                ui.label("no script attached.");
+                ui.label("no script attached (drag .py here to attach).");
+            }
+        });
+        if let Some(payload) = script_ui_resp
+            .response
+            .dnd_release_payload::<super::assets::AssetDndPayload>()
+        {
+            if payload.rel_path.ends_with(".py") {
+                let class_name = std::path::Path::new(&payload.rel_path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Script")
+                    .to_string();
+                let res_path = format!("res://{}", payload.rel_path);
+                self.session.host().with_tree_mut(|t| {
+                    if let Some(n) = t.get_mut(&node_id) {
+                        n.script = Some(pite_core::ScriptRef {
+                            path: res_path.clone(),
+                            class_name: class_name.clone(),
+                        });
+                    }
+                });
+                self.viewport_dirty = true;
+                self.log(format!("Attached script {res_path} to {node_id}"));
             }
         }
     }

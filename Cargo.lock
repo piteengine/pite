@@ -1147,6 +1147,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-pop-phosphor"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "508f4928508368b3b78ccd06ada328c79b50484a2071c6478f223b9d05cbc327"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui-wgpu"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3169,7 +3178,10 @@ name = "pite-editor"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "eframe",
+ "egui-pop-phosphor",
+ "pite-assets",
  "pite-core",
  "pite-project",
  "pite-render",

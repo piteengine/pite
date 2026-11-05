@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Assets panel file management:
+  - Full-featured file pane: folders sorted first, empty folders preserved, single-click row selection, and double-click file opening or folder expanding.
+  - Creation modals: header `+ File` and `+ Folder` buttons plus context menu `New…` open modal dialogs with starter templates for scripts (`.py`), scenes (`.ptscn`), and empty files/folders.
+  - Context menu and shortcuts: Cut (`Ctrl+X`), Copy (`Ctrl+C`), Paste (`Ctrl+V`), Duplicate (`Ctrl+D`), Rename (`F2`) with automatic reference rewriting across scenes and scripts via `pite_assets::apply_renames`, and Delete (`Del`) with confirmation.
+  - Operating system file drop: dragging files or folders from the OS into the Assets panel copies them into the target directory with automatic collision suffixing (`file (1).ext`) and asset manifest reimport.
+  - Internal drag-and-drop moving: moving files or folders into other directories on disk with cycle protection and project reference rewriting.
+  - Cross-panel drag-and-drop: dragging a `.py` script onto a Scene Tree node attaches it, and dragging an image or atlas onto Inspector fields assigns the property.
+  - Path helpers: context menu options for `Copy Relative Path (res://…)`, `Copy Absolute Path`, and `Show in File Manager`.
+
 ## v0.3.0
 
 - Hot reload reliability and asset watching:

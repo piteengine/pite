@@ -59,6 +59,11 @@ fn fonts() -> egui::FontDefinitions {
         egui::FontFamily::Monospace,
         vec!["JetBrainsMono".to_string()],
     );
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    if let Some(mono_keys) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+        let at = mono_keys.len().min(1);
+        mono_keys.insert(at, "phosphor".into());
+    }
     fonts
 }
 

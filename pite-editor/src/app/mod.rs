@@ -104,6 +104,10 @@ pub struct EditorApp {
     pub(super) tab: Tab,
     pub(super) recent: Vec<PathBuf>,
     pub(super) about_open: bool,
+    pub(super) selected_asset: Option<String>,
+    pub(super) asset_modal: Option<assets::AssetModal>,
+    pub(super) asset_clipboard: Option<assets::AssetClipboardEntry>,
+    pub(super) hovered_asset_folder: Option<String>,
 }
 
 impl EditorApp {
@@ -160,6 +164,10 @@ impl EditorApp {
             tab: Tab::Viewport,
             recent: Self::load_recent(),
             about_open: false,
+            selected_asset: None,
+            asset_modal: None,
+            asset_clipboard: None,
+            hovered_asset_folder: None,
         })
     }
 
@@ -246,6 +254,68 @@ impl eframe::App for EditorApp {
         }
         if cmd(egui::Key::Q) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        let root = self
+            .project_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        self.show_asset_modals(ctx, &root);
+        self.handle_os_drop(ctx, &root);
+
+        if self.tab != Tab::Code {
+            if ctx.input(|i| i.key_pressed(egui::Key::F2)) {
+                if let Some(sel) = self.selected_asset.clone() {
+                    self.open_rename_modal(&sel);
+                }
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+                if let Some(sel) = self.selected_asset.clone() {
+                    let is_dir = root
+                        .join(sel.replace('/', std::path::MAIN_SEPARATOR_STR))
+                        .is_dir();
+                    self.open_delete_modal(&sel, is_dir);
+                }
+            }
+            if cmd(egui::Key::C) {
+                if let Some(sel) = self.selected_asset.clone() {
+                    self.asset_clipboard = Some(assets::AssetClipboardEntry {
+                        rel_path: sel,
+                        is_cut: false,
+                    });
+                }
+            }
+            if cmd(egui::Key::X) {
+                if let Some(sel) = self.selected_asset.clone() {
+                    self.asset_clipboard = Some(assets::AssetClipboardEntry {
+                        rel_path: sel,
+                        is_cut: true,
+                    });
+                }
+            }
+            if cmd(egui::Key::V) {
+                let target_dir = match &self.selected_asset {
+                    Some(sel) => {
+                        let fs = root.join(sel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        if fs.is_dir() {
+                            sel.clone()
+                        } else {
+                            Path::new(sel)
+                                .parent()
+                                .and_then(|p| p.to_str())
+                                .unwrap_or("")
+                                .to_string()
+                        }
+                    }
+                    None => String::new(),
+                };
+                self.execute_asset_paste(&target_dir);
+            }
+            if cmd(egui::Key::D) {
+                if let Some(sel) = self.selected_asset.clone() {
+                    self.execute_asset_duplicate(&sel);
+                }
+            }
         }
         if self.playing {
             let delta = self.last_frame.elapsed().as_secs_f64().min(0.1);
@@ -434,18 +504,101 @@ impl eframe::App for EditorApp {
                         }
                     });
                 ui.separator();
-                ui.heading("Assets");
-                let rels = self.asset_rel_paths();
-                let refs: Vec<&str> = rels.iter().map(String::as_str).collect();
                 let root = self
                     .project_dir
                     .clone()
                     .unwrap_or_else(|| PathBuf::from("."));
+                ui.horizontal(|ui| {
+                    ui.heading("Assets");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if icons::icon_button(ui, icons::Icon::FolderPlus, "New Folder…").clicked()
+                        {
+                            let parent_rel = match &self.selected_asset {
+                                Some(sel) => {
+                                    let fs =
+                                        root.join(sel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                                    if fs.is_dir() {
+                                        sel.clone()
+                                    } else {
+                                        Path::new(sel)
+                                            .parent()
+                                            .and_then(|p| p.to_str())
+                                            .unwrap_or("")
+                                            .to_string()
+                                    }
+                                }
+                                None => String::new(),
+                            };
+                            self.open_new_folder_modal(&parent_rel);
+                        }
+                        if icons::icon_button(ui, icons::Icon::FilePlus, "New File…").clicked() {
+                            let parent_rel = match &self.selected_asset {
+                                Some(sel) => {
+                                    let fs =
+                                        root.join(sel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                                    if fs.is_dir() {
+                                        sel.clone()
+                                    } else {
+                                        Path::new(sel)
+                                            .parent()
+                                            .and_then(|p| p.to_str())
+                                            .unwrap_or("")
+                                            .to_string()
+                                    }
+                                }
+                                None => String::new(),
+                            };
+                            self.open_new_file_modal(&parent_rel, assets::NewFileKind::Empty);
+                        }
+                    });
+                });
                 egui::ScrollArea::new([true, true])
                     .id_salt("assets")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        self.show_asset_dir(ui, &root, "", &refs);
+                        self.show_asset_dir(ui, &root, "");
+                        let avail = ui.available_size();
+                        if avail.y > 8.0 {
+                            let (rect, resp) = ui.allocate_exact_size(
+                                egui::vec2(avail.x.max(1.0), avail.y),
+                                egui::Sense::hover(),
+                            );
+                            let is_drop_target_root = if let Some(dragged) =
+                                egui::DragAndDrop::payload::<assets::AssetDndPayload>(ui.ctx())
+                            {
+                                let parent = Path::new(&dragged.rel_path)
+                                    .parent()
+                                    .unwrap_or(Path::new(""));
+                                !parent.as_os_str().is_empty()
+                            } else {
+                                false
+                            };
+                            if egui::DragAndDrop::has_any_payload(ui.ctx())
+                                && resp.contains_pointer()
+                                && is_drop_target_root
+                            {
+                                self.hovered_asset_folder = Some(String::new());
+                                ui.painter().rect_stroke(
+                                    rect,
+                                    2.0,
+                                    egui::Stroke::new(
+                                        1.5_f32,
+                                        egui::Color32::from_rgb(11, 147, 135),
+                                    ),
+                                    egui::StrokeKind::Middle,
+                                );
+                            }
+                            if let Some(dragged) =
+                                resp.dnd_release_payload::<assets::AssetDndPayload>()
+                            {
+                                let parent = Path::new(&dragged.rel_path)
+                                    .parent()
+                                    .unwrap_or(Path::new(""));
+                                if !parent.as_os_str().is_empty() {
+                                    self.execute_asset_move(&dragged.rel_path, "");
+                                }
+                            }
+                        }
                     });
             });
 
