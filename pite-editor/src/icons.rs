@@ -27,6 +27,7 @@ pub enum Icon {
     Copy,
     Scissors,
     Pencil,
+    Search,
     CaretRight,
     CaretDown,
     // Node types:
@@ -67,6 +68,7 @@ impl Icon {
             Self::Copy => regular::COPY,
             Self::Scissors => regular::SCISSORS,
             Self::Pencil => regular::PENCIL_SIMPLE,
+            Self::Search => regular::MAGNIFYING_GLASS,
             Self::CaretRight => regular::CARET_RIGHT,
             Self::CaretDown => regular::CARET_DOWN,
             Self::Node => regular::CIRCLE,

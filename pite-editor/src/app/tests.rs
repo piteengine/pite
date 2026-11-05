@@ -7,6 +7,33 @@ use super::viewport::{fit_view, viewport_cursor};
 use super::*;
 
 #[test]
+fn menu_separator_tracker_avoids_double_and_trailing_separators() {
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        let mut tracker = MenuSeparatorTracker::new(ui);
+        tracker.start_section();
+        assert!(!tracker.needs_separator);
+        assert!(!tracker.has_previous_items);
+
+        tracker.button("Item 1");
+        assert!(tracker.has_previous_items);
+        assert!(!tracker.needs_separator);
+
+        tracker.start_section();
+        assert!(tracker.needs_separator);
+        tracker.start_section();
+        assert!(tracker.needs_separator);
+
+        tracker.button("Item 2");
+        assert!(!tracker.needs_separator);
+
+        tracker.start_section();
+        assert!(tracker.needs_separator);
+    });
+    output.textures_delta.clear();
+}
+
+#[test]
 fn cursor_maps_viewport_corners() {
     let rect =
         egui::Rect::from_min_size(egui::Pos2::new(10.0, 20.0), egui::Vec2::new(400.0, 300.0));

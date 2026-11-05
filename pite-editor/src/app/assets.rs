@@ -461,35 +461,36 @@ impl EditorApp {
             );
 
             root_resp.context_menu(|ui| {
-                if ui.button("New File…").clicked() {
+                let mut menu = super::MenuSeparatorTracker::new(ui);
+                if menu.button("New File…").clicked() {
                     self.open_new_file_modal("", NewFileKind::Empty);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("New Script (.py)").clicked() {
+                if menu.button("New Script (.py)").clicked() {
                     self.open_new_file_modal("", NewFileKind::Script);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("New Scene (.ptscn)").clicked() {
+                if menu.button("New Scene (.ptscn)").clicked() {
                     self.open_new_file_modal("", NewFileKind::Scene);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("New Folder…").clicked() {
+                if menu.button("New Folder…").clicked() {
                     self.open_new_folder_modal("");
-                    ui.close();
+                    menu.close();
                 }
-                ui.separator();
+                menu.start_section();
                 let can_paste = self.asset_clipboard.is_some();
-                if ui
+                if menu
                     .add_enabled(can_paste, egui::Button::new("Paste"))
                     .clicked()
                 {
                     self.execute_asset_paste("");
-                    ui.close();
+                    menu.close();
                 }
-                ui.separator();
-                if ui.button("Show in File Manager").clicked() {
+                menu.start_section();
+                if menu.button("Show in File Manager").clicked() {
                     show_in_file_manager(root);
-                    ui.close();
+                    menu.close();
                 }
             });
         }
@@ -656,68 +657,71 @@ impl EditorApp {
             // Context menu for folder
             let folder_rel = full.clone();
             row_resp.context_menu(|ui| {
-                if ui.button("New File…").clicked() {
+                let mut menu = super::MenuSeparatorTracker::new(ui);
+                if menu.button("New File…").clicked() {
                     self.open_new_file_modal(&folder_rel, NewFileKind::Empty);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("New Script (.py)").clicked() {
+                if menu.button("New Script (.py)").clicked() {
                     self.open_new_file_modal(&folder_rel, NewFileKind::Script);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("New Scene (.ptscn)").clicked() {
+                if menu.button("New Scene (.ptscn)").clicked() {
                     self.open_new_file_modal(&folder_rel, NewFileKind::Scene);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("New Folder…").clicked() {
+                if menu.button("New Folder…").clicked() {
                     self.open_new_folder_modal(&folder_rel);
-                    ui.close();
+                    menu.close();
                 }
-                ui.separator();
-                if ui.button("Cut").clicked() {
+
+                menu.start_section();
+                if menu.button("Cut").clicked() {
                     self.asset_clipboard = Some(AssetClipboardEntry {
                         rel_path: folder_rel.clone(),
                         is_cut: true,
                     });
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Copy").clicked() {
+                if menu.button("Copy").clicked() {
                     self.asset_clipboard = Some(AssetClipboardEntry {
                         rel_path: folder_rel.clone(),
                         is_cut: false,
                     });
-                    ui.close();
+                    menu.close();
                 }
                 let can_paste = self.asset_clipboard.is_some();
-                if ui
+                if menu
                     .add_enabled(can_paste, egui::Button::new("Paste"))
                     .clicked()
                 {
                     self.execute_asset_paste(&folder_rel);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Rename…").clicked() {
+                if menu.button("Rename…").clicked() {
                     self.open_rename_modal(&folder_rel);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Delete…").clicked() {
+                if menu.button("Delete…").clicked() {
                     self.open_delete_modal(&folder_rel, true);
-                    ui.close();
+                    menu.close();
                 }
-                ui.separator();
-                if ui.button("Copy Relative Path (res://…)").clicked() {
-                    ui.ctx().copy_text(format!("res://{folder_rel}"));
+
+                menu.start_section();
+                if menu.button("Copy Relative Path (res://…)").clicked() {
+                    menu.ctx().copy_text(format!("res://{folder_rel}"));
                     self.log(format!("Copied res://{folder_rel}"));
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Copy Absolute Path").clicked() {
+                if menu.button("Copy Absolute Path").clicked() {
                     let abs = root.join(folder_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-                    ui.ctx().copy_text(abs.to_string_lossy().to_string());
-                    ui.close();
+                    menu.ctx().copy_text(abs.to_string_lossy().to_string());
+                    menu.close();
                 }
-                if ui.button("Show in File Manager").clicked() {
+                if menu.button("Show in File Manager").clicked() {
                     let abs = root.join(folder_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
                     show_in_file_manager(&abs);
-                    ui.close();
+                    menu.close();
                 }
             });
 
@@ -875,53 +879,56 @@ impl EditorApp {
             // Context menu for file
             let file_rel = full.clone();
             row_resp.context_menu(|ui| {
-                if ui.button("Open").clicked() {
+                let mut menu = super::MenuSeparatorTracker::new(ui);
+                if menu.button("Open").clicked() {
                     let abs = root.join(file_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
                     self.open_asset(&abs);
-                    ui.close();
+                    menu.close();
                 }
-                ui.separator();
-                if ui.button("Cut").clicked() {
+
+                menu.start_section();
+                if menu.button("Cut").clicked() {
                     self.asset_clipboard = Some(AssetClipboardEntry {
                         rel_path: file_rel.clone(),
                         is_cut: true,
                     });
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Copy").clicked() {
+                if menu.button("Copy").clicked() {
                     self.asset_clipboard = Some(AssetClipboardEntry {
                         rel_path: file_rel.clone(),
                         is_cut: false,
                     });
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Duplicate").clicked() {
+                if menu.button("Duplicate").clicked() {
                     self.execute_asset_duplicate(&file_rel);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Rename…").clicked() {
+                if menu.button("Rename…").clicked() {
                     self.open_rename_modal(&file_rel);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Delete…").clicked() {
+                if menu.button("Delete…").clicked() {
                     self.open_delete_modal(&file_rel, false);
-                    ui.close();
+                    menu.close();
                 }
-                ui.separator();
-                if ui.button("Copy Relative Path (res://…)").clicked() {
-                    ui.ctx().copy_text(format!("res://{file_rel}"));
+
+                menu.start_section();
+                if menu.button("Copy Relative Path (res://…)").clicked() {
+                    menu.ctx().copy_text(format!("res://{file_rel}"));
                     self.log(format!("Copied res://{file_rel}"));
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Copy Absolute Path").clicked() {
+                if menu.button("Copy Absolute Path").clicked() {
                     let abs = root.join(file_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-                    ui.ctx().copy_text(abs.to_string_lossy().to_string());
-                    ui.close();
+                    menu.ctx().copy_text(abs.to_string_lossy().to_string());
+                    menu.close();
                 }
-                if ui.button("Show in File Manager").clicked() {
+                if menu.button("Show in File Manager").clicked() {
                     let abs = root.join(file_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
                     show_in_file_manager(&abs);
-                    ui.close();
+                    menu.close();
                 }
             });
         }

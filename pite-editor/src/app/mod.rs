@@ -32,6 +32,57 @@ pub(crate) enum Tab {
     Code,
 }
 
+/// Helper for menus to ensure separators appear only between non-empty sections,
+/// avoiding double separators or trailing separators.
+pub(crate) struct MenuSeparatorTracker<'a> {
+    pub ui: &'a mut egui::Ui,
+    has_previous_items: bool,
+    needs_separator: bool,
+}
+
+impl<'a> MenuSeparatorTracker<'a> {
+    pub fn new(ui: &'a mut egui::Ui) -> Self {
+        Self {
+            ui,
+            has_previous_items: false,
+            needs_separator: false,
+        }
+    }
+
+    pub fn start_section(&mut self) {
+        if self.has_previous_items {
+            self.needs_separator = true;
+        }
+    }
+
+    fn ensure_separator(&mut self) {
+        if self.needs_separator {
+            self.ui.separator();
+            self.needs_separator = false;
+        }
+    }
+
+    pub fn button(&mut self, text: impl Into<egui::WidgetText>) -> egui::Response {
+        self.ensure_separator();
+        self.has_previous_items = true;
+        self.ui.button(text)
+    }
+
+    pub fn add_enabled(&mut self, enabled: bool, widget: impl egui::Widget) -> egui::Response {
+        self.ensure_separator();
+        self.has_previous_items = true;
+        self.ui.add_enabled(enabled, widget)
+    }
+
+    pub fn close(&mut self) {
+        self.ui.close();
+    }
+
+    pub fn ctx(&self) -> &egui::Context {
+        self.ui.ctx()
+    }
+}
+
 pub fn launch(scene: &Path) -> Result<()> {
     let app = EditorApp::new(scene)?;
     let options = eframe::NativeOptions {

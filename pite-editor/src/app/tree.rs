@@ -576,18 +576,21 @@ impl EditorApp {
 
         // Node name and type text
         let text_pos = egui::Pos2::new(rect.left() + 36.0, rect.center().y);
-        let label_text = format!("{name}  ({type_name})");
+        let label_text = &name;
         p.text(
             text_pos,
             egui::Align2::LEFT_CENTER,
             label_text,
             egui::FontId::new(13.0, egui::FontFamily::Proportional),
-            if selected {
-                crate::theme::TEXT
-            } else {
-                crate::theme::TEXT
-            },
+            crate::theme::TEXT,
         );
+
+        let hover_info = if let Some((class, _)) = &script {
+            format!("Type: {type_name}\nScript: {class}")
+        } else {
+            format!("Type: {type_name}")
+        };
+        let row_resp = row_resp.on_hover_text(hover_info);
 
         // Script badge on right if script is attached
         if let Some((class, file)) = script.as_ref() {
@@ -595,17 +598,21 @@ impl EditorApp {
                 egui::Pos2::new(rect.right() - 22.0, rect.center().y - 8.0),
                 egui::vec2(16.0, 16.0),
             );
-            icons::draw_icon(
-                p,
-                badge_rect,
-                Icon::Script,
-                egui::Color32::from_rgb(11, 147, 135),
-            );
             let badge_resp = ui.interact(
                 badge_rect,
                 egui::Id::unique(("script-badge", id_str.clone())),
                 egui::Sense::click(),
             );
+            let is_badge_hovered = badge_resp.hovered();
+            let fg = if is_badge_hovered {
+                crate::theme::TEXT
+            } else {
+                crate::theme::FAINT
+            };
+            if is_badge_hovered {
+                p.rect_filled(badge_rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
+            }
+            icons::draw_icon(p, badge_rect, Icon::Script, fg);
             if badge_resp
                 .on_hover_text(format!("Open script: {class}"))
                 .clicked()
@@ -621,19 +628,21 @@ impl EditorApp {
         let menu_open = open;
         let has_script = script.is_some();
         row_resp.context_menu(|ui| {
-            if ui.button("Add Child Node…  Ctrl+A").clicked() {
+            let mut menu = super::MenuSeparatorTracker::new(ui);
+            if menu.button("Add Child Node…  Ctrl+A").clicked() {
                 self.open_add_node_modal(Some(menu_id.clone()));
-                ui.close();
+                menu.close();
             }
-            if ui
+            if menu
                 .button("Instantiate Child Scene…  Ctrl+Shift+A")
                 .clicked()
             {
                 self.open_instance_modal(Some(menu_id.clone()));
-                ui.close();
+                menu.close();
             }
-            ui.separator();
-            if !is_root && ui.button("Duplicate  Ctrl+D").clicked() {
+
+            menu.start_section();
+            if !is_root && menu.button("Duplicate  Ctrl+D").clicked() {
                 match self
                     .session
                     .host()
@@ -646,37 +655,39 @@ impl EditorApp {
                     }
                     Err(e) => self.log(format!("Duplicate failed: {e:#}")),
                 }
-                ui.close();
+                menu.close();
             }
-            if ui.button("Rename…  F2").clicked() {
+            if menu.button("Rename…  F2").clicked() {
                 self.open_rename_node_modal(menu_id.clone());
-                ui.close();
+                menu.close();
             }
-            if !is_root && ui.button("Delete  Delete").clicked() {
+            if !is_root && menu.button("Delete  Delete").clicked() {
                 self.delete_node(&menu_id);
-                ui.close();
+                menu.close();
             }
+
             if !is_root {
-                ui.separator();
-                if ui.button("Move Up  Ctrl+Up").clicked() {
+                menu.start_section();
+                if menu.button("Move Up  Ctrl+Up").clicked() {
                     self.move_sibling(&menu_id, -1);
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Move Down  Ctrl+Down").clicked() {
+                if menu.button("Move Down  Ctrl+Down").clicked() {
                     self.move_sibling(&menu_id, 1);
-                    ui.close();
+                    menu.close();
                 }
             }
-            ui.separator();
+
             if has_script {
-                if ui.button("Open Script").clicked() {
+                menu.start_section();
+                if menu.button("Open Script").clicked() {
                     if let Some((_, file)) = script.as_ref() {
                         let file = file.clone();
                         self.open_asset(&file);
                     }
-                    ui.close();
+                    menu.close();
                 }
-                if ui.button("Detach Script").clicked() {
+                if menu.button("Detach Script").clicked() {
                     self.session.host().with_tree_mut(|t| {
                         if let Some(n) = t.get_mut(&menu_id) {
                             n.script = None;
@@ -684,19 +695,20 @@ impl EditorApp {
                     });
                     self.viewport_dirty = true;
                     self.log(format!("Detached script from {menu_id}"));
-                    ui.close();
+                    menu.close();
                 }
             }
+
             if menu_kids {
-                ui.separator();
+                menu.start_section();
                 let label = if menu_open { "Collapse" } else { "Expand" };
-                if ui.button(label).clicked() {
+                if menu.button(label).clicked() {
                     if menu_open {
                         self.open_nodes.remove(&menu_id.to_string());
                     } else {
                         self.open_nodes.insert(menu_id.to_string());
                     }
-                    ui.close();
+                    menu.close();
                 }
             }
         });
@@ -748,9 +760,6 @@ impl EditorApp {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(icon.as_str()).color(color));
                             ui.label(egui::RichText::new(&payload.name).strong());
-                            ui.label(
-                                egui::RichText::new(format!("({})", payload.type_name)).weak(),
-                            );
                             if let Some((target_name, zone)) = &self.hovered_node_target {
                                 match zone {
                                     DropZone::Under => {
@@ -801,7 +810,9 @@ impl EditorApp {
             .resizable(true)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(regular::MAGNIFYING_GLASS_PLUS);
+                    ui.label(
+                        egui::RichText::new(regular::MAGNIFYING_GLASS).color(crate::theme::FAINT),
+                    );
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut modal.search)
                             .hint_text("Search node types…")
