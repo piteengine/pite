@@ -8,6 +8,7 @@ pub enum DefaultPropVal {
     Bool(bool),
     Vec2(f64, f64),
     Str(&'static str),
+    Color([u8; 4]),
 }
 
 impl DefaultPropVal {
@@ -18,6 +19,7 @@ impl DefaultPropVal {
             Self::Bool(b) => PropValue::Bool(*b),
             Self::Vec2(x, y) => PropValue::Vec2(*x, *y),
             Self::Str(s) => PropValue::Str((*s).to_string()),
+            Self::Color([r, g, b, a]) => PropValue::Color(*r, *g, *b, *a),
         }
     }
 
@@ -30,6 +32,9 @@ impl DefaultPropVal {
                 (x1 - x2).abs() < f64::EPSILON && (y1 - y2).abs() < f64::EPSILON
             }
             (Self::Str(a), PropValue::Str(b)) => *a == b.as_str(),
+            (Self::Color([r1, g1, b1, a1]), PropValue::Color(r2, g2, b2, a2)) => {
+                r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
+            }
             _ => false,
         }
     }
@@ -54,6 +59,7 @@ pub struct PropSchema {
     pub label: &'static str,
     pub default_value: DefaultPropVal,
     pub hint: PropHint,
+    pub read_only: bool, // To Python
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -78,12 +84,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 label: "Position",
                 default_value: DefaultPropVal::Vec2(0.0, 0.0),
                 hint: PropHint::Vec2 { speed: 1.0 },
+                read_only: false,
             },
             PropSchema {
                 key: "rotation",
                 label: "Rotation",
                 default_value: DefaultPropVal::Num(0.0),
                 hint: PropHint::AngleDeg,
+                read_only: false,
             },
         ],
     },
@@ -98,6 +106,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 hint: PropHint::Asset {
                     filter: &["png", "jpg", "jpeg", "webp"],
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "atlas",
@@ -106,12 +115,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 hint: PropHint::Asset {
                     filter: &["atlas.json", "json"],
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "frame",
                 label: "Frame",
                 default_value: DefaultPropVal::Str(""),
                 hint: PropHint::Text,
+                read_only: false,
             },
         ],
     },
@@ -123,6 +134,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
             label: "Zoom",
             default_value: DefaultPropVal::Vec2(1.0, 1.0),
             hint: PropHint::Vec2 { speed: 0.05 },
+            read_only: false,
         }],
     },
     NodeTypeSchema {
@@ -134,12 +146,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 label: "Shape",
                 default_value: DefaultPropVal::Str("box"),
                 hint: PropHint::Enum(&["box", "circle", "capsule"]),
+                read_only: false,
             },
             PropSchema {
                 key: "size",
                 label: "Size",
                 default_value: DefaultPropVal::Vec2(32.0, 32.0),
                 hint: PropHint::Vec2 { speed: 1.0 },
+                read_only: false,
             },
             PropSchema {
                 key: "radius",
@@ -150,6 +164,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.1,
                     max: 10000.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "height",
@@ -160,12 +175,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.1,
                     max: 10000.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "disabled",
                 label: "Disabled",
                 default_value: DefaultPropVal::Bool(false),
                 hint: PropHint::Bool,
+                read_only: false,
             },
         ],
     },
@@ -182,6 +199,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "collision_mask",
@@ -192,6 +210,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
         ],
     },
@@ -208,6 +227,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "collision_mask",
@@ -218,6 +238,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "friction",
@@ -228,6 +249,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.0,
                     max: 2.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "restitution",
@@ -238,6 +260,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.0,
                     max: 1.0,
                 },
+                read_only: false,
             },
         ],
     },
@@ -250,6 +273,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 label: "Velocity",
                 default_value: DefaultPropVal::Vec2(0.0, 0.0),
                 hint: PropHint::Vec2 { speed: 1.0 },
+                read_only: false,
             },
             PropSchema {
                 key: "collision_layer",
@@ -260,6 +284,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "collision_mask",
@@ -270,6 +295,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
         ],
     },
@@ -286,6 +312,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.01,
                     max: 1000.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "gravity_scale",
@@ -296,12 +323,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: -10.0,
                     max: 10.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "lock_rotation",
                 label: "Lock Rotation",
                 default_value: DefaultPropVal::Bool(false),
                 hint: PropHint::Bool,
+                read_only: false,
             },
             PropSchema {
                 key: "collision_layer",
@@ -312,6 +341,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "collision_mask",
@@ -322,6 +352,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 1,
                     max: 256,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "friction",
@@ -332,6 +363,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.0,
                     max: 2.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "restitution",
@@ -342,6 +374,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 0.0,
                     max: 1.0,
                 },
+                read_only: false,
             },
         ],
     },
@@ -354,12 +387,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 label: "Position",
                 default_value: DefaultPropVal::Vec2(0.0, 0.0),
                 hint: PropHint::Vec2 { speed: 1.0 },
+                read_only: false,
             },
             PropSchema {
                 key: "size",
                 label: "Size",
                 default_value: DefaultPropVal::Vec2(100.0, 40.0),
                 hint: PropHint::Vec2 { speed: 1.0 },
+                read_only: false,
             },
         ],
     },
@@ -372,6 +407,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 label: "Text",
                 default_value: DefaultPropVal::Str(""),
                 hint: PropHint::Text,
+                read_only: false,
             },
             PropSchema {
                 key: "font_size",
@@ -382,12 +418,14 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 6.0,
                     max: 128.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "color",
                 label: "Color",
-                default_value: DefaultPropVal::Str("#ffffff"),
+                default_value: DefaultPropVal::Color([255, 255, 255, 255]),
                 hint: PropHint::Color,
+                read_only: false,
             },
         ],
     },
@@ -400,6 +438,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 label: "Text",
                 default_value: DefaultPropVal::Str(""),
                 hint: PropHint::Text,
+                read_only: false,
             },
             PropSchema {
                 key: "font_size",
@@ -410,24 +449,28 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                     min: 6.0,
                     max: 128.0,
                 },
+                read_only: false,
             },
             PropSchema {
                 key: "color",
                 label: "Color",
-                default_value: DefaultPropVal::Str("#334155"),
+                default_value: DefaultPropVal::Color([51, 65, 85, 255]),
                 hint: PropHint::Color,
+                read_only: false,
             },
             PropSchema {
                 key: "size",
                 label: "Size",
                 default_value: DefaultPropVal::Vec2(120.0, 40.0),
                 hint: PropHint::Vec2 { speed: 1.0 },
+                read_only: false,
             },
             PropSchema {
                 key: "disabled",
                 label: "Disabled",
                 default_value: DefaultPropVal::Bool(false),
                 hint: PropHint::Bool,
+                read_only: false,
             },
         ],
     },
@@ -443,6 +486,7 @@ pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
                 min: 0.01,
                 max: 3600.0,
             },
+            read_only: false,
         }],
     },
 ];

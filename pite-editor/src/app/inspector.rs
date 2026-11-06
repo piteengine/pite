@@ -14,18 +14,20 @@ use super::EditorApp;
 
 fn parse_hex_color(hex: &str) -> Option<egui::Color32> {
     let s = hex.trim().strip_prefix('#').unwrap_or(hex.trim());
-    if s.len() == 6 {
-        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-        Some(egui::Color32::from_rgb(r, g, b))
+    let r = u8::from_str_radix(s.get(0..2)?, 16).ok()?;
+    let g = u8::from_str_radix(s.get(2..4)?, 16).ok()?;
+    let b = u8::from_str_radix(s.get(4..6)?, 16).ok()?;
+    let a = if s.len() >= 8 {
+        u8::from_str_radix(s.get(6..8)?, 16).ok()?
     } else {
-        None
-    }
+        255
+    };
+    Some(egui::Color32::from_rgba_unmultiplied(r, g, b, a))
 }
 
 fn format_hex_color(c: egui::Color32) -> String {
-    format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
 }
 
 impl EditorApp {
@@ -909,11 +911,11 @@ impl EditorApp {
                 }
             }
             PropHint::Color => {
-                let current_str = match current {
-                    PropValue::Str(s) => s.as_str(),
-                    _ => "#ffffff",
+                let [r, g, b, a] = match current {
+                    PropValue::Color(r, g, b, a) => [*r, *g, *b, *a],
+                    _ => [255, 255, 255, 255],
                 };
-                let mut c = parse_hex_color(current_str).unwrap_or(egui::Color32::WHITE);
+                let mut c = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
                 let mut changed = false;
 
                 let (btn_rect, btn_resp) =
@@ -932,7 +934,8 @@ impl EditorApp {
                         egui::StrokeKind::Inside,
                     );
 
-                    let hex_label = format_hex_color(c);
+                    let [rr, gg, bb, _] = c.to_srgba_unmultiplied();
+                    let hex_label = format!("#{:02x}{:02x}{:02x}", rr, gg, bb);
                     let text_color = contrast_color(c);
                     ui.painter().text(
                         btn_rect.center(),
@@ -954,7 +957,8 @@ impl EditorApp {
                     });
 
                 if changed {
-                    Some(PropValue::Str(format_hex_color(c)))
+                    let [r, g, b, a] = c.to_srgba_unmultiplied();
+                    Some(PropValue::Color(r, g, b, a))
                 } else {
                     None
                 }
@@ -1102,7 +1106,6 @@ fn render_custom_value_editor(
                     egui::Stroke::new(1.0, egui::Color32::from_rgb(42, 49, 56)),
                 )
             };
-
             let btn = egui::Button::new(
                 egui::RichText::new(format!("{icon} {label_text}"))
                     .size(12.0)
@@ -1110,7 +1113,6 @@ fn render_custom_value_editor(
             )
             .fill(bg_color)
             .stroke(stroke_color);
-
             if ui.add_sized(egui::vec2(available_w, 28.0), btn).clicked() {
                 Some(PropValue::Bool(!v))
             } else {
@@ -1121,6 +1123,47 @@ fn render_custom_value_editor(
             let mut v = (*x, *y);
             if render_vec2_editor(ui, &mut v, 1.0, available_w) {
                 Some(PropValue::Vec2(v.0, v.1))
+            } else {
+                None
+            }
+        }
+        PropValue::Color(r, g, b, a) => {
+            // Custom prop that happened to parse as a hex color on load.
+            // Use the same picker as schema Color props.
+            let mut c = egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a);
+            let mut changed = false;
+            let (btn_rect, btn_resp) =
+                ui.allocate_exact_size(egui::vec2(available_w, 28.0), egui::Sense::click());
+            if ui.is_rect_visible(btn_rect) {
+                ui.painter().rect_filled(btn_rect, 3.0, c);
+                ui.painter().rect_stroke(
+                    btn_rect,
+                    3.0,
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 60, 70)),
+                    egui::StrokeKind::Inside,
+                );
+                let [rr, gg, bb, _] = c.to_srgba_unmultiplied();
+                let hex_label = format!("#{:02x}{:02x}{:02x}", rr, gg, bb);
+                ui.painter().text(
+                    btn_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    hex_label,
+                    egui::FontId::new(11.0, egui::FontFamily::Monospace),
+                    contrast_color(c),
+                );
+            }
+            let popup_id = ui.make_persistent_id("custom_color_picker");
+            egui::Popup::menu(&btn_resp)
+                .id(popup_id)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    if render_color_picker_popup(ui, &mut c) {
+                        changed = true;
+                    }
+                });
+            if changed {
+                let [r, g, b, a] = c.to_srgba_unmultiplied();
+                Some(PropValue::Color(r, g, b, a))
             } else {
                 None
             }
@@ -1257,11 +1300,12 @@ fn render_color_picker_popup(ui: &mut egui::Ui, c: &mut egui::Color32) -> bool {
     ui.add_space(4.0);
 
     // 3. RGB values each in a row: 0-255 and 0-1 beside each other for each channel
-    let [mut r, mut g, mut b, _] = c.to_array();
+    let [mut r, mut g, mut b, mut a] = c.to_srgba_unmultiplied();
     let channels = [
         ("R", &mut r, egui::Color32::from_rgb(235, 80, 80)),
         ("G", &mut g, egui::Color32::from_rgb(80, 205, 80)),
         ("B", &mut b, egui::Color32::from_rgb(80, 145, 235)),
+        ("A", &mut a, egui::Color32::from_rgb(180, 180, 180)),
     ];
 
     for (name, val, color) in channels {
@@ -1304,7 +1348,7 @@ fn render_color_picker_popup(ui: &mut egui::Ui, c: &mut egui::Color32) -> bool {
     }
 
     if changed {
-        *c = egui::Color32::from_rgb(r, g, b);
+        *c = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
     }
 
     ui.add_space(2.0);
@@ -1364,13 +1408,16 @@ mod tests {
             Some(egui::Color32::from_rgb(11, 147, 135))
         );
         assert_eq!(
-            parse_hex_color("0b9387"),
+            parse_hex_color("#0b9387ff"),
             Some(egui::Color32::from_rgb(11, 147, 135))
         );
         assert_eq!(
             format_hex_color(egui::Color32::from_rgb(11, 147, 135)),
-            "#0b9387"
+            "#0b9387ff"
         );
         assert_eq!(parse_hex_color("invalid"), None);
+        // 8-digit round-trip preserves alpha.
+        let semi = parse_hex_color("#ff000080").unwrap();
+        assert_eq!(format_hex_color(semi), "#ff000080");
     }
 }

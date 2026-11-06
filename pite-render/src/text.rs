@@ -64,34 +64,6 @@ impl TextAtlas {
     }
 }
 
-pub fn parse_color(s: &str) -> [u8; 4] {
-    let hex = s.strip_prefix('#').unwrap_or(s);
-    let digits: Vec<u8> = match hex.len() {
-        3 => hex
-            .chars()
-            .flat_map(|c| [c, c])
-            .collect::<String>()
-            .chars()
-            .collect::<Vec<_>>()
-            .chunks(2)
-            .map(|pair| u8::from_str_radix(&pair.iter().collect::<String>(), 16).unwrap_or(255))
-            .collect(),
-        6 | 8 => (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap_or(255))
-            .collect(),
-        _ => return [255, 255, 255, 255],
-    };
-    let mut out = [255, 255, 255, 255];
-    for (i, d) in digits.iter().take(4).enumerate() {
-        out[i] = *d;
-    }
-    if hex.len() == 6 {
-        out[3] = 255;
-    }
-    out
-}
-
 pub fn glyph_cache_key(text: &str, px: u32, color: [u8; 4]) -> String {
     format!(
         "text\0{text}\0{px}\0{}\0{}\0{}\0{}",
@@ -134,13 +106,5 @@ mod tests {
         let baked = atlas.bake("", 20.0, [255, 255, 255, 255]);
         assert_eq!(baked.w, 1);
         assert!(baked.rgba.iter().all(|b| *b == 0));
-    }
-
-    #[test]
-    fn color_forms_parse() {
-        assert_eq!(parse_color("#ff0000"), [255, 0, 0, 255]);
-        assert_eq!(parse_color("#0f0"), [0, 255, 0, 255]);
-        assert_eq!(parse_color("#00000000"), [0, 0, 0, 0]);
-        assert_eq!(parse_color("junk"), [255, 255, 255, 255]);
     }
 }

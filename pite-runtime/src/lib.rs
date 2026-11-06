@@ -317,7 +317,7 @@ impl GameSession {
                         _ => 16.0,
                     };
                     let color = match n.props.get("color") {
-                        Some(PropValue::Str(s)) => pite_render::text::parse_color(s),
+                        Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
                         _ => [255, 255, 255, 255],
                     };
                     Some((text, size, color, global_position(tree, &n.id)))
@@ -342,7 +342,7 @@ impl GameSession {
                             _ => 16.0,
                         };
                         let color = match n.props.get("color") {
-                            Some(PropValue::Str(s)) => pite_render::text::parse_color(s),
+                            Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
                             _ => [51, 65, 85, 255],
                         };
                         let (w, h) = button_size(n);

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use pite_core::{NodeDesc, NodeId, NodeTree, NodeTypeRegistry, PropValue, Props};
-use pite_scene::{SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION};
+use pite_scene::{prop_to_toml, SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION};
 
 /// Closed node-type set. Mirrors `NodeTypeRegistry::new`; kept here because
 /// the registry exposes no listing API and the editor must not touch core.
@@ -380,18 +380,6 @@ pub fn instantiate_scene_as_child(
     }
 
     Ok(root_node_id)
-}
-
-fn prop_to_toml(value: &PropValue) -> toml::Value {
-    match value {
-        PropValue::Str(s) => toml::Value::String(s.clone()),
-        PropValue::Num(f) => toml::Value::Float(*f),
-        PropValue::Int(i) => toml::Value::Integer(*i),
-        PropValue::Bool(b) => toml::Value::Boolean(*b),
-        PropValue::Vec2(x, y) => {
-            toml::Value::Array(vec![toml::Value::Float(*x), toml::Value::Float(*y)])
-        }
-    }
 }
 
 /// Paths needed to resolve `[[instance]]` scene references while saving.

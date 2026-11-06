@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Colors are now a `Color` prop variant (parsed from `#RGB`/`#RRGGBB`/`#RRGGBBAA`
+  strings). Existing scenes reformat to canonical `#rrggbbaa` on first save;
+  one-time diff, same class as the existing `[1, 2]` → `[1.0, 2.0]` reformat.
+  Editor color picker gains an alpha channel.
 - Assets panel file management:
   - Full-featured file pane: folders sorted first, empty folders preserved, single-click row selection, and double-click file opening or folder expanding.
   - Creation modals: header `+ File` and `+ Folder` buttons plus context menu `New…` open modal dialogs with starter templates for scripts (`.py`), scenes (`.ptscn`), and empty files/folders.

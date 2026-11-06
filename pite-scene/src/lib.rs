@@ -10,12 +10,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use pite_core::{NodeDesc, NodeId, NodeTree, PropValue, Props, ScriptRef};
+use pite_core::{Color, NodeDesc, NodeId, NodeTree, PropValue, Props, ScriptRef};
 use serde::{Deserialize, Serialize};
 
 pub mod cache;
+pub mod color;
 
 pub use cache::{CacheStatus, CACHE_VERSION};
+pub use color::{format_hex_color, parse_hex_color};
 
 /// Current scene format version. Bump = migrate or error loudly, never silent.
 pub const FORMAT_VERSION: u32 = 1;
@@ -204,7 +206,13 @@ pub fn validate(doc: &SceneDoc) -> Vec<String> {
 
 fn toml_to_prop(value: &toml::Value) -> PropValue {
     match value {
-        toml::Value::String(s) => PropValue::Str(s.clone()),
+        toml::Value::String(s) => {
+            if let Some(c) = parse_hex_color(s) {
+                PropValue::Color(c.r, c.g, c.b, c.a)
+            } else {
+                PropValue::Str(s.clone())
+            }
+        }
         toml::Value::Integer(i) => PropValue::Int(*i),
         toml::Value::Float(f) => PropValue::Num(*f),
         toml::Value::Boolean(b) => PropValue::Bool(*b),
@@ -224,6 +232,25 @@ fn toml_to_prop(value: &toml::Value) -> PropValue {
             }
         }
         _ => PropValue::Str(value.to_string()),
+    }
+}
+
+/// Convert a `PropValue` back to its scene-file TOML shape. The inverse of
+/// [`toml_to_prop`]: `Color` becomes `"#rrggbbaa"`, `Vec2` becomes `[x, y]`,
+/// primitives map to their natural TOML types, and any unrecognized variant
+/// (future) falls back to a string.
+pub fn prop_to_toml(value: &PropValue) -> toml::Value {
+    match value {
+        PropValue::Str(s) => toml::Value::String(s.clone()),
+        PropValue::Num(f) => toml::Value::Float(*f),
+        PropValue::Int(i) => toml::Value::Integer(*i),
+        PropValue::Bool(b) => toml::Value::Boolean(*b),
+        PropValue::Vec2(x, y) => {
+            toml::Value::Array(vec![toml::Value::Float(*x), toml::Value::Float(*y)])
+        }
+        PropValue::Color(r, g, b, a) => {
+            toml::Value::String(format_hex_color(Color::new(*r, *g, *b, *a)))
+        }
     }
 }
 
@@ -470,5 +497,14 @@ position = [0.0, 0.0]
         let err = instantiate(&ref_path, "", &overrides).unwrap_err();
         assert!(err.to_string().contains("override target"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn color_round_trips_through_toml() {
+        let hex = toml::Value::String("#4ADE80".to_string());
+        let prop = toml_to_prop(&hex);
+        assert_eq!(prop, PropValue::Color(0x4A, 0xDE, 0x80, 0xFF));
+        let back = prop_to_toml(&prop);
+        assert_eq!(back, toml::Value::String("#4ade80ff".to_string()));
     }
 }

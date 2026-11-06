@@ -22,7 +22,7 @@ pub use error::{CoreError, Result};
 pub use lifecycle::LifecycleSink;
 pub use math::{global_position, Vec2};
 pub use node::{Node, NodeDesc, NodeId, ScriptRef};
-pub use props::{PropValue, Props};
+pub use props::{Color, PropValue, Props};
 pub use registry::{NodeFactory, NodeTypeRegistry};
 pub use schema::{
     inheritance_chain, node_type_schema, type_props, DefaultPropVal, NodeTypeSchema, PropHint,
