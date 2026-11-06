@@ -1,4 +1,8 @@
-# Scene format (`.ptscn`)
+---
+icon: lucide/tv-minimal-play
+---
+
+# Scene format
 
 Canonical, human-editable TOML. Text is the source of truth; no binary format is authored (the runtime keeps its own cache, see below). Node ids are human strings (`D7`), never UUIDs.
 
@@ -62,7 +66,7 @@ prefix = "e1_"
 
 Loading clones the referenced subtree under `parent` (`parent` defaults to the host root), remaps every id as `prefix + id` (collisions fail loudly), and applies overrides keyed `"node_id.prop"` (unknown targets fail loudly).
 
-Saving preserves `[[instance]]` entries rather than inlining the subtree, and records prop edits inside an instance as overrides — see [`editor.md`](editor.md#save-scene). Prop keys are written in sorted order, so saves are byte-stable.
+Saving preserves `[[instance]]` entries rather than inlining the subtree, and records prop edits inside an instance as overrides — see [`editor.md`](../guides/editor#save-scene). Prop keys are written in sorted order, so saves are byte-stable.
 
 ## Rendering
 

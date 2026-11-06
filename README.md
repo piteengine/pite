@@ -70,13 +70,13 @@ pite export linux
 
 Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cached under `~/.cache/pite/toolchains`) and ships in the exported game. The exported game runs with no system Python installed. Passing `--no-bundle-python` falls back to end-user's system Python 3.12 (`PITE_PYTHON` overrides detection).
 
-## Why it's built this way  
+## Why it's built this way
 
 Breakdown of each architectural decision behind Pite and its reasons:
 
-### Python for scripting 
+### Python for scripting
 
-Scripting game logic is decision-making, not computation. So you must be able to use a high-level (scripting) language and Python is the very dynamic and ecosystem-rich choice. 
+Scripting game logic is decision-making, not computation. So you must be able to use a high-level (scripting) language and Python is the very dynamic and ecosystem-rich choice.
 
 ### Rust at the core
 
@@ -84,19 +84,19 @@ Games need to be fast and efficient, so a low-level language is needed to use na
 
 ### Scene Tree for game model + Visual Editor
 
-That Python smooth flow doesn't complete without a real way to edit anything and seeing results real time. Pite editor brings code, scene, asset, and result preview all together. 
+That Python smooth flow doesn't complete without a real way to edit anything and seeing results real time. Pite editor brings code, scene, asset, and result preview all together.
 
 Half of Pite is about being handy, Scene Tree (Scenes & Nodes) is a proven way to model game systems in an understandable way and also is as flexible as needed to implement any type of game systems efficiently in target scale of Pite. Consequently you need a visual representation of these scenes.
 
 ### `pite check` tooling
 
-A lot of games grow to tons of images and scenes, `pite check` keeps it clean and robust: detects orphans, resolves file moves, validates decoding, scans code references, warns on third-party imports that exports would drop. Thanks to Rust, it reports what is outside its place instantly. 
+A lot of games grow to tons of images and scenes, `pite check` keeps it clean and robust: detects orphans, resolves file moves, validates decoding, scans code references, warns on third-party imports that exports would drop. Thanks to Rust, it reports what is outside its place instantly.
 
 ### TOML scenes
 
-TOML for scenes provides inspectable changes, real Git history, editable meaningful files, and sure a way to cache scene binary by its text. 
+TOML for scenes provides inspectable changes, real Git history, editable meaningful files, and sure a way to cache scene binary by its text.
 
-### Why Pite instead of other game engines? 
+### Why Pite instead of other game engines?
 
 - **Godot:** Pite isn't trying to replace Godot. If Godot fits your game, use Godot. Pite exists for the cases where it doesn't — and for the people who want a smaller, Python-native alternative. If you make indie games for windows, you can use Pite to reach 20MB (*) exports (usually under 30MB with a real game) without any additional config.
 
@@ -106,11 +106,11 @@ TOML for scenes provides inspectable changes, real Git history, editable meaning
 
 - **Love2D/PyGame/etc:** Love2D and Pygame are excellent, mature frameworks with loyal communities. They give you a window, an input loop, and a draw call. What they don't give you is an editor, a scene model, an asset system, or a one-command export. Pite does.
 
-Pite stands on being handy to use, to change, to own. It provides Python scripting and Rust performance together and focuses on your development experience. Pite is a growing, thought-out toolbox for game developers. 
+Pite stands on being handy to use, to change, to own. It provides Python scripting and Rust performance together and focuses on your development experience. Pite is a growing, thought-out toolbox for game developers.
 
 ### What you get for free
 
-No audio device? Silent simulation. Change a script? Hot reload. Type a method name? Pyright autocompletes. Move a sprite? Nothing breaks — assets are uid-addressed. Ship to a friend? No Python install needed. Each of these is a small decision. Together they're why Pite feels different. 
+No audio device? Silent simulation. Change a script? Hot reload. Type a method name? Pyright autocompletes. Move a sprite? Nothing breaks — assets are uid-addressed. Ship to a friend? No Python install needed. Each of these is a small decision. Together they're why Pite feels different.
 
 ## What Pite is not
 
@@ -121,12 +121,13 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 
 - Python developers who don't want to learn GDScript.
 - Solo devs who want a real editor, not a framework.
-- Teachers who want to teach game dev with a language students already know. 
-- Anyone who's ever wanted to read their game's source and understand all of it. 
+- Teachers who want to teach game dev with a language students already know.
+- Anyone who's ever wanted to read their game's source and understand all of it.
 
 ## Status
 
 **v0.3 is out:**
+
 - 2D physics subsystem powered by Rapier2D: StaticBody2D, CharacterBody2D (with `move_and_slide`), RigidBody2D, Area2D triggers, CollisionShape2D (`box`, `circle`, `capsule`), and raycasting
 - Python API redesign: `Vec2` math class with tuple unpacking, direct handle mutations, attribute-based input (`pite.held.<key>`, `pite.pressed.<key>`), declarative node descriptors (`pite.child`, `pite.node`), proxy caching, and hybrid signal callbacks
 - Hot reload reliability: continuous editor idle reload, scene reload isolation, Python state and physics velocity preservation, and asset cache invalidation
@@ -140,7 +141,7 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 ## Workspace
 
 | Crate | Role |
-|---|---|
+| ----- | ---- |
 | `pite` | `pite` binary: new / run / check / edit / export / vendor / toolchain (in `pite-cli/`) |
 | `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
@@ -165,7 +166,7 @@ All 13 crates are published on crates.io, versioned lockstep with the engine:
 ## Docs
 
 | Doc | Covers |
-|---|---|
+| --- | ------ |
 | [`docs/scene-format.md`](docs/scene-format.md) | `.ptscn` TOML, instantiation, the scene cache |
 | [`docs/scripting-api.md`](docs/scripting-api.md) | Python API: nodes, signals, input, audio, text, imports |
 | [`docs/assets.md`](docs/assets.md) | `res://` refs, uid manifest, asset reimport |

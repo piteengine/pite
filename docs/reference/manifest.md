@@ -1,4 +1,8 @@
-# Manifest (`pite.toml`)
+---
+icon: lucide/file-cog
+---
+
+# Manifest
 
 Locked field set. Every field has a default, so old projects parse untouched; unknown keys are preserved and reported, never silently dropped.
 

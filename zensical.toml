@@ -1,0 +1,166 @@
+[project]
+site_name = "Pite"
+site_description = "Documentation and guides about Pite Game Engine."
+site_author = "Pite Contributors"
+site_url = "https://piteengine.github.io/pite"
+copyright = "<a href=\"https://github.com/piteengine/pite\">Pite Docs</a> © 2026 by <a href=\"https://github.com/piteengine\">Pite Contributors</a><br><a href=\"https://github.com/piteengine/pite/raw/refs/heads/main/LICENSE-MIT\">MIT</a> OR <a href=\"https://github.com/piteengine/pite/raw/refs/heads/main/LICENSE-APACHE\">Apache-2.0</a>"
+extra_css = [ "overrides/extra.css" ]
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = [
+      "getting-started/install.md",
+      "getting-started/quickstart.md",
+      "getting-started/project-structure.md",
+  ]},
+  { "Tutorials" = [
+      "tutorials/first-game.md",
+  ]},
+  { "Guides" = [
+      "guides/editor.md",
+      "guides/export.md",
+      "guides/assets.md",
+  ]},
+  { "Reference" = [
+      "reference/scene-format.md",
+      "reference/scripting-api.md",
+      "reference/manifest.md",
+      "reference/cli.md",
+  ]},
+  { "Concepts" = [
+      "concepts/architecture.md",
+      "concepts/why-scene-tree.md",
+  ]},
+  { "Changelog" = "changelog.md" },
+  { "For Contributors" = [
+    "contributing.md",
+    "developer/design.md",
+    "developer/rust-docs.md"
+  ] }
+]
+
+[project.repo]
+url = "https://github.com/piteengine/pite"
+
+[project.theme]
+favicon = "images/logo.svg"
+language = "en"
+features = [
+    "announce.dismiss",
+    "content.action.edit",
+    "content.action.view",
+    "content.code.annotate",
+    "content.code.copy",
+    "content.code.select",
+    "content.footnote.tooltips",
+    "content.tabs.link",
+    "content.tooltips",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    "navigation.instant.progress",
+    "navigation.path",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+    "toc.follow",
+]
+logo = "images/logo.svg"
+custom_dir = "docs/overrides/theme"
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+primary = "teal"
+accent = "cyan"
+
+[project.theme.palette.toggle]
+icon = "lucide/sun-moon"
+name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "teal"
+accent = "cyan"
+
+[project.theme.palette.toggle]
+icon = "lucide/sun"
+name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "teal"
+accent = "cyan"
+
+[project.theme.palette.toggle]
+icon = "lucide/moon"
+name = "Switch to system preference"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/piteengine/pite"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/rust"
+link = "https://crates.io/crates/pite"
+
+[project.markdown_extensions.abbr]
+
+[project.markdown_extensions.admonition]
+
+[project.markdown_extensions.attr_list]
+
+[project.markdown_extensions.def_list]
+
+[project.markdown_extensions.footnotes]
+
+[project.markdown_extensions.md_in_html]
+
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.markdown_extensions.pymdownx.arithmatex]
+generic = true
+
+[project.markdown_extensions.pymdownx.betterem]
+
+[project.markdown_extensions.pymdownx.caret]
+
+[project.markdown_extensions.pymdownx.details]
+
+[project.markdown_extensions.pymdownx.emoji]
+emoji_generator = "zensical.extensions.emoji.to_svg"
+emoji_index = "zensical.extensions.emoji.twemoji"
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+
+[project.markdown_extensions.pymdownx.inlinehilite]
+
+[project.markdown_extensions.pymdownx.keys]
+
+[project.markdown_extensions.pymdownx.magiclink]
+
+[project.markdown_extensions.pymdownx.mark]
+
+[project.markdown_extensions.pymdownx.smartsymbols]
+
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+combine_header_slug = true
+
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+
+[project.markdown_extensions.pymdownx.tilde]

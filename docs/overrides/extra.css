@@ -1,0 +1,32 @@
+:root {
+    --md-primary-fg-color--transparent: #00948530;
+}
+
+.md-banner {
+    background-color: var(--md-primary-fg-color--dark);
+    color: var(--md-default-bg-color);
+}
+
+.md-banner__a {
+    color: var(--md-default-bg-color) !important;
+}
+
+.md-nav--primary .md-nav__item .md-nav__link--active {
+    background: var(--md-primary-fg-color--transparent);
+    color: var(--md-primary-fg-color);
+}
+
+.md-typeset .headerlink:focus, .md-typeset .headerlink:hover, .md-typeset :target>.headerlink {
+    color: var(--md-primary-fg-color)
+}
+
+.md-typeset .md-button {
+    background-color: transparent;
+    border: 2px solid;
+}
+
+.md-typeset .md-button--primary {
+    background-color: var(--md-primary-fg-color);
+    color: var(--md-primary-bg-color);
+    border: 2px solid var(--md-primary-fg-color);
+}

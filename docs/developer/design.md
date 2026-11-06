@@ -1,25 +1,27 @@
-# Pite Design System
+---
+icon: lucide/paintbrush
+---
 
-Brand identity, color tokens, logo usage, and UI theming for the Pite game engine
-and its editor. This is the single source of truth for visual decisions.
+# Design System
 
-## 1. Logo
+This page documents brand identity, color tokens, logo usage, and UI theming for the Pite game engine and its editor.
 
-Main mark: [`assets/logo.svg`](assets/logo.svg) — a hexagonal "P" monogram on a
-512×512 grid, scaled to fill the viewport edge-to-edge vertically (no top/bottom
-padding). Single path, `fill-rule="evenodd"`, no strokes, no gradients. It
-recolors cleanly via the `fill` attribute, which is how all variants are derived.
+## Logo
 
-| File | Fill | Use |
-|------|------|-----|
-| `assets/logo.svg` | `#0b9387` | Main brand mark: light backgrounds — README, docs, website |
-| `assets/logo-black.svg` | `#101010` | Neutral / print / single-color contexts |
-| `assets/logo-white.svg` | `#f7f7f9` | Single-color light mark for dark/photographic backgrounds |
-| `assets/logo-profile.svg` | `#2bd3bf` on `#042F2E` | Backgrounded variant (rounded square): profiles, avatars, social |
-| `assets/tray-icon.svg` | `#0b9387` | Background-free mark for system-tray use (same artwork as `logo.svg`) |
-| `assets/tray-icon-16/22/24/32.png` | — | Pre-rendered tray sizes (RGBA PNG) |
-| `assets/icon.png` | — | 256 px render of `logo.svg`; editor + game window icon (see §6.1) |
-| `assets/logo-showcase.svg` | various | Color exploration sheet — not for production use |
+![Pite Logo](../images/logo.svg){ width="100" height="100" }
+
+Main mark is a hexagonal icon on a 512×512 grid, scaled to fill the viewport edge-to-edge vertically (no top/bottom padding). Single path, `fill-rule="evenodd"`, no strokes, no gradients. It recolors cleanly via the `fill` attribute, which is how all variants are derived.
+
+| File                               | Fill                   | Use                                                                   |
+| ---------------------------------- | ---------------------- | --------------------------------------------------------------------- |
+| `assets/logo.svg`                  | `#0b9387`              | Main brand mark: light backgrounds — README, docs, website            |
+| `assets/logo-black.svg`            | `#101010`              | Neutral / print / single-color contexts                               |
+| `assets/logo-white.svg`            | `#f7f7f9`              | Single-color light mark for dark/photographic backgrounds             |
+| `assets/logo-profile.svg`          | `#2bd3bf` on `#042F2E` | Backgrounded variant (rounded square): profiles, avatars, social      |
+| `assets/tray-icon.svg`             | `#0b9387`              | Background-free mark for system-tray use (same artwork as `logo.svg`) |
+| `assets/tray-icon-16/22/24/32.png` | —                      | Pre-rendered tray sizes (RGBA PNG)                                    |
+| `assets/icon.png`                  | —                      | 256 px render of `logo.svg`; editor + game window icon (see §6.1)     |
+| `assets/logo-showcase.svg`         | various                | Color exploration sheet — not for production use                      |
 
 ### Usage rules
 
@@ -36,13 +38,13 @@ recolors cleanly via the `fill` attribute, which is how all variants are derived
 Canonical tokens: [`palette.json`](palette.json) (plus `usage` allow lists).
 The table mirrors it — do not add new hexes here, update `palette.json` first.
 
-| Name | Hex | RGB | Role |
-|------|-----|-----|------|
-| Primary | `#0b9387` | 11, 147, 135 | Brand identity. Links, selection, active states, logo on light |
-| Light | `#2bd3bf` | 43, 211, 191 | Inverted variant. Logo on dark, highlights on dark |
-| Dark | `#124d49` | 18, 77, 73 | Deep tone. Panels on dark backgrounds |
-| Background | `#042F2E` | 4, 47, 46 | Dark theme background |
-| Pale | `#cbfaf0` | 203, 250, 240 | Soft / subtle tone. Secondary text on dark |
+| Name       | Hex       | RGB           | Role                                                           |
+| ---------- | --------- | ------------- | -------------------------------------------------------------- |
+| Primary    | `#0b9387` | 11, 147, 135  | Brand identity. Links, selection, active states, logo on light |
+| Light      | `#2bd3bf` | 43, 211, 191  | Inverted variant. Logo on dark, highlights on dark             |
+| Dark       | `#124d49` | 18, 77, 73    | Deep tone. Panels on dark backgrounds                          |
+| Background | `#042F2E` | 4, 47, 46     | Dark theme background                                          |
+| Pale       | `#cbfaf0` | 203, 250, 240 | Soft / subtle tone. Secondary text on dark                     |
 
 ## 3. Theme tokens
 
@@ -56,14 +58,14 @@ The editor is dark-theme-only today. Surfaces are neutral near-black; the teal
 `ACCENT` is a signal color only (selection stroke, hyperlinks, active widget
 stroke — never full fills):
 
-| Constant | Value | Used for |
-|----------|-------|----------|
-| `ACCENT` | `#0b9387` (11, 147, 135) | Selection stroke, hyperlinks, active widget stroke |
-| `BG` | `#0B0E11` (11, 14, 17) | Window, code-box (`extreme_bg_color` feeds `TextEdit`), viewport fallback backdrop |
-| `PANEL` | `#14181D` (20, 24, 29) | Panels — a subtle lift above `BG` so structure reads without color |
-| `PANEL_STROKE` | `#2A3138` (42, 49, 56) | Neutral gray widget/panel strokes |
-| `TEXT` | `#E6E9EC` (230, 233, 236) | Primary text |
-| `FAINT` | `#9AA3AD` (154, 163, 173) | Weak/secondary text |
+| Constant       | Value                     | Used for                                                                           |
+| -------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `ACCENT`       | `#0b9387` (11, 147, 135)  | Selection stroke, hyperlinks, active widget stroke                                 |
+| `BG`           | `#0B0E11` (11, 14, 17)    | Window, code-box (`extreme_bg_color` feeds `TextEdit`), viewport fallback backdrop |
+| `PANEL`        | `#14181D` (20, 24, 29)    | Panels — a subtle lift above `BG` so structure reads without color                 |
+| `PANEL_STROKE` | `#2A3138` (42, 49, 56)    | Neutral gray widget/panel strokes                                                  |
+| `TEXT`         | `#E6E9EC` (230, 233, 236) | Primary text                                                                       |
+| `FAINT`        | `#9AA3AD` (154, 163, 173) | Weak/secondary text                                                                |
 
 Selection fill is solid palette `dark` (`#124d49`) with near-white (`TEXT`)
 glyphs — the allow-listed `dark → white` pair (simulated 7.9–9.0). egui paints

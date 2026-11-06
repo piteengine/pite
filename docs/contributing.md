@@ -1,4 +1,8 @@
-# Contributing
+---
+icon: lucide/signpost
+---
+
+# Contributing Guide
 
 Yes, we want your contributions - code, docs, examples, bug reports, ideas. Newcomers are welcome, and we help you get your first change merged.
 
@@ -56,13 +60,13 @@ WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit
 
 All contributions are dual-licensed MIT + Apache-2.0. New Rust source files start with:
 
-```
+```rs
 // SPDX-License-Identifier: MIT OR Apache-2.0
 ```
 
 New Python files shipped with the engine start with:
 
-```
+```py
 # SPDX-License-Identifier: MIT OR Apache-2.0
 ```
 

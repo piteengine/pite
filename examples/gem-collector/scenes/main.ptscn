@@ -1,0 +1,122 @@
+format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "camera"
+type = "Camera2D"
+name = "Camera"
+parent = "root"
+
+[node.props]
+position = [640.0, 360.0]
+
+[[node]]
+id = "scorelabel"
+type = "Label"
+name = "ScoreLabel"
+parent = "root"
+
+[node.props]
+color = "#facc15"
+font_size = 32.0
+position = [120.0, 50.0]
+text = "Score: 0"
+
+[[node]]
+id = "player"
+type = "CharacterBody2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+position = [640.0, 360.0]
+velocity = [0.0, 0.0]
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+
+[[node]]
+id = "sprite"
+type = "Sprite2D"
+name = "Sprite"
+parent = "player"
+
+[node.props]
+texture = "res://assets/player.png"
+
+[[node]]
+id = "collider"
+type = "CollisionShape2D"
+name = "Collider"
+parent = "player"
+
+[node.props]
+disabled = false
+height = 35.0
+position = [0.0, 20.0]
+radius = 25.0
+shape = "capsule"
+size = [32.0, 32.0]
+
+[[node]]
+id = "area2d"
+type = "Area2D"
+name = "Gem"
+parent = "root"
+
+[node.props]
+position = [400.0, 250.0]
+
+[node.script]
+path = "res://scripts/gem.py"
+class = "Gem"
+
+[[node]]
+id = "sprite_2"
+type = "Sprite2D"
+name = "Sprite"
+parent = "area2d"
+
+[node.props]
+texture = "res://assets/gem.png"
+
+[[node]]
+id = "collider_2"
+type = "CollisionShape2D"
+name = "Collider"
+parent = "area2d"
+
+[node.props]
+disabled = false
+height = 32.0
+position = [0.0, 0.0]
+radius = 16.0
+shape = "circle"
+size = [32.0, 32.0]
+
+[[node]]
+id = "timelabel"
+type = "Label"
+name = "TimeLabel"
+parent = "root"
+
+[node.props]
+font_size = 28.0
+position = [1150.0, 50.0]
+text = "Time: 30"
+
+[[node]]
+id = "gametimer"
+type = "Timer"
+name = "GameTimer"
+parent = "root"
+
+[node.script]
+path = "res://scripts/game_timer.py"
+class = "GameTimer"
