@@ -16,4 +16,17 @@ impl PyTimer {
     pub(crate) fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(PyNode::new()).add_subclass(PyTimer { wait_time: 1.0 })
     }
+
+    #[getter]
+    fn timeout(slf: &Bound<'_, Self>) -> PyResult<crate::host::BoundSignal> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+        })?;
+        Ok(crate::host::BoundSignal::with_host(
+            host,
+            node_path,
+            "timeout".to_string(),
+        ))
+    }
 }

@@ -26,6 +26,19 @@ impl PyButton {
             }))
     }
 
+    #[getter]
+    fn pressed(slf: &Bound<'_, Self>) -> PyResult<crate::host::BoundSignal> {
+        let node_path: String = slf.getattr("node_path")?.extract()?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("signal access has no script host")
+        })?;
+        Ok(crate::host::BoundSignal::with_host(
+            host,
+            node_path,
+            "pressed".to_string(),
+        ))
+    }
+
     #[setter]
     fn set_text(slf: &Bound<'_, Self>, text: String) -> PyResult<()> {
         let node_path: String = slf.getattr("node_path")?.extract()?;
