@@ -100,6 +100,12 @@ pub fn node_type_icon(type_name: &str) -> Icon {
         "StaticBody2D" => Icon::StaticBody2D,
         "CharacterBody2D" => Icon::CharacterBody2D,
         "RigidBody2D" => Icon::RigidBody2D,
+        // Abstract bases may surface as a scene `type` (the registry
+        // permits it) or as a section header in the inspector. Give them
+        // the nearest concrete descendant's glyph instead of falling
+        // through to plain `Node`.
+        "CollisionObject2D" => Icon::Area2D,
+        "PhysicsBody2D" => Icon::RigidBody2D,
         "Control" => Icon::Control,
         "Label" => Icon::Label,
         "Button" => Icon::Button,
@@ -108,15 +114,28 @@ pub fn node_type_icon(type_name: &str) -> Icon {
     }
 }
 
+/// Color category, derived from the inheritance chain: any collision
+/// participant (body or shape) is teal, any `Control` descendant is UI
+/// green, any other `Node2D` descendant is 2D blue, `Timer` is gold,
+/// everything else (root `Node`, unknown types) is silver. New types
+/// automatically land in the right family without an editor change.
 pub fn node_type_color(type_name: &str) -> egui::Color32 {
-    match type_name {
-        "Node2D" | "Sprite2D" | "Camera2D" => egui::Color32::from_rgb(115, 175, 235), // 2D Blue
-        "CharacterBody2D" | "RigidBody2D" | "StaticBody2D" | "Area2D" | "CollisionShape2D" => {
-            egui::Color32::from_rgb(11, 147, 135) // Physics Teal
-        }
-        "Control" | "Label" | "Button" => egui::Color32::from_rgb(120, 210, 140), // UI Green
-        "Timer" => egui::Color32::from_rgb(235, 180, 80),                         // Timer Gold
-        _ => egui::Color32::from_rgb(200, 205, 210),                              // Core Silver
+    let chain = pite_core::inheritance_chain(type_name);
+    let has = |name: &str| chain.iter().any(|t| *t == name);
+
+    // `CollisionShape2D` inherits `Node2D` directly, not `CollisionObject2D`,
+    // so it's the one node spelled out here — the "physics by convention"
+    // case the schema doesn't otherwise express.
+    if type_name == "CollisionShape2D" || has("CollisionObject2D") {
+        egui::Color32::from_rgb(11, 147, 135) // physics teal
+    } else if type_name == "Timer" {
+        egui::Color32::from_rgb(235, 180, 80) // timer gold
+    } else if has("Control") {
+        egui::Color32::from_rgb(120, 210, 140) // UI green
+    } else if has("Node2D") {
+        egui::Color32::from_rgb(115, 175, 235) // 2D blue
+    } else {
+        egui::Color32::from_rgb(200, 205, 210) // core silver
     }
 }
 
@@ -148,4 +167,50 @@ pub fn draw_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, fg: egui::Colo
         egui::FontId::new(font_size, egui::FontFamily::Proportional),
         fg,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rgb(c: egui::Color32) -> (u8, u8, u8) {
+        (c.r(), c.g(), c.b())
+    }
+
+    #[test]
+    fn colors_group_by_inheritance() {
+        // Physics family (bodies + collision shapes + abstract bases) is teal.
+        for ty in [
+            "Area2D",
+            "StaticBody2D",
+            "CharacterBody2D",
+            "RigidBody2D",
+            "CollisionShape2D",
+            "CollisionObject2D",
+            "PhysicsBody2D",
+        ] {
+            assert_eq!(rgb(node_type_color(ty)), (11, 147, 135), "{ty}");
+        }
+        // UI family (Control and its descendants) is green.
+        for ty in ["Control", "Label", "Button"] {
+            assert_eq!(rgb(node_type_color(ty)), (120, 210, 140), "{ty}");
+        }
+        // Remaining 2D types are blue.
+        for ty in ["Node2D", "Sprite2D", "Camera2D"] {
+            assert_eq!(rgb(node_type_color(ty)), (115, 175, 235), "{ty}");
+        }
+        // Timer is gold; `Node` and unknown types fall back to silver.
+        assert_eq!(rgb(node_type_color("Timer")), (235, 180, 80));
+        assert_eq!(rgb(node_type_color("Node")), (200, 205, 210));
+        assert_eq!(rgb(node_type_color("CustomThing")), (200, 205, 210));
+    }
+
+    #[test]
+    fn abstract_types_get_family_icons() {
+        assert!(node_type_icon("PhysicsBody2D") == Icon::RigidBody2D);
+        assert!(node_type_icon("CollisionObject2D") == Icon::Area2D);
+        assert!(node_type_icon("Control") == Icon::Control);
+        // Unknown types still fall back to the plain node glyph.
+        assert!(node_type_icon("CustomThing") == Icon::Node);
+    }
 }

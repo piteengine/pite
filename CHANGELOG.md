@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Editor and runtime helpers derive from schema (no more hand-written
+  per-type maps that could drift from `pite_core::NODE_SCHEMAS`):
+  - `pite-editor`: add-node dialog tree built at runtime from
+    `NODE_SCHEMAS` + `inherits` (abstract bases flatten out so
+    `Label`/`Button`/physics bodies hang under their nearest concrete
+    ancestor). A new node type needs zero editor changes.
+  - `pite-editor`: `icons::node_type_color` groups by inheritance
+    chain (physics participants teal, `Control` descendants UI green,
+    other `Node2D` descendants 2D blue); abstract types
+    (`CollisionObject2D`, `PhysicsBody2D`) get their family's glyph
+    in tree rows and inspector section headers instead of falling
+    through to plain `Node`/silver — visible improvement, no data
+    change.
+  - `pite-runtime`: `rebuild_physics` dispatches through
+    `physics_role`; `CollisionShape2D`'s parent-body walker consults
+    the same helper instead of repeating the type match.
+  - `pite-runtime`: engine-owned signal declarations come from one
+    `ENGINE_SIGNALS` table iterated once, replacing three hardcoded
+    Button/Timer/Area2D loops.
+  - `pite-runtime`: `draw_into` dispatches through `render_role` /
+    `NodeDraw` in one tree walk, replacing three per-type filter
+    loops.
+
+  **Visible behavior change:** `draw_into` now draws in tree order
+  rather than bucketing by type (sprites → labels → buttons). This
+  matches Godot's scene-tree z-order — reorder the tree to reorder
+  draws. No existing scene or test depends on the old bucketed order
+  (the dogfood scene has no overlaps between the two buckets).
 - Engine-owned `Timer` / `Button` behavior moved into their pyclasses'
   `_process`. `PyTimer::_process` advances `current_elapsed` (new prop) and
   fires `timeout`; `PyButton::_process` polls mouse state and fires

@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use pite_core::{global_position, NodeId, NodeTree, PropValue};
+use pite_core::{global_position, Node, NodeId, NodeTree, PropValue};
 use pite_physics::{PhysicsEvent, PhysicsWorld, ShapeConfig};
 use pite_render::{Renderer2D, WgpuRenderer};
 use pite_script::{Pyo3Backend, ScriptBackend, ScriptHost};
@@ -105,6 +105,153 @@ fn slot_still_valid(
         _ => false,
     }
 }
+
+/// Which physics body a node type becomes. One place decides; both
+/// `rebuild_physics` and `CollisionShape2D`'s parent-body walker ask this
+/// instead of repeating the type match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PhysicsRole {
+    Static,
+    Character,
+    Rigid,
+    Area,
+}
+
+fn physics_role(type_name: &str) -> Option<PhysicsRole> {
+    match type_name {
+        "StaticBody2D" => Some(PhysicsRole::Static),
+        "CharacterBody2D" => Some(PhysicsRole::Character),
+        "RigidBody2D" => Some(PhysicsRole::Rigid),
+        "Area2D" => Some(PhysicsRole::Area),
+        _ => None,
+    }
+}
+
+/// Which draw call a node type produces. `draw_into` walks the tree once
+/// through this, rather than three separate `filter(type_name == ...)`
+/// passes. Adding a renderable type = one new arm here, no new loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RenderRole {
+    Sprite,
+    Label,
+    Button,
+}
+
+fn render_role(type_name: &str) -> Option<RenderRole> {
+    match type_name {
+        "Sprite2D" => Some(RenderRole::Sprite),
+        "Label" => Some(RenderRole::Label),
+        "Button" => Some(RenderRole::Button),
+        _ => None,
+    }
+}
+
+/// One node's renderable payload, resolved under the tree lock and drawn
+/// after it's released.
+enum NodeDraw {
+    Sprite {
+        id: String,
+        texture: String,
+        atlas: Option<String>,
+        frame: Option<String>,
+        pos: (f64, f64),
+    },
+    Text {
+        text: String,
+        size: f32,
+        color: [u8; 4],
+        pos: (f64, f64),
+    },
+    Button {
+        text: String,
+        size: f32,
+        color: [u8; 4],
+        pos: (f64, f64),
+        extent: (f64, f64),
+    },
+}
+
+fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
+    let role = render_role(&node.type_name)?;
+    let pos = global_position(tree, &node.id);
+    match role {
+        RenderRole::Sprite => {
+            let prop = |key: &str| match node.props.get(key) {
+                Some(PropValue::Str(s)) => Some(s.clone()),
+                _ => None,
+            };
+            Some(NodeDraw::Sprite {
+                id: node.id.to_string(),
+                texture: prop("texture").unwrap_or_default(),
+                atlas: prop("atlas"),
+                frame: prop("frame"),
+                pos,
+            })
+        }
+        RenderRole::Label => {
+            let text = match node.props.get("text") {
+                Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                _ => return None,
+            };
+            let size = match node.props.get("font_size") {
+                Some(PropValue::Num(s)) => *s as f32,
+                Some(PropValue::Int(s)) => *s as f32,
+                _ => 16.0,
+            };
+            let color = match node.props.get("color") {
+                Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
+                _ => [255, 255, 255, 255],
+            };
+            Some(NodeDraw::Text {
+                text,
+                size,
+                color,
+                pos,
+            })
+        }
+        RenderRole::Button => {
+            let text = match node.props.get("text") {
+                Some(PropValue::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let size = match node.props.get("font_size") {
+                Some(PropValue::Num(s)) => *s as f32,
+                Some(PropValue::Int(s)) => *s as f32,
+                _ => 16.0,
+            };
+            let color = match node.props.get("color") {
+                Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
+                _ => [51, 65, 85, 255],
+            };
+            let extent = button_size(node);
+            Some(NodeDraw::Button {
+                text,
+                size,
+                color,
+                pos,
+                extent,
+            })
+        }
+    }
+}
+
+/// Engine-owned signals every node of that type declares before `_ready`
+/// runs. Subclasses that re-declare `pressed`/`timeout` still work
+/// (`declare_signals` is idempotent). Adding a new engine signal = one
+/// row here, no code change in `rebuild`.
+const ENGINE_SIGNALS: &[(&str, &[(&str, &[&str])])] = &[
+    ("Button", &[("pressed", &[])]),
+    ("Timer", &[("timeout", &[])]),
+    (
+        "Area2D",
+        &[
+            ("body_entered", &["str"]),
+            ("body_exited", &["str"]),
+            ("area_entered", &["str"]),
+            ("area_exited", &["str"]),
+        ],
+    ),
+];
 
 pub struct GameSession {
     host: Arc<ScriptHost>,
@@ -286,97 +433,69 @@ impl GameSession {
         }
         let (cam, _) = self.camera_view();
         r.set_camera(cam.0, cam.1, self.effective_zoom());
-        let sprite_nodes: Vec<(String, String, Option<String>, Option<String>, (f64, f64))> =
-            self.host.with_tree(|tree| {
-                tree.iter()
-                    .filter(|n| n.type_name == "Sprite2D")
-                    .map(|n| {
-                        let prop = |key: &str| match n.props.get(key) {
-                            Some(PropValue::Str(s)) => Some(s.clone()),
-                            _ => None,
-                        };
-                        (
-                            n.id.to_string(),
-                            prop("texture").unwrap_or_default(),
-                            prop("atlas"),
-                            prop("frame"),
-                            global_position(tree, &n.id),
-                        )
-                    })
-                    .collect()
-            });
-        for (id, texture, atlas, frame, pos) in sprite_nodes {
-            let has_texture = !texture.is_empty();
-            if has_texture && atlas.is_some() {
-                anyhow::bail!("node {id}: `texture` and `atlas` are mutually exclusive");
-            }
-            match (atlas, frame) {
-                (Some(atlas), Some(frame)) => {
-                    let sidecar = self.resolve_path(&atlas);
-                    let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                    r.draw_sprite_frame(&sheet.to_string_lossy(), Some(&frame), pos.0, pos.1)?;
-                }
-                (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
-                (None, Some(_)) => anyhow::bail!("node {id}: `frame` requires an `atlas`"),
-                (None, None) => {
-                    if has_texture {
-                        let resolved = self.resolve_path(&texture);
-                        r.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
+
+        // One walk: every renderable node becomes a `NodeDraw`, drawn in tree
+        // order (matching Godot's z-order — reorder the tree to reorder draws).
+        // This replaces the previous three per-type filter loops; new
+        // renderable types add an arm in `render_role`, not another pass.
+        let draws: Vec<NodeDraw> = self
+            .host
+            .with_tree(|tree| tree.iter().filter_map(|n| extract_draw(n, tree)).collect());
+
+        for draw in draws {
+            match draw {
+                NodeDraw::Sprite {
+                    id,
+                    texture,
+                    atlas,
+                    frame,
+                    pos,
+                } => {
+                    let has_texture = !texture.is_empty();
+                    if has_texture && atlas.is_some() {
+                        anyhow::bail!("node {id}: `texture` and `atlas` are mutually exclusive");
+                    }
+                    match (atlas, frame) {
+                        (Some(atlas), Some(frame)) => {
+                            let sidecar = self.resolve_path(&atlas);
+                            let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
+                            r.draw_sprite_frame(
+                                &sheet.to_string_lossy(),
+                                Some(&frame),
+                                pos.0,
+                                pos.1,
+                            )?;
+                        }
+                        (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
+                        (None, Some(_)) => anyhow::bail!("node {id}: `frame` requires an `atlas`"),
+                        (None, None) => {
+                            if has_texture {
+                                let resolved = self.resolve_path(&texture);
+                                r.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
+                            }
+                        }
                     }
                 }
-            }
-        }
-        let labels: Vec<(String, f32, [u8; 4], (f64, f64))> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "Label")
-                .filter_map(|n| {
-                    let text = match n.props.get("text") {
-                        Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
-                        _ => return None,
-                    };
-                    let size = match n.props.get("font_size") {
-                        Some(PropValue::Num(s)) => *s as f32,
-                        Some(PropValue::Int(s)) => *s as f32,
-                        _ => 16.0,
-                    };
-                    let color = match n.props.get("color") {
-                        Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
-                        _ => [255, 255, 255, 255],
-                    };
-                    Some((text, size, color, global_position(tree, &n.id)))
-                })
-                .collect()
-        });
-        for (text, size, color, pos) in labels {
-            r.draw_text(&text, pos.0, pos.1, size, color)?;
-        }
-        let buttons: Vec<(String, f32, [u8; 4], (f64, f64), (f64, f64))> =
-            self.host.with_tree(|tree| {
-                tree.iter()
-                    .filter(|n| n.type_name == "Button")
-                    .map(|n| {
-                        let text = match n.props.get("text") {
-                            Some(PropValue::Str(s)) => s.clone(),
-                            _ => String::new(),
-                        };
-                        let size = match n.props.get("font_size") {
-                            Some(PropValue::Num(s)) => *s as f32,
-                            Some(PropValue::Int(s)) => *s as f32,
-                            _ => 16.0,
-                        };
-                        let color = match n.props.get("color") {
-                            Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
-                            _ => [51, 65, 85, 255],
-                        };
-                        let (w, h) = button_size(n);
-                        (text, size, color, global_position(tree, &n.id), (w, h))
-                    })
-                    .collect()
-            });
-        for (text, size, color, pos, (w, h)) in buttons {
-            r.draw_rect(pos.0, pos.1, w, h, color)?;
-            if !text.is_empty() {
-                r.draw_text(&text, pos.0, pos.1, size, [255, 255, 255, 255])?;
+                NodeDraw::Text {
+                    text,
+                    size,
+                    color,
+                    pos,
+                } => {
+                    r.draw_text(&text, pos.0, pos.1, size, color)?;
+                }
+                NodeDraw::Button {
+                    text,
+                    size,
+                    color,
+                    pos,
+                    extent: (w, h),
+                } => {
+                    r.draw_rect(pos.0, pos.1, w, h, color)?;
+                    if !text.is_empty() {
+                        r.draw_text(&text, pos.0, pos.1, size, [255, 255, 255, 255])?;
+                    }
+                }
             }
         }
         Ok(())
@@ -388,53 +507,36 @@ impl GameSession {
         let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;
         self.host.with_tree_mut(|t| *t = tree);
 
-        // Engine-owned signals must be declared BEFORE any `_ready` runs
-        // (scripts connect to them in `_ready`). Base pyclasses don't declare
-        // their own signals — the runtime does, so they also exist when the
-        // node has no script.
-        let buttons: Vec<String> = self.host.with_tree(|tree| {
+        // Engine-owned signals come from one table; every matching node declares
+        // its type's signals before `_ready` runs. Subclasses that re-declare
+        // inherit through Python MRO as before.
+        let nodes: Vec<(String, String)> = self.host.with_tree(|tree| {
             tree.iter()
-                .filter(|n| n.type_name == "Button")
-                .map(|n| n.id.to_string())
+                .map(|n| (n.type_name.clone(), n.id.to_string()))
                 .collect()
         });
-        for id in &buttons {
-            if let Err(e) = self
-                .host
-                .declare_signals(id, vec![("pressed".to_string(), Vec::new())])
-            {
-                tracing::error!(node = %id, "cannot declare builtin pressed: {e:#}");
-            }
-        }
-        let timers: Vec<String> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "Timer")
-                .map(|n| n.id.to_string())
-                .collect()
-        });
-        for id in &timers {
-            if let Err(e) = self
-                .host
-                .declare_signals(id, vec![("timeout".to_string(), Vec::new())])
-            {
-                tracing::error!(node = %id, "cannot declare builtin timeout: {e:#}");
-            }
-        }
-        let areas: Vec<String> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "Area2D")
-                .map(|n| n.id.to_string())
-                .collect()
-        });
-        for id in &areas {
-            let signals = vec![
-                ("body_entered".to_string(), vec!["str".to_string()]),
-                ("body_exited".to_string(), vec!["str".to_string()]),
-                ("area_entered".to_string(), vec!["str".to_string()]),
-                ("area_exited".to_string(), vec!["str".to_string()]),
-            ];
-            if let Err(e) = self.host.declare_signals(id, signals) {
-                tracing::error!(node = %id, "cannot declare builtin area signals: {e:#}");
+        for (type_name, id) in &nodes {
+            let Some((_, signals)) = ENGINE_SIGNALS
+                .iter()
+                .find(|(t, _)| *t == type_name.as_str())
+            else {
+                continue;
+            };
+            let defs: Vec<(String, Vec<String>)> = signals
+                .iter()
+                .map(|(name, payload)| {
+                    (
+                        name.to_string(),
+                        payload.iter().map(|s| s.to_string()).collect(),
+                    )
+                })
+                .collect();
+            if let Err(e) = self.host.declare_signals(id, defs) {
+                tracing::error!(
+                    node = %id,
+                    ty = %type_name,
+                    "cannot declare builtin signals: {e:#}"
+                );
             }
         }
 
@@ -632,43 +734,48 @@ impl GameSession {
                     Some(PropValue::Num(r)) => *r as f32,
                     _ => 0.0,
                 };
-                match node.type_name.as_str() {
-                    "StaticBody2D" => {
-                        world.add_static_body(node.id.clone(), (pos.0 as f32, pos.1 as f32), rot);
+                if let Some(role) = physics_role(&node.type_name) {
+                    match role {
+                        PhysicsRole::Static => {
+                            world.add_static_body(
+                                node.id.clone(),
+                                (pos.0 as f32, pos.1 as f32),
+                                rot,
+                            );
+                        }
+                        PhysicsRole::Character => {
+                            world.add_character_body(
+                                node.id.clone(),
+                                (pos.0 as f32, pos.1 as f32),
+                                rot,
+                            );
+                        }
+                        PhysicsRole::Rigid => {
+                            let mass = match node.props.get("mass") {
+                                Some(PropValue::Num(m)) => *m as f32,
+                                _ => 1.0,
+                            };
+                            let grav = match node.props.get("gravity_scale") {
+                                Some(PropValue::Num(g)) => *g as f32,
+                                _ => 1.0,
+                            };
+                            let lock_rot = match node.props.get("lock_rotation") {
+                                Some(PropValue::Bool(b)) => *b,
+                                _ => false,
+                            };
+                            world.add_rigid_body(
+                                node.id.clone(),
+                                (pos.0 as f32, pos.1 as f32),
+                                rot,
+                                mass,
+                                grav,
+                                lock_rot,
+                            );
+                        }
+                        PhysicsRole::Area => {
+                            world.add_area(node.id.clone(), (pos.0 as f32, pos.1 as f32), rot);
+                        }
                     }
-                    "CharacterBody2D" => {
-                        world.add_character_body(
-                            node.id.clone(),
-                            (pos.0 as f32, pos.1 as f32),
-                            rot,
-                        );
-                    }
-                    "RigidBody2D" => {
-                        let mass = match node.props.get("mass") {
-                            Some(PropValue::Num(m)) => *m as f32,
-                            _ => 1.0,
-                        };
-                        let grav = match node.props.get("gravity_scale") {
-                            Some(PropValue::Num(g)) => *g as f32,
-                            _ => 1.0,
-                        };
-                        let lock_rot = match node.props.get("lock_rotation") {
-                            Some(PropValue::Bool(b)) => *b,
-                            _ => false,
-                        };
-                        world.add_rigid_body(
-                            node.id.clone(),
-                            (pos.0 as f32, pos.1 as f32),
-                            rot,
-                            mass,
-                            grav,
-                            lock_rot,
-                        );
-                    }
-                    "Area2D" => {
-                        world.add_area(node.id.clone(), (pos.0 as f32, pos.1 as f32), rot);
-                    }
-                    _ => {}
                 }
             }
 
@@ -685,10 +792,7 @@ impl GameSession {
                 let mut parent_body: Option<&pite_core::Node> = None;
                 while let Some(pid) = parent_id {
                     if let Some(pnode) = tree.get(&pid) {
-                        if matches!(
-                            pnode.type_name.as_str(),
-                            "StaticBody2D" | "CharacterBody2D" | "RigidBody2D" | "Area2D"
-                        ) {
+                        if physics_role(&pnode.type_name).is_some() {
                             parent_body = Some(pnode);
                             break;
                         }

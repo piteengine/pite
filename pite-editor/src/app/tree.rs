@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use eframe::egui;
 use egui_phosphor::regular;
 use pite_core::NodeId;
+use pite_core::NodeTypeSchema;
 
 use crate::icons::{self, Icon};
 use crate::ops;
@@ -47,78 +50,96 @@ pub struct InstanceSceneModal {
 pub struct NodeTypeInfo {
     pub type_name: &'static str,
     pub description: &'static str,
-    pub children: &'static [NodeTypeInfo],
+    pub children: Vec<NodeTypeInfo>,
 }
 
-pub const NODE_HIERARCHY: &[NodeTypeInfo] = &[NodeTypeInfo {
-    type_name: "Node",
-    description: "Base class for all scene objects. Does not have a 2D transform.",
-    children: &[
-        NodeTypeInfo {
-            type_name: "Node2D",
-            description: "2D game object with position, rotation, and scale.",
-            children: &[
-                NodeTypeInfo {
-                    type_name: "Sprite2D",
-                    description: "Displays a 2D texture or spritesheet frame.",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "Camera2D",
-                    description: "2D viewport camera that can follow the player or stay fixed.",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "CollisionShape2D",
-                    description: "Defines a 2D collision boundary (box, circle, capsule).",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "Area2D",
-                    description: "2D detection area for triggers and overlap signals.",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "StaticBody2D",
-                    description: "Static 2D physics body that does not move.",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "CharacterBody2D",
-                    description: "2D physics body specialized for characters controlled by script.",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "RigidBody2D",
-                    description: "Dynamic 2D physics body simulated by the physics engine.",
-                    children: &[],
-                },
-            ],
-        },
-        NodeTypeInfo {
-            type_name: "Label",
-            description: "Displays formatted text on the screen.",
-            children: &[],
-        },
-        NodeTypeInfo {
-            type_name: "Button",
-            description: "Clickable UI button with hover/pressed states.",
-            children: &[],
-        },
-        NodeTypeInfo {
-            type_name: "Timer",
-            description: "Countdown timer that emits a timeout signal periodically or once.",
-            children: &[],
-        },
-    ],
-}];
+/// Add-node tree derived from `pite_core::NODE_SCHEMAS`: every concrete
+/// type sits under its nearest **non-abstract** ancestor. Abstract bases
+/// (`Control`, `CollisionObject2D`, `PhysicsBody2D`) flatten out, so
+/// `Label`/`Button` hang off `Node` and physics bodies off `Node2D` —
+/// the same shape the old hardcoded tree had, now impossible to drift
+/// from the schema.
+pub fn node_hierarchy() -> &'static [NodeTypeInfo] {
+    static HIERARCHY: OnceLock<Vec<NodeTypeInfo>> = OnceLock::new();
+    HIERARCHY.get_or_init(build_node_hierarchy).as_slice()
+}
+
+fn build_node_hierarchy() -> Vec<NodeTypeInfo> {
+    let mut by_parent: HashMap<&'static str, Vec<&'static NodeTypeSchema>> = HashMap::new();
+    let mut roots: Vec<&'static NodeTypeSchema> = Vec::new();
+    for &schema in pite_core::NODE_SCHEMAS {
+        if schema.abstract_class {
+            continue;
+        }
+        match nearest_visible_ancestor(schema.type_name) {
+            Some(parent) => by_parent.entry(parent).or_default().push(schema),
+            None => roots.push(schema),
+        }
+    }
+    roots
+        .into_iter()
+        .map(|schema| build_branch(schema.type_name, &by_parent))
+        .collect()
+}
+
+fn build_branch(
+    type_name: &'static str,
+    by_parent: &HashMap<&'static str, Vec<&'static NodeTypeSchema>>,
+) -> NodeTypeInfo {
+    let children = by_parent
+        .get(type_name)
+        .map(|kids| {
+            kids.iter()
+                .map(|s| build_branch(s.type_name, by_parent))
+                .collect()
+        })
+        .unwrap_or_default();
+    NodeTypeInfo {
+        type_name,
+        description: description_for(type_name),
+        children,
+    }
+}
+
+/// Walk `inherits` until a non-abstract ancestor; `None` for the root.
+fn nearest_visible_ancestor(type_name: &'static str) -> Option<&'static str> {
+    let mut current = pite_core::node_type_schema(type_name)?.inherits;
+    while let Some(name) = current {
+        let schema = pite_core::node_type_schema(name)?;
+        if !schema.abstract_class {
+            return Some(schema.type_name);
+        }
+        current = schema.inherits;
+    }
+    None
+}
+
+/// Prose only — commit 12 moves these into the schema. Structure above is
+/// already fully schema-derived.
+fn description_for(type_name: &str) -> &'static str {
+    match type_name {
+        "Node" => "Base class for all scene objects. Does not have a 2D transform.",
+        "Node2D" => "2D game object with position, rotation, and scale.",
+        "Sprite2D" => "Displays a 2D texture or spritesheet frame.",
+        "Camera2D" => "2D viewport camera that can follow the player or stay fixed.",
+        "CollisionShape2D" => "Defines a 2D collision boundary (box, circle, capsule).",
+        "Area2D" => "2D detection area for triggers and overlap signals.",
+        "StaticBody2D" => "Static 2D physics body that does not move.",
+        "CharacterBody2D" => "2D physics body specialized for characters controlled by script.",
+        "RigidBody2D" => "Dynamic 2D physics body simulated by the physics engine.",
+        "Label" => "Displays formatted text on the screen.",
+        "Button" => "Clickable UI button with hover/pressed states.",
+        "Timer" => "Countdown timer that emits a timeout signal periodically or once.",
+        _ => "Engine scene node.",
+    }
+}
 
 fn find_description(hierarchy: &[NodeTypeInfo], target: &str) -> Option<&'static str> {
     for item in hierarchy {
         if item.type_name == target {
             return Some(item.description);
         }
-        if let Some(desc) = find_description(item.children, target) {
+        if let Some(desc) = find_description(&item.children, target) {
             return Some(desc);
         }
     }
@@ -826,7 +847,7 @@ impl EditorApp {
                     .show(ui, |ui| {
                         render_node_hierarchy(
                             ui,
-                            NODE_HIERARCHY,
+                            node_hierarchy(),
                             &search_lower,
                             &mut modal.selected_type,
                             &mut modal.name,
@@ -837,7 +858,7 @@ impl EditorApp {
                 ui.separator();
 
                 // Description card
-                let desc = find_description(NODE_HIERARCHY, &modal.selected_type)
+                let desc = find_description(node_hierarchy(), &modal.selected_type)
                     .unwrap_or("Engine scene node.");
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(16, 20, 24))
@@ -1127,7 +1148,7 @@ fn render_node_hierarchy(
 
         if has_children {
             ui.indent(item.type_name, |ui| {
-                render_node_hierarchy(ui, item.children, search, selected_type, name, create);
+                render_node_hierarchy(ui, &item.children, search, selected_type, name, create);
             });
         }
     }
