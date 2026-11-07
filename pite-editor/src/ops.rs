@@ -11,26 +11,14 @@ use anyhow::{Context, Result};
 use pite_core::{NodeDesc, NodeId, NodeTree, NodeTypeRegistry, PropValue, Props};
 use pite_scene::{prop_to_toml, SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION};
 
-/// Closed node-type set. Mirrors `NodeTypeRegistry::new`; kept here because
-/// the registry exposes no listing API and the editor must not touch core.
+/// Instantiable node types, excluding abstract base classes.
 pub fn registered_types() -> Vec<String> {
-    [
-        "Node",
-        "Node2D",
-        "Sprite2D",
-        "Camera2D",
-        "Timer",
-        "Label",
-        "Button",
-        "StaticBody2D",
-        "CharacterBody2D",
-        "RigidBody2D",
-        "Area2D",
-        "CollisionShape2D",
-    ]
-    .iter()
-    .map(ToString::to_string)
-    .collect()
+    pite_core::NODE_SCHEMAS
+        .iter()
+        .copied()
+        .filter(|s| !s.abstract_class)
+        .map(|s| s.type_name.to_string())
+        .collect()
 }
 
 fn slugify(name: &str) -> String {

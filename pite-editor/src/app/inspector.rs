@@ -368,16 +368,22 @@ impl EditorApp {
 
         ui.add_space(4.0);
 
-        // 3. Inherited Property Sections (Driven 100% by pite-core schema)
+        // 3. Inherited Property Sections (Driven by schema)
         let chain = schema::inheritance_chain(&node.type_name);
         let mut handled_keys = HashSet::new();
 
         for section_name in chain {
             let defs = schema::type_props(section_name);
-            if defs.is_empty() {
+            // Chain is leaf→root, so overrides in a descendant are seen first and
+            // shadow the ancestor's declaration.
+            let filtered: Vec<&pite_core::PropSchema> = defs
+                .iter()
+                .filter(|d| !handled_keys.contains(d.key))
+                .collect();
+            if filtered.is_empty() {
                 continue;
             }
-            for def in defs {
+            for def in &filtered {
                 handled_keys.insert(def.key);
             }
 
@@ -448,7 +454,7 @@ impl EditorApp {
                     .min_row_height(row_h)
                     .spacing(grid_spacing)
                     .show(ui, |ui| {
-                        for def in defs {
+                        for def in &filtered {
                             let is_present = node.props.0.contains_key(def.key);
                             let live_val = node.props.get(def.key);
                             let is_modified = is_present

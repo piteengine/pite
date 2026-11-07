@@ -421,7 +421,11 @@ impl Pyo3Backend {
                     if let Ok(mut vec2_bound) =
                         pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
                     {
-                        vec2_bound.set_target(host.clone(), self.node_path.clone(), "position".to_string());
+                        vec2_bound.set_target(
+                            host.clone(),
+                            self.node_path.clone(),
+                            "position".to_string(),
+                        );
                     }
                 }
             });
@@ -547,7 +551,11 @@ impl Pyo3Backend {
                     if let Ok(mut vec2_bound) =
                         pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
                     {
-                        vec2_bound.set_target(host.clone(), self.node_path.clone(), "position".to_string());
+                        vec2_bound.set_target(
+                            host.clone(),
+                            self.node_path.clone(),
+                            "position".to_string(),
+                        );
                     }
                 }
                 host.register(self.node_path.clone(), owned.clone_ref(py));
@@ -958,10 +966,8 @@ class Attacker(pite.Node2D):
             let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
             d.name = name.to_string();
             d.parent = Some(NodeId::from("root".to_string()));
-            d.props.insert(
-                "position".to_string(),
-                pite_core::PropValue::Vec2(0.0, 0.0),
-            );
+            d.props
+                .insert("position".to_string(), pite_core::PropValue::Vec2(0.0, 0.0));
             tree.insert(d).unwrap();
         }
         let host = Arc::new(crate::ScriptHost::new(tree));
@@ -1099,10 +1105,8 @@ class Listener(pite.Node2D):
             let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
             d.name = name.to_string();
             d.parent = Some(NodeId::from("root".to_string()));
-            d.props.insert(
-                "position".to_string(),
-                pite_core::PropValue::Vec2(0.0, 0.0),
-            );
+            d.props
+                .insert("position".to_string(), pite_core::PropValue::Vec2(0.0, 0.0));
             tree.insert(d).unwrap();
         }
         let host = Arc::new(crate::ScriptHost::new(tree));
@@ -1233,8 +1237,7 @@ pub(crate) fn host_and_path(
     slf: &Bound<'_, PyAny>,
 ) -> PyResult<(std::sync::Arc<crate::ScriptHost>, String)> {
     let node_path: String = slf.getattr("node_path")?.extract()?;
-    let host = crate::host::current_host().ok_or_else(|| {
-        pyo3::exceptions::PyRuntimeError::new_err("no script host")
-    })?;
+    let host = crate::host::current_host()
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("no script host"))?;
     Ok((host, node_path))
 }

@@ -96,20 +96,14 @@ pub const NODE_HIERARCHY: &[NodeTypeInfo] = &[NodeTypeInfo {
             ],
         },
         NodeTypeInfo {
-            type_name: "Control",
-            description: "Base class for all 2D user interface elements.",
-            children: &[
-                NodeTypeInfo {
-                    type_name: "Label",
-                    description: "Displays formatted text on the screen.",
-                    children: &[],
-                },
-                NodeTypeInfo {
-                    type_name: "Button",
-                    description: "Clickable UI button with hover/pressed states.",
-                    children: &[],
-                },
-            ],
+            type_name: "Label",
+            description: "Displays formatted text on the screen.",
+            children: &[],
+        },
+        NodeTypeInfo {
+            type_name: "Button",
+            description: "Clickable UI button with hover/pressed states.",
+            children: &[],
         },
         NodeTypeInfo {
             type_name: "Timer",

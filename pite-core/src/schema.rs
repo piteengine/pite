@@ -67,432 +67,21 @@ pub struct NodeTypeSchema {
     pub type_name: &'static str,
     pub inherits: Option<&'static str>,
     pub props: &'static [PropSchema],
+    /// Abstract types exist in the schema chain so subclasses inherit their
+    /// props, but they are hidden from the editor's add-node menu and are
+    /// not intended to be instantiated directly.
+    pub abstract_class: bool,
 }
 
-pub static NODE_SCHEMAS: &[NodeTypeSchema] = &[
-    NodeTypeSchema {
-        type_name: "Node",
-        inherits: None,
-        props: &[],
-    },
-    NodeTypeSchema {
-        type_name: "Node2D",
-        inherits: Some("Node"),
-        props: &[
-            PropSchema {
-                key: "position",
-                label: "Position",
-                default_value: DefaultPropVal::Vec2(0.0, 0.0),
-                hint: PropHint::Vec2 { speed: 1.0 },
-                read_only: false,
-            },
-            PropSchema {
-                key: "rotation",
-                label: "Rotation",
-                default_value: DefaultPropVal::Num(0.0),
-                hint: PropHint::AngleDeg,
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Sprite2D",
-        inherits: Some("Node2D"),
-        props: &[
-            PropSchema {
-                key: "texture",
-                label: "Texture",
-                default_value: DefaultPropVal::Str(""),
-                hint: PropHint::Asset {
-                    filter: &["png", "jpg", "jpeg", "webp"],
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "atlas",
-                label: "Atlas",
-                default_value: DefaultPropVal::Str(""),
-                hint: PropHint::Asset {
-                    filter: &["atlas.json", "json"],
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "frame",
-                label: "Frame",
-                default_value: DefaultPropVal::Str(""),
-                hint: PropHint::Text,
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Camera2D",
-        inherits: Some("Node2D"),
-        props: &[PropSchema {
-            key: "zoom",
-            label: "Zoom",
-            default_value: DefaultPropVal::Vec2(1.0, 1.0),
-            hint: PropHint::Vec2 { speed: 0.05 },
-            read_only: false,
-        }],
-    },
-    NodeTypeSchema {
-        type_name: "CollisionShape2D",
-        inherits: Some("Node2D"),
-        props: &[
-            PropSchema {
-                key: "shape",
-                label: "Shape",
-                default_value: DefaultPropVal::Str("box"),
-                hint: PropHint::Enum(&["box", "circle", "capsule"]),
-                read_only: false,
-            },
-            PropSchema {
-                key: "size",
-                label: "Size",
-                default_value: DefaultPropVal::Vec2(32.0, 32.0),
-                hint: PropHint::Vec2 { speed: 1.0 },
-                read_only: false,
-            },
-            PropSchema {
-                key: "radius",
-                label: "Radius",
-                default_value: DefaultPropVal::Num(16.0),
-                hint: PropHint::Num {
-                    speed: 1.0,
-                    min: 0.1,
-                    max: 10000.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "height",
-                label: "Height",
-                default_value: DefaultPropVal::Num(32.0),
-                hint: PropHint::Num {
-                    speed: 1.0,
-                    min: 0.1,
-                    max: 10000.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "disabled",
-                label: "Disabled",
-                default_value: DefaultPropVal::Bool(false),
-                hint: PropHint::Bool,
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Area2D",
-        inherits: Some("Node2D"),
-        props: &[
-            PropSchema {
-                key: "collision_layer",
-                label: "Layer",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "collision_mask",
-                label: "Mask",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "StaticBody2D",
-        inherits: Some("Node2D"),
-        props: &[
-            PropSchema {
-                key: "collision_layer",
-                label: "Layer",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "collision_mask",
-                label: "Mask",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "friction",
-                label: "Friction",
-                default_value: DefaultPropVal::Num(0.5),
-                hint: PropHint::Num {
-                    speed: 0.05,
-                    min: 0.0,
-                    max: 2.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "restitution",
-                label: "Restitution",
-                default_value: DefaultPropVal::Num(0.0),
-                hint: PropHint::Num {
-                    speed: 0.05,
-                    min: 0.0,
-                    max: 1.0,
-                },
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "CharacterBody2D",
-        inherits: Some("Node2D"),
-        props: &[
-            PropSchema {
-                key: "velocity",
-                label: "Velocity",
-                default_value: DefaultPropVal::Vec2(0.0, 0.0),
-                hint: PropHint::Vec2 { speed: 1.0 },
-                read_only: false,
-            },
-            PropSchema {
-                key: "collision_layer",
-                label: "Layer",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "collision_mask",
-                label: "Mask",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "RigidBody2D",
-        inherits: Some("Node2D"),
-        props: &[
-            PropSchema {
-                key: "mass",
-                label: "Mass",
-                default_value: DefaultPropVal::Num(1.0),
-                hint: PropHint::Num {
-                    speed: 0.1,
-                    min: 0.01,
-                    max: 1000.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "gravity_scale",
-                label: "Gravity Scale",
-                default_value: DefaultPropVal::Num(1.0),
-                hint: PropHint::Num {
-                    speed: 0.1,
-                    min: -10.0,
-                    max: 10.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "lock_rotation",
-                label: "Lock Rotation",
-                default_value: DefaultPropVal::Bool(false),
-                hint: PropHint::Bool,
-                read_only: false,
-            },
-            PropSchema {
-                key: "collision_layer",
-                label: "Layer",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "collision_mask",
-                label: "Mask",
-                default_value: DefaultPropVal::Int(1),
-                hint: PropHint::Int {
-                    speed: 1.0,
-                    min: 1,
-                    max: 256,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "friction",
-                label: "Friction",
-                default_value: DefaultPropVal::Num(0.5),
-                hint: PropHint::Num {
-                    speed: 0.05,
-                    min: 0.0,
-                    max: 2.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "restitution",
-                label: "Restitution",
-                default_value: DefaultPropVal::Num(0.0),
-                hint: PropHint::Num {
-                    speed: 0.05,
-                    min: 0.0,
-                    max: 1.0,
-                },
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Control",
-        inherits: Some("Node"),
-        props: &[
-            PropSchema {
-                key: "position",
-                label: "Position",
-                default_value: DefaultPropVal::Vec2(0.0, 0.0),
-                hint: PropHint::Vec2 { speed: 1.0 },
-                read_only: false,
-            },
-            PropSchema {
-                key: "size",
-                label: "Size",
-                default_value: DefaultPropVal::Vec2(100.0, 40.0),
-                hint: PropHint::Vec2 { speed: 1.0 },
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Label",
-        inherits: Some("Control"),
-        props: &[
-            PropSchema {
-                key: "text",
-                label: "Text",
-                default_value: DefaultPropVal::Str(""),
-                hint: PropHint::Text,
-                read_only: false,
-            },
-            PropSchema {
-                key: "font_size",
-                label: "Font Size",
-                default_value: DefaultPropVal::Num(16.0),
-                hint: PropHint::Num {
-                    speed: 1.0,
-                    min: 6.0,
-                    max: 128.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "color",
-                label: "Color",
-                default_value: DefaultPropVal::Color([255, 255, 255, 255]),
-                hint: PropHint::Color,
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Button",
-        inherits: Some("Control"),
-        props: &[
-            PropSchema {
-                key: "text",
-                label: "Text",
-                default_value: DefaultPropVal::Str(""),
-                hint: PropHint::Text,
-                read_only: false,
-            },
-            PropSchema {
-                key: "font_size",
-                label: "Font Size",
-                default_value: DefaultPropVal::Num(16.0),
-                hint: PropHint::Num {
-                    speed: 1.0,
-                    min: 6.0,
-                    max: 128.0,
-                },
-                read_only: false,
-            },
-            PropSchema {
-                key: "color",
-                label: "Color",
-                default_value: DefaultPropVal::Color([51, 65, 85, 255]),
-                hint: PropHint::Color,
-                read_only: false,
-            },
-            PropSchema {
-                key: "size",
-                label: "Size",
-                default_value: DefaultPropVal::Vec2(120.0, 40.0),
-                hint: PropHint::Vec2 { speed: 1.0 },
-                read_only: false,
-            },
-            PropSchema {
-                key: "disabled",
-                label: "Disabled",
-                default_value: DefaultPropVal::Bool(false),
-                hint: PropHint::Bool,
-                read_only: false,
-            },
-        ],
-    },
-    NodeTypeSchema {
-        type_name: "Timer",
-        inherits: Some("Node"),
-        props: &[PropSchema {
-            key: "wait_time",
-            label: "Wait Time",
-            default_value: DefaultPropVal::Num(1.0),
-            hint: PropHint::Num {
-                speed: 0.1,
-                min: 0.01,
-                max: 3600.0,
-            },
-            read_only: false,
-        }],
-    },
-];
+/// All node schemas, keyed by name. Order is arbitrary; `find` matches by
+/// `type_name`, so lookups are O(n) over 16 entries — fine.
+pub use crate::nodes::ALL_NODES as NODE_SCHEMAS;
 
 pub fn node_type_schema(type_name: &str) -> Option<&'static NodeTypeSchema> {
-    NODE_SCHEMAS.iter().find(|s| s.type_name == type_name)
+    NODE_SCHEMAS
+        .iter()
+        .copied()
+        .find(|s| s.type_name == type_name)
 }
 
 pub fn inheritance_chain<'a>(type_name: &'a str) -> Vec<&'a str> {
@@ -530,7 +119,13 @@ mod tests {
         );
         assert_eq!(
             inheritance_chain("CharacterBody2D"),
-            vec!["CharacterBody2D", "Node2D", "Node"]
+            vec![
+                "CharacterBody2D",
+                "PhysicsBody2D",
+                "CollisionObject2D",
+                "Node2D",
+                "Node"
+            ]
         );
         assert_eq!(
             inheritance_chain("Button"),
@@ -545,5 +140,11 @@ mod tests {
         let props = type_props("Sprite2D");
         let keys: Vec<&str> = props.iter().map(|p| p.key).collect();
         assert_eq!(keys, vec!["texture", "atlas", "frame"]);
+
+        // PhysicsBody2D declares friction/restitution; RigidBody2D declares only
+        // its own new props (mass, gravity_scale, lock_rotation).
+        let rigid = type_props("RigidBody2D");
+        let keys: Vec<&str> = rigid.iter().map(|p| p.key).collect();
+        assert_eq!(keys, vec!["mass", "gravity_scale", "lock_rotation"]);
     }
 }

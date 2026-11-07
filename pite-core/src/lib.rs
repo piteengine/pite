@@ -12,6 +12,7 @@ mod error;
 mod lifecycle;
 mod math;
 mod node;
+pub mod nodes;
 mod props;
 mod registry;
 pub mod schema;

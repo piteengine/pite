@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Node schemas moved to per-node files (`pite-core/src/nodes/*.rs`), one
+  file per type. Three abstract base classes now exist so subclasses
+  inherit shared props without redeclaring them:
+  - `Control` (abstract) — `position`, `size`, `color`, `font_size`.
+    `Label` and `Button` inherit these; both keep their own `text`.
+  - `CollisionObject2D` (abstract) — `collision_layer`, `collision_mask`.
+    `Area2D` inherits directly; `StaticBody2D`, `RigidBody2D`,
+    `CharacterBody2D` inherit via `PhysicsBody2D`.
+  - `PhysicsBody2D` (abstract) — `friction`, `restitution`. Extends
+    `CollisionObject2D`; `Area2D` skips it (sensors have no friction).
+
+  Effective props per concrete type are unchanged (verified by existing
+  `pite check` runs and `examples/minimal-2d`); the shape users edit in
+  the inspector gains grouping under `Control` / `PhysicsBody2D` /
+  `CollisionObject2D` section headers. Abstract classes are registered in
+  `pite-core::NodeTypeRegistry` (so pre-existing scenes with `type =
+  "Control"` still parse) but are filtered from the editor's add-node
+  menu (`pite_editor::ops::registered_types`).
+
+  No scene format change. No new `pite check` failures for well-formed
+  scenes. Editor inspector now shadows inherited props behind the descendant
+  that overrides them (fixes a pre-existing `Button.size` duplicate).
 - Colors are now a `Color` prop variant (parsed from `#RGB`/`#RRGGBB`/`#RRGGBBAA`
   strings). Existing scenes reformat to canonical `#rrggbbaa` on first save;
   one-time diff, same class as the existing `[1, 2]` → `[1.0, 2.0]` reformat.

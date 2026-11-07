@@ -334,10 +334,7 @@ mod tests {
         #[new]
         fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
             let pos = Py::new(py, Vec2::new(0.0, 0.0))?;
-            Ok(
-                PyClassInitializer::from(PyNode::new())
-                    .add_subclass(Self { position: pos }),
-            )
+            Ok(PyClassInitializer::from(PyNode::new()).add_subclass(Self { position: pos }))
         }
     }
 

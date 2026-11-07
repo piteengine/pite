@@ -1384,7 +1384,33 @@ mod tests {
             uri_from_path_text("/home/dev/my game/a b.py"),
             "file:///home/dev/my%20game/a%20b.py"
         );
+    }
+
+    /// `path_to_uri` on an already-absolute path is a pure pass-through.
+    /// The absolute form differs per OS (POSIX `/tmp/a.py` vs. NTFS
+    /// `C:\tmp\a.py`), so each platform gets its own case — `Path::new("/tmp/a.py")`
+    /// is *relative* on Windows and would be joined to the cwd.
+    #[cfg(unix)]
+    #[test]
+    fn path_to_uri_absolute_unix() {
         assert_eq!(path_to_uri(Path::new("/tmp/a.py")), "file:///tmp/a.py");
+        assert_eq!(
+            path_to_uri(Path::new("/home/dev/proj/scripts/player.py")),
+            "file:///home/dev/proj/scripts/player.py"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn path_to_uri_absolute_windows() {
+        assert_eq!(
+            path_to_uri(Path::new(r"C:\tmp\a.py")),
+            "file:///C:/tmp/a.py"
+        );
+        assert_eq!(
+            path_to_uri(Path::new(r"D:\Projects\Pite\pite\scripts\player.py")),
+            "file:///D:/Projects/Pite/pite/scripts/player.py"
+        );
     }
 
     #[test]
