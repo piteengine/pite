@@ -82,16 +82,46 @@ pub struct RunOptions {
     pub no_reload: bool,
 }
 
-struct ScriptSlot {
+/// One instantiated node: its tree id, the script it was loaded from (if
+/// any), the backend, and the cached lifecycle flags that drive iteration.
+///
+/// A node with no script still gets a slot (`file = None`, backend holds
+/// the base pyclass) so `pite.Timer.timeout` etc. can live on the pyclass
+/// in a later commit. The three flags are probed once at instantiation
+/// and after every `reload`; `false` means the runtime skips the call
+/// entirely — a scriptless Sprite2D costs zero Python calls per frame.
+struct InstanceSlot {
     id: NodeId,
-    file: PathBuf,
+    type_name: String,
+    file: Option<PathBuf>,
     backend: Box<dyn ScriptBackend>,
     errored: bool,
+    has_ready: bool,
+    has_process: bool,
+    has_physics_process: bool,
+}
+
+/// Whether a preserved slot can be reused for a node that might have
+/// changed (script path, script presence, node type) since the last
+/// rebuild. Reuse keeps `__dict__`; anything else reinstantiates.
+fn slot_still_valid(
+    slot: &InstanceSlot,
+    type_name: &str,
+    script: &Option<(PathBuf, String)>,
+) -> bool {
+    if slot.type_name != type_name {
+        return false;
+    }
+    match (script, slot.file.as_ref()) {
+        (Some((path, _class)), Some(existing)) => existing == path,
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 pub struct GameSession {
     host: Arc<ScriptHost>,
-    slots: Vec<ScriptSlot>,
+    instances: Vec<InstanceSlot>,
     scene: PathBuf,
     scene_dir: PathBuf,
     project_dir: Option<PathBuf>,
@@ -118,7 +148,7 @@ impl GameSession {
         let physics = Arc::new(Mutex::new(PhysicsWorld::new()));
         let mut session = Self {
             host: Arc::new(ScriptHost::new(NodeTree::new())),
-            slots: Vec::new(),
+            instances: Vec::new(),
             scene: scene.to_path_buf(),
             scene_dir,
             project_dir,
@@ -171,7 +201,7 @@ impl GameSession {
     }
 
     pub fn errors(&self) -> Vec<String> {
-        self.slots
+        self.instances
             .iter()
             .filter_map(|s| s.backend.last_error())
             .collect()
@@ -179,10 +209,19 @@ impl GameSession {
 
     pub fn reload_script_path(&mut self, path: &Path) -> bool {
         let mut reloaded = false;
-        for slot in self.slots.iter_mut().filter(|s| same_file(&s.file, path)) {
+        for slot in self
+            .instances
+            .iter_mut()
+            .filter(|s| s.file.as_ref().is_some_and(|f| same_file(f, path)))
+        {
             match slot.backend.reload() {
                 Ok(()) => {
                     slot.errored = false;
+                    // Re-probe after reload: a user may have added or
+                    // removed a lifecycle method in the changed file.
+                    slot.has_ready = slot.backend.has_ready();
+                    slot.has_process = slot.backend.has_process();
+                    slot.has_physics_process = slot.backend.has_physics_process();
                     self.host.invalidate_proxy_cache(slot.id.as_str());
                     reloaded = true;
                     tracing::info!(node = %slot.id, "script reloaded");
@@ -219,8 +258,17 @@ impl GameSession {
         self.host.with_tree(|t| t.len())
     }
 
-    pub fn script_count(&self) -> usize {
-        self.slots.len()
+    /// Number of nodes with a user script attached. Distinct from
+    /// `instance_count`: scriptless nodes still get a slot for engine-owned
+    /// behaviors.
+    pub fn scripted_count(&self) -> usize {
+        self.instances.iter().filter(|s| s.file.is_some()).count()
+    }
+
+    /// Total slots, one per tree node. A scriptless node's slot holds the
+    /// base pyclass.
+    pub fn instance_count(&self) -> usize {
+        self.instances.len()
     }
 
     pub fn set_viewport(&mut self, w: u32, h: u32) {
@@ -229,9 +277,6 @@ impl GameSession {
         }
     }
 
-    /// Project window size: explicit `window_width/height` when set, else the
-    /// engine default. Doubles as the design resolution the game scales from
-    /// and as the window's restore size when maximized.
     pub fn design_size(&self) -> Option<(u32, u32)> {
         let dir = self.project_dir.as_deref()?;
         pite_project::load_manifest(dir)
@@ -239,9 +284,6 @@ impl GameSession {
             .map(|m| (m.project.window_width, m.project.window_height))
     }
 
-    /// Camera zoom composed with the contain-fit scale, so content keeps the
-    /// design aspect at any window size. `button_at` shares it, keeping
-    /// clicks on what is drawn.
     pub fn effective_zoom(&self) -> f64 {
         let ((_, _), zoom) = self.camera_view();
         let design = self.design_size().unwrap_or(self.viewport);
@@ -411,6 +453,7 @@ impl GameSession {
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
         let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;
         self.host.with_tree_mut(|t| *t = tree);
+
         // `pressed` belongs to the Button type itself (Godot-style), not to
         // each script: the engine fires it, so it must be declared BEFORE
         // any `_ready` runs — scripts connect to it during `_ready`.
@@ -466,65 +509,134 @@ impl GameSession {
         }
 
         self.rebuild_physics();
-        self.timers.clear();
-        let mut olds: HashMap<String, ScriptSlot> = HashMap::new();
-        for slot in self.slots.drain(..) {
+
+        // Every node gets a slot, scripted or not. Scriptless nodes hold the
+        // base pyclass so future engine-owned behaviors (`Timer.timeout`,
+        // `Button.pressed`) can live on the pyclass. Lifecycle flags are
+        // cached so iteration skips nodes that don't expose the hook.
+        let all_nodes: Vec<(NodeId, String, Option<(PathBuf, String)>)> =
+            self.host.with_tree(|tree| {
+                tree.iter()
+                    .map(|node| {
+                        let script = node.script.as_ref().and_then(|s| {
+                            resolve_script(&s.path, &self.scene_dir, self.project_dir.as_deref())
+                                .map(|p| (p, s.class_name.clone()))
+                        });
+                        (node.id.clone(), node.type_name.clone(), script)
+                    })
+                    .collect()
+            });
+
+        // Preserve surviving slots so `__dict__` and custom attributes
+        // outlive a rebuild; invalidate (reinstantiate) anything whose
+        // identity — type or script — changed.
+        let mut olds: HashMap<String, InstanceSlot> = HashMap::new();
+        for slot in self.instances.drain(..) {
             olds.insert(slot.id.to_string(), slot);
         }
-        let wanted: Vec<(NodeId, PathBuf, String)> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter_map(|node| {
-                    let script = node.script.as_ref()?;
-                    let path =
-                        resolve_script(&script.path, &self.scene_dir, self.project_dir.as_deref())?;
-                    Some((node.id.clone(), path, script.class_name.clone()))
-                })
-                .collect()
-        });
-        for (id, path, class) in wanted {
-            if let Some(mut slot) = olds.remove(&id.to_string()) {
-                if slot.file != path {
-                    slot.file = path;
-                    if let Err(e) = slot.backend.load(&slot.file.to_string_lossy(), &class) {
-                        tracing::error!(node = %id, "cannot reload script: {e:#}");
-                        slot.errored = true;
+
+        for (id, type_name, script_opt) in all_nodes {
+            let id_str = id.to_string();
+            if let Some(slot) = olds.remove(&id_str) {
+                if slot_still_valid(&slot, &type_name, &script_opt) {
+                    self.instances.push(slot);
+                    continue;
+                }
+                // Identity changed — the old Python instance is not
+                // compatible; drop it and let the reinstantiate branch
+                // create the right base or script backend.
+                self.host.unregister(&id_str);
+                self.host.disconnect_node(&id_str);
+            }
+
+            match script_opt {
+                Some((path, class)) => {
+                    if !path.is_file() {
+                        tracing::warn!(node = %id, script = %path.display(), "missing script, keeping placeholder node");
+                        continue;
+                    }
+                    let mut backend: Box<dyn ScriptBackend> =
+                        Box::new(Pyo3Backend::new(id_str.clone()));
+                    if let Some(backend) = backend_as_pyo3(&mut backend).filter(|_| true) {
+                        backend.set_host(self.host.clone());
+                    }
+                    // Simpler: construct as Pyo3Backend, then box. The
+                    // trait-object path above avoids exposing the concrete
+                    // type; keep the eager cast here for `set_host`.
+                    let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
+                    backend.set_host(self.host.clone());
+                    match backend.load(&path.to_string_lossy(), &class) {
+                        Ok(()) => {
+                            let has_ready = backend.has_ready();
+                            let has_process = backend.has_process();
+                            let has_physics_process = backend.has_physics_process();
+                            let mut errored = false;
+                            if has_ready {
+                                if let Err(e) = backend.call_ready() {
+                                    tracing::error!(node = %id, "{e:#}");
+                                    errored = true;
+                                }
+                            }
+                            self.instances.push(InstanceSlot {
+                                id,
+                                type_name,
+                                file: Some(path),
+                                backend,
+                                errored,
+                                has_ready,
+                                has_process,
+                                has_physics_process,
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!(node = %id, "cannot load script: {e:#}");
+                        }
                     }
                 }
-                self.slots.push(slot);
-                continue;
-            }
-            if !path.is_file() {
-                tracing::warn!(node = %id, script = %path.display(), "missing script, keeping placeholder node");
-                continue;
-            }
-            let mut backend = Box::new(Pyo3Backend::new(id.to_string()));
-            backend.set_host(self.host.clone());
-            match backend.load(&path.to_string_lossy(), &class) {
-                Ok(()) => {
-                    let mut errored = false;
-                    if let Err(e) = backend.call_ready() {
-                        tracing::error!(node = %id, "{e:#}");
-                        errored = true;
+                None => {
+                    let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
+                    backend.set_host(self.host.clone());
+                    match backend.load_base(&type_name) {
+                        Ok(()) => {
+                            let has_ready = backend.has_ready();
+                            let has_process = backend.has_process();
+                            let has_physics_process = backend.has_physics_process();
+                            let mut errored = false;
+                            if has_ready {
+                                if let Err(e) = backend.call_ready() {
+                                    tracing::error!(node = %id, "{e:#}");
+                                    errored = true;
+                                }
+                            }
+                            self.instances.push(InstanceSlot {
+                                id,
+                                type_name,
+                                file: None,
+                                backend,
+                                errored,
+                                has_ready,
+                                has_process,
+                                has_physics_process,
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!(node = %id, "cannot instantiate base pyclass: {e:#}");
+                        }
                     }
-                    self.slots.push(ScriptSlot {
-                        id,
-                        file: path,
-                        backend,
-                        errored,
-                    });
-                }
-                Err(e) => {
-                    tracing::error!(node = %id, "cannot load script: {e:#}");
                 }
             }
         }
-        for (id, _) in olds {
-            self.host.unregister(&id);
-            self.host.disconnect_node(&id);
+
+        // Slots whose nodes vanished in the rebuild.
+        for (id_str, _) in olds {
+            self.host.unregister(&id_str);
+            self.host.disconnect_node(&id_str);
         }
+
         tracing::info!(
             nodes = self.tree_len(),
-            scripts = self.slots.len(),
+            instances = self.instances.len(),
+            scripted = self.scripted_count(),
             "scene ready"
         );
         Ok(())
@@ -603,7 +715,6 @@ impl GameSession {
     pub fn rebuild_physics(&mut self) {
         let mut world = PhysicsWorld::new();
         self.host.with_tree(|tree| {
-            // 1. Add bodies & areas
             for node in tree.iter() {
                 let pos = global_position(tree, &node.id);
                 let rot = match node.props.get("rotation") {
@@ -650,7 +761,6 @@ impl GameSession {
                 }
             }
 
-            // 2. Attach collision shapes
             for node in tree.iter().filter(|n| n.type_name == "CollisionShape2D") {
                 let disabled = match node.props.get("disabled") {
                     Some(PropValue::Bool(b)) => *b,
@@ -660,7 +770,6 @@ impl GameSession {
                     continue;
                 }
 
-                // Find parent body
                 let mut parent_id = node.parent.clone();
                 let mut parent_body: Option<&pite_core::Node> = None;
                 while let Some(pid) = parent_id {
@@ -772,7 +881,6 @@ impl GameSession {
         self.poll_buttons();
         pite_audio::poll_audio();
 
-        // 60 Hz fixed physics stepping
         const FIXED_STEP: f64 = 1.0 / 60.0;
         self.physics_accumulator += delta;
         if self.physics_accumulator > 0.25 {
@@ -780,8 +888,11 @@ impl GameSession {
         }
 
         while self.physics_accumulator >= FIXED_STEP {
-            for slot in &mut self.slots {
-                if slot.errored {
+            // Physics process: only slots that actually expose
+            // `_physics_process` are called. A scriptless Sprite2D's base
+            // pyclass has none, so it costs zero Python calls per tick.
+            for slot in &mut self.instances {
+                if slot.errored || !slot.has_physics_process {
                     continue;
                 }
                 if let Err(e) = slot.backend.call_physics_process(FIXED_STEP) {
@@ -791,6 +902,9 @@ impl GameSession {
                         self.last_error = slot.backend.last_script_error();
                     }
                 }
+                // Push tree-backed position into the physics body so a
+                // script that moved `self.position` sees the move reflected
+                // in the next `move_and_slide`.
                 let pos = self.host.with_tree(|t| {
                     match t.get(&slot.id).and_then(|n| n.props.get("position")) {
                         Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
@@ -809,28 +923,29 @@ impl GameSession {
                 lock.drain_events()
             };
 
-            // Sync dynamic physics positions (RigidBody2D) back into the tree.
-            // Python's `self.position` reads through a tree-targeted Vec2, so
-            // updating the tree suffices — no per-backend write.
+            // Dynamic bodies move on their own; sync the tree so
+            // `self.position` reads the simulated value.
             {
                 let lock = self.physics.lock().unwrap();
-                for slot in &mut self.slots {
+                let mut moved = Vec::new();
+                for slot in &self.instances {
                     if lock.is_rigid_body(&slot.id) {
                         if let Some(pos) = lock.get_body_position(&slot.id) {
-                            self.host.with_tree_mut(|tree| {
-                                if let Some(node) = tree.get_mut(&slot.id) {
-                                    node.props.insert(
-                                        "position".to_string(),
-                                        PropValue::Vec2(pos.0, pos.1),
-                                    );
-                                }
-                            });
+                            moved.push((slot.id.clone(), pos));
                         }
                     }
                 }
+                drop(lock);
+                for (id, (x, y)) in moved {
+                    self.host.with_tree_mut(|tree| {
+                        if let Some(node) = tree.get_mut(&id) {
+                            node.props
+                                .insert("position".to_string(), PropValue::Vec2(x, y));
+                        }
+                    });
+                }
             }
 
-            // Dispatch Area2D signals
             for ev in events {
                 match ev {
                     PhysicsEvent::BodyEntered { area_id, body_id } => {
@@ -873,8 +988,8 @@ impl GameSession {
             self.physics_accumulator -= FIXED_STEP;
         }
 
-        for slot in &mut self.slots {
-            if slot.errored {
+        for slot in &mut self.instances {
+            if slot.errored || !slot.has_process {
                 continue;
             }
             if let Err(e) = slot.backend.call_process(delta) {
@@ -955,6 +1070,17 @@ impl GameSession {
     }
 }
 
+/// Helper for tests and diagnostics: return the underlying `Pyo3Backend`
+/// only when the boxed value is one. There is exactly one backend today,
+/// so this is a `_ = _` cast in spirit; the empty helper keeps `set_host`
+/// ergonomic for future alternate backends without changing call sites.
+fn backend_as_pyo3<'a>(backend: &'a mut Box<dyn ScriptBackend>) -> Option<&'a mut Pyo3Backend> {
+    // Not actually used by the current call site — see rebuild(). Kept to
+    // document the shape a future multi-backend world would take.
+    let _ = backend;
+    None
+}
+
 fn button_size(node: &pite_core::Node) -> (f64, f64) {
     match node.props.get("size") {
         Some(PropValue::Vec2(w, h)) => (*w, *h),
@@ -995,7 +1121,6 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let mut attrs = Window::default_attributes().with_title(self.title.clone());
-            // Maximized like the editor; the design size is the restore size.
             attrs = attrs.with_maximized(true);
             if let Some((w, h)) = self.session.design_size() {
                 attrs = attrs.with_inner_size(winit::dpi::PhysicalSize::new(w, h));
@@ -1041,10 +1166,6 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                // Physical pixels: the renderer's viewport (`inner_size`)
-                // is physical too, and `button_at` maps the cursor through
-                // it. Dividing by the scale factor here once made every
-                // click miss on scaled displays while the button drew fine.
                 pite_script::input_set_mouse(position.x, position.y);
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1146,7 +1267,8 @@ pub fn run_with_options(options: &RunOptions) -> Result<()> {
     tracing::info!(
         scene = %options.scene.display(),
         nodes = session.tree_len(),
-        scripts = session.script_count(),
+        scripted = session.scripted_count(),
+        instances = session.instance_count(),
         no_reload = options.no_reload,
         "scene loaded"
     );
@@ -1219,13 +1341,24 @@ mod tests {
             })
     }
 
+    fn tree_vec2(session: &GameSession, node_id: &str, key: &str) -> Option<(f64, f64)> {
+        session.host.with_tree(|t| {
+            t.get(&NodeId::from(node_id.to_string()))
+                .and_then(|n| n.props.get(key))
+                .and_then(|v| match v {
+                    PropValue::Vec2(x, y) => Some((*x, *y)),
+                    _ => None,
+                })
+        })
+    }
+
     #[test]
     fn editing_script_changes_behavior_without_restart() {
         let _guard = SERIAL.lock().unwrap();
         let (dir, script) = make_project("reload", "Mover", V1);
         let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, false).unwrap();
-        assert_eq!(session.script_count(), 1);
+        assert_eq!(session.scripted_count(), 1);
         let x1 = drive_x(&mut session);
         assert!((x1 - 10.0).abs() < 1e-6);
 
@@ -1260,7 +1393,7 @@ mod tests {
         let mut grown = false;
         for _ in 0..100 {
             session.poll_watch();
-            if session.tree_len() == 2 && session.script_count() == 0 {
+            if session.tree_len() == 2 && session.scripted_count() == 0 {
                 grown = true;
                 break;
             }
@@ -1304,19 +1437,8 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         assert_eq!(session.tree_len(), 2);
-        assert_eq!(session.script_count(), 1);
+        assert_eq!(session.scripted_count(), 1);
         std::fs::remove_dir_all(&dir).ok();
-    }
-
-    fn tree_vec2(session: &GameSession, node_id: &str, key: &str) -> Option<(f64, f64)> {
-        session.host.with_tree(|t| {
-            t.get(&NodeId::from(node_id.to_string()))
-                .and_then(|n| n.props.get(key))
-                .and_then(|v| match v {
-                    PropValue::Vec2(x, y) => Some((*x, *y)),
-                    _ => None,
-                })
-        })
     }
 
     #[test]
@@ -1632,8 +1754,6 @@ mod tests {
         let dir = make_button_project("btn-out");
         let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
-        // Screen points for the 1280x720 design center (640, 360): the
-        // fixture button sits at world (100, 100), i.e. screen (740, 460).
         click(&mut session, (100.0, 100.0), (100.0, 100.0));
         assert_eq!(btn_text(&session), "0");
         std::fs::remove_dir_all(&dir).ok();
@@ -1719,9 +1839,6 @@ mod tests {
         let scene = dir.join("scenes").join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
 
-        // Production order: the OS event lands between frames, so the
-        // edge is set BEFORE frame() with no begin_frame in between.
-        // (frame() itself retires edges at its end.)
         input_set_key("Space", true);
         session.frame(0.5);
         assert!((walker_x(&session) - 10.0).abs() < 1e-6);
@@ -1747,7 +1864,6 @@ mod tests {
             })
     }
 
-    /// Records what the draw path actually queued.
     #[derive(Default)]
     struct RecordingRenderer {
         calls: Vec<(String, Option<String>, (f64, f64))>,
@@ -1891,10 +2007,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Child-process half of the bundled-Python probe. With
-    /// `PITE_BUNDLE_PROBE=1` this initializes Python purely from whatever the
-    /// environment provides (a bundled libpython + stdlib zip, no system
-    /// Python) and prints `BUNDLE_PROBE_OK` only if a script really ran.
     #[test]
     fn bundle_probe_child() {
         if std::env::var("PITE_BUNDLE_PROBE").is_err() {
@@ -1944,7 +2056,10 @@ mod tests {
             .join("scenes")
             .join("main.ptscn");
         let mut session = GameSession::open(&scene, true).unwrap();
-        assert_eq!(session.script_count(), 3);
+        assert_eq!(session.scripted_count(), 3);
+        // Every node gets a slot, scripted or not. The dogfood scene has 5
+        // nodes in main.ptscn + 2 from the instanced enemy.ptscn = 7.
+        assert_eq!(session.instance_count(), 7);
         input_begin_frame();
         input_set_key("Space", true);
         session.update(0.016);
@@ -2177,6 +2292,28 @@ class Zone(pite.Area2D):
             "Area2D body_entered signal should move zone to (999, 999)"
         );
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Sanity-check that every tree node reaches `update()` via an
+    /// instance slot. A scriptless Sprite2D costs zero Python calls
+    /// (`has_process = false`), but its slot still exists so future
+    /// engine-owned behaviors can attach to it.
+    #[test]
+    fn scriptless_nodes_still_get_instances() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-scriptless-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.ptscn"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"spr\"\ntype = \"Sprite2D\"\nname = \"Spr\"\nparent = \"root\"\n\n[[node]]\nid = \"lbl\"\ntype = \"Label\"\nname = \"Lbl\"\nparent = \"root\"\n",
+        )
+        .unwrap();
+        let session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        assert_eq!(session.scripted_count(), 0);
+        assert_eq!(session.instance_count(), 3);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

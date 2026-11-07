@@ -381,21 +381,6 @@ pub fn extract_script_error(py: Python<'_>, err: &PyErr, ctx: &str) -> ScriptErr
     }
 }
 
-/// Fetch the current `ScriptHost` and this node's path from a `Bound<PyAny>`.
-/// Works at any inheritance depth — the `node_path` attribute is on `PyNode`
-/// (the base), so `getattr` reaches it regardless of the intermediate classes.
-/// Used by `pite_props!` (which is scoped to `pite-script`) and by custom
-/// node methods that need the same pair.
-#[allow(dead_code)] // exercised by pite_props! in cfg(test); real accessors land in commit 5
-pub(crate) fn host_and_path(
-    slf: &Bound<'_, PyAny>,
-) -> PyResult<(std::sync::Arc<crate::ScriptHost>, String)> {
-    let node_path: String = slf.getattr("node_path")?.extract()?;
-    let host = crate::host::current_host()
-        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("no script host"))?;
-    Ok((host, node_path))
-}
-
 pub struct Pyo3Backend {
     node_path: String,
     file: PathBuf,
@@ -405,6 +390,14 @@ pub struct Pyo3Backend {
     last_script_error: Option<ScriptError>,
     host: Option<std::sync::Arc<crate::ScriptHost>>,
     pending_signals: Vec<(String, Vec<String>)>,
+
+    // Lifecycle flags, probed once at load/load_base and re-probed after
+    // reload. `false` means the pyclass does not define (or inherit) the
+    // corresponding method, so the runtime skips the call entirely — a
+    // scriptless Sprite2D costs zero Python calls per frame.
+    has_ready: bool,
+    has_process: bool,
+    has_physics_process: bool,
 }
 
 impl Pyo3Backend {
@@ -419,6 +412,9 @@ impl Pyo3Backend {
             last_script_error: None,
             host: None,
             pending_signals: Vec::new(),
+            has_ready: false,
+            has_process: false,
+            has_physics_process: false,
         }
     }
 
@@ -580,6 +576,33 @@ impl Pyo3Backend {
         })
     }
 
+    /// Query the instance once for `_ready` / `_process` / `_physics_process`
+    /// presence. Inherited methods count (getattr resolves through MRO), so
+    /// a `Player(prite.Sprite2D)` that only overrides `_process` reports
+    /// `has_ready = false, has_process = true`.
+    fn probe_lifecycle(&mut self) {
+        let (ready, process, physics) = Python::attach(|py| {
+            let Some(inst) = &self.instance else {
+                return (false, false, false);
+            };
+            let b = inst.bind(py);
+            let check = |name: &str| -> bool {
+                b.getattr(name)
+                    .ok()
+                    .map(|attr| !attr.is_none() && attr.is_callable())
+                    .unwrap_or(false)
+            };
+            (
+                check("_ready"),
+                check("_process"),
+                check("_physics_process"),
+            )
+        });
+        self.has_ready = ready;
+        self.has_process = process;
+        self.has_physics_process = physics;
+    }
+
     fn call_opt(&mut self, method: &str, arg: Option<f64>) -> Result<()> {
         let ctx = format!(
             "{} ({}:{}.{})",
@@ -622,7 +645,57 @@ impl ScriptBackend for Pyo3Backend {
         self.class = class.to_string();
         self.last_error = None;
         self.last_script_error = None;
-        self.exec()
+        self.exec()?;
+        self.probe_lifecycle();
+        Ok(())
+    }
+
+    fn load_base(&mut self, type_name: &str) -> Result<()> {
+        // Reset script identity; the base pyclass lives in the engine's
+        // `pite` module, not on disk.
+        self.file = PathBuf::new();
+        self.class = type_name.to_string();
+        self.last_error = None;
+        self.last_script_error = None;
+        Python::attach(|py| -> Result<()> {
+            let pite = py.import("pite")?;
+            let cls = pite.getattr(type_name).with_context(|| {
+                format!("no base pyclass named {type_name:?} in the pite module")
+            })?;
+            let instance = cls.call0()?;
+            let owned: Py<PyAny> = instance.into();
+            owned.bind(py).setattr("node_path", &self.node_path)?;
+            if let Some(host) = &self.host {
+                if let Ok(pos_attr) = owned.bind(py).getattr("position") {
+                    if let Ok(mut vec2_bound) =
+                        pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
+                    {
+                        vec2_bound.set_target(
+                            host.clone(),
+                            self.node_path.clone(),
+                            "position".to_string(),
+                        );
+                    }
+                }
+                host.register(self.node_path.clone(), owned.clone_ref(py));
+            }
+            self.instance = Some(owned);
+            Ok(())
+        })?;
+        self.probe_lifecycle();
+        Ok(())
+    }
+
+    fn has_ready(&self) -> bool {
+        self.has_ready
+    }
+
+    fn has_process(&self) -> bool {
+        self.has_process
+    }
+
+    fn has_physics_process(&self) -> bool {
+        self.has_physics_process
     }
 
     fn call_ready(&mut self) -> Result<()> {
@@ -658,6 +731,7 @@ impl ScriptBackend for Pyo3Backend {
         });
         self.last_error = None;
         self.exec()?;
+        self.probe_lifecycle();
         if let Some(attrs) = old_dict {
             Python::attach(|py| {
                 if let Some(inst) = &self.instance {
@@ -805,90 +879,6 @@ class Boom(pite.Node2D):
     }
 
     #[test]
-    fn label_text_syncs_both_ways() {
-        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
-        use pite_core::{NodeDesc, NodeId, NodeTree};
-        use std::sync::Arc;
-
-        let dir = test_dir("label");
-        let file = fixture(&dir, "hud.py", LABELER);
-        let mut tree = NodeTree::new();
-        tree.insert(NodeDesc::new(NodeId::from("hud".to_string()), "Label"))
-            .unwrap();
-        let host = Arc::new(crate::ScriptHost::new(tree));
-        crate::set_current_host(host.clone());
-
-        let mut backend = Pyo3Backend::new("hud");
-        backend.set_host(host.clone());
-        backend.load(&file, "Hud").unwrap();
-        backend.call_ready().unwrap();
-        assert_eq!(host.get_string("hud", "text"), "HP: 3");
-        backend.call_process(0.016).unwrap();
-        assert_eq!(host.get_string("hud", "text"), "HP: 2");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn plain_node_has_no_text_channel() {
-        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
-        use pite_core::{NodeDesc, NodeId, NodeTree};
-        use std::sync::Arc;
-
-        let dir = test_dir("notetext");
-        let file = fixture(
-            &dir,
-            "plain_notetext.py",
-            "import pite\n\nclass Plain(pite.Node):\n    pass\n",
-        );
-        let mut tree = NodeTree::new();
-        tree.insert(NodeDesc::new(NodeId::from("plain".to_string()), "Node"))
-            .unwrap();
-        let host = Arc::new(crate::ScriptHost::new(tree));
-        crate::set_current_host(host.clone());
-
-        let mut backend = Pyo3Backend::new("plain");
-        backend.set_host(host.clone());
-        backend.load(&file, "Plain").unwrap();
-        backend.call_process(0.016).unwrap();
-        Python::attach(|py| {
-            use pyo3::types::PyAnyMethods;
-            let inst = host.lookup_instance(py, "plain").unwrap();
-            assert!(
-                !inst.bind(py).hasattr("text").unwrap_or(true),
-                "plain Node must not expose a `text` attribute"
-            );
-        });
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn button_size_syncs_both_ways() {
-        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
-        use pite_core::{NodeDesc, NodeId, NodeTree};
-        use std::sync::Arc;
-
-        let dir = test_dir("size");
-        let file = fixture(&dir, "sizer.py", SIZER);
-        let mut tree = NodeTree::new();
-        tree.insert(NodeDesc::new(NodeId::from("sizer".to_string()), "Button"))
-            .unwrap();
-        let host = Arc::new(crate::ScriptHost::new(tree));
-        crate::set_current_host(host.clone());
-
-        let mut backend = Pyo3Backend::new("sizer");
-        backend.set_host(host.clone());
-        backend.load(&file, "Sizer").unwrap();
-        host.set_prop("sizer", "size", pite_core::PropValue::Vec2(10.0, 20.0));
-        backend.call_ready().unwrap();
-        let s = host.get_vec2("sizer", "size");
-        assert_eq!((s.x, s.y), (120.0, 40.0));
-        backend.call_process(0.016).unwrap();
-        let s = host.get_vec2("sizer", "size");
-        assert_eq!((s.x, s.y), (121.0, 40.0));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
     fn missing_method_is_noop() {
         let dir = test_dir("plain");
         let file = fixture(
@@ -978,6 +968,63 @@ class Hud(pite.Label):
         self.text = "HP: 2"
 "#;
 
+    #[test]
+    fn label_text_syncs_both_ways() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("label");
+        let file = fixture(&dir, "hud.py", LABELER);
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("hud".to_string()), "Label"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("hud");
+        backend.set_host(host.clone());
+        backend.load(&file, "Hud").unwrap();
+        backend.call_ready().unwrap();
+        assert_eq!(host.get_string("hud", "text"), "HP: 3");
+        backend.call_process(0.016).unwrap();
+        assert_eq!(host.get_string("hud", "text"), "HP: 2");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plain_node_has_no_text_channel() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("notetext");
+        let file = fixture(
+            &dir,
+            "plain_notetext.py",
+            "import pite\n\nclass Plain(pite.Node):\n    pass\n",
+        );
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("plain".to_string()), "Node"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("plain");
+        backend.set_host(host.clone());
+        backend.load(&file, "Plain").unwrap();
+        backend.call_process(0.016).unwrap();
+        Python::attach(|py| {
+            use pyo3::types::PyAnyMethods;
+            let inst = host.lookup_instance(py, "plain").unwrap();
+            assert!(
+                !inst.bind(py).hasattr("text").unwrap_or(true),
+                "plain Node must not expose a `text` attribute"
+            );
+        });
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     const SIZER: &str = r#"
 import pite
 
@@ -989,6 +1036,33 @@ class Sizer(pite.Button):
         w, h = self.size
         self.size = (w + 1.0, h)
 "#;
+
+    #[test]
+    fn button_size_syncs_both_ways() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("size");
+        let file = fixture(&dir, "sizer.py", SIZER);
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("sizer".to_string()), "Button"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("sizer");
+        backend.set_host(host.clone());
+        backend.load(&file, "Sizer").unwrap();
+        host.set_prop("sizer", "size", pite_core::PropValue::Vec2(10.0, 20.0));
+        backend.call_ready().unwrap();
+        let s = host.get_vec2("sizer", "size");
+        assert_eq!((s.x, s.y), (120.0, 40.0));
+        backend.call_process(0.016).unwrap();
+        let s = host.get_vec2("sizer", "size");
+        assert_eq!((s.x, s.y), (121.0, 40.0));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     const SENSOR: &str = r#"
 import pite
@@ -1187,4 +1261,73 @@ class Listener(pite.Node2D):
         // commit 4; the schema-defaults work must not change it).
         host.set_prop("ghost", "position", pite_core::PropValue::Vec2(9.0, 9.0));
     }
+
+    /// `load_base` constructs the engine's own pyclass for a node with no
+    /// user script attached. The instance must be registered with the host,
+    /// its `node_path` set, and its lifecycle flags probed — a base
+    /// `Sprite2D` has none of `_ready` / `_process` / `_physics_process`,
+    /// so a future runtime can skip calling into it entirely.
+    #[test]
+    fn load_base_instantiates_pyclass_without_script() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("hero".to_string()), "Sprite2D"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("hero");
+        backend.set_host(host.clone());
+        backend.load_base("Sprite2D").unwrap();
+
+        // Registered with the host so signal connections and get_node
+        // work through the base pyclass.
+        Python::attach(|py| {
+            assert!(host.lookup_instance(py, "hero").is_some());
+            let inst = host.lookup_instance(py, "hero").unwrap();
+            let node_path: String = inst
+                .bind(py)
+                .getattr("node_path")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(node_path, "hero");
+        });
+
+        // Base pyclass has no lifecycle methods; all three flags false.
+        assert!(!backend.has_ready());
+        assert!(!backend.has_process());
+        assert!(!backend.has_physics_process());
+
+        // `call_*` on a base instance is a silent no-op (no method).
+        backend.call_ready().unwrap();
+        backend.call_process(0.016).unwrap();
+        backend.call_physics_process(0.016).unwrap();
+
+        // Writing through the base pyclass reaches the tree.
+        host.set_prop("hero", "text", pite_core::PropValue::Str("ignored".into()));
+        assert_eq!(host.get_string("hero", "text"), "ignored");
+
+        std::fs::remove_dir_all(
+            std::env::temp_dir().join(format!("pite-py-loadbase-{}", std::process::id())),
+        )
+        .ok();
+    }
+}
+
+/// Fetch the current `ScriptHost` and this node's path from a `Bound<PyAny>`.
+/// Works at any inheritance depth — the `node_path` attribute is on `PyNode`
+/// (the base), so `getattr` reaches it regardless of the intermediate classes.
+/// Used by `pite_props!` (which is scoped to `pite-script`) and by custom
+/// node methods that need the same pair.
+pub(crate) fn host_and_path(
+    slf: &Bound<'_, PyAny>,
+) -> PyResult<(std::sync::Arc<crate::ScriptHost>, String)> {
+    let node_path: String = slf.getattr("node_path")?.extract()?;
+    let host = crate::host::current_host()
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("no script host"))?;
+    Ok((host, node_path))
 }

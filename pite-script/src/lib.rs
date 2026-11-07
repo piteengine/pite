@@ -46,8 +46,24 @@ pub fn is_reserved(name: &str) -> bool {
     RESERVED_METHODS.contains(&name)
 }
 
+/// Backend interface consumed by `pite-runtime`. `Pyo3Backend` is the only
+/// impl today; `NoopBackend` exists for headless tests.
 pub trait ScriptBackend {
+    /// Load a user script file and instantiate `class` from it.
     fn load(&mut self, path: &str, class: &str) -> Result<()>;
+
+    /// Instantiate the engine's own pyclass for `type_name` (e.g.
+    /// `"Sprite2D"` → `pite.Sprite2D`), with no user code attached. Used
+    /// for scriptless nodes so engine-owned behaviors (Timer.timeout,
+    /// Button.pressed in a future commit) can live on the pyclass.
+    ///
+    /// Defaults to an error: backends that only drive user scripts (mocks
+    /// in tests, future non-Python bindings) opt out entirely, and the
+    /// runtime falls back to no slot for the affected node.
+    fn load_base(&mut self, _type_name: &str) -> Result<()> {
+        anyhow::bail!("this backend cannot instantiate base pyclasses")
+    }
+
     fn call_ready(&mut self) -> Result<()>;
     fn call_process(&mut self, delta: f64) -> Result<()>;
     fn call_physics_process(&mut self, _delta: f64) -> Result<()> {
@@ -61,6 +77,21 @@ pub trait ScriptBackend {
 
     fn last_script_error(&self) -> Option<ScriptError> {
         None
+    }
+
+    /// Whether the *instance* exposes `_ready` / `_process` /
+    /// `_physics_process` (inherited methods count — the probe walks the
+    /// class hierarchy). Defaults to `true` so backends that don't track
+    /// this still get called; `Pyo3Backend` overrides with a real probe at
+    /// instantiation time.
+    fn has_ready(&self) -> bool {
+        true
+    }
+    fn has_process(&self) -> bool {
+        true
+    }
+    fn has_physics_process(&self) -> bool {
+        true
     }
 }
 
