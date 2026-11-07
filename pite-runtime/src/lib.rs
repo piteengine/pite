@@ -482,26 +482,6 @@ impl GameSession {
                         slot.errored = true;
                     }
                 }
-                let seeds = self.host.with_tree(|tree| {
-                    (
-                        seed_position(tree, &id),
-                        seed_text(tree, &id),
-                        seed_size(tree, &id),
-                        seed_wait(tree, &id),
-                    )
-                });
-                if let Some((x, y)) = seeds.0 {
-                    slot.backend.set_position(x, y);
-                }
-                if let Some(text) = seeds.1 {
-                    slot.backend.set_text(&text);
-                }
-                if let Some((w, h)) = seeds.2 {
-                    slot.backend.set_size(w, h);
-                }
-                if let Some(wait) = seeds.3 {
-                    slot.backend.set_wait_time(wait);
-                }
                 self.slots.push(slot);
                 continue;
             }
@@ -513,26 +493,6 @@ impl GameSession {
             backend.set_host(self.host.clone());
             match backend.load(&path.to_string_lossy(), &class) {
                 Ok(()) => {
-                    let seeds = self.host.with_tree(|tree| {
-                        (
-                            seed_position(tree, &id),
-                            seed_text(tree, &id),
-                            seed_size(tree, &id),
-                            seed_wait(tree, &id),
-                        )
-                    });
-                    if let Some((x, y)) = seeds.0 {
-                        backend.set_position(x, y);
-                    }
-                    if let Some(text) = seeds.1 {
-                        backend.set_text(&text);
-                    }
-                    if let Some((w, h)) = seeds.2 {
-                        backend.set_size(w, h);
-                    }
-                    if let Some(wait) = seeds.3 {
-                        backend.set_wait_time(wait);
-                    }
                     let mut errored = false;
                     if let Err(e) = backend.call_ready() {
                         tracing::error!(node = %id, "{e:#}");
@@ -823,7 +783,13 @@ impl GameSession {
                         self.last_error = slot.backend.last_script_error();
                     }
                 }
-                if let Some((x, y)) = slot.backend.position() {
+                let pos = self.host.with_tree(|t| {
+                    match t.get(&slot.id).and_then(|n| n.props.get("position")) {
+                        Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
+                        _ => None,
+                    }
+                });
+                if let Some((x, y)) = pos {
                     let mut lock = self.physics.lock().unwrap();
                     lock.set_body_position(&slot.id, (x, y));
                 }
@@ -835,13 +801,14 @@ impl GameSession {
                 lock.drain_events()
             };
 
-            // Sync dynamic physics positions (RigidBody2D) back into tree & slots
+            // Sync dynamic physics positions (RigidBody2D) back into the tree.
+            // Python's `self.position` reads through a tree-targeted Vec2, so
+            // updating the tree suffices — no per-backend write.
             {
                 let lock = self.physics.lock().unwrap();
                 for slot in &mut self.slots {
                     if lock.is_rigid_body(&slot.id) {
                         if let Some(pos) = lock.get_body_position(&slot.id) {
-                            slot.backend.set_position(pos.0, pos.1);
                             self.host.with_tree_mut(|tree| {
                                 if let Some(node) = tree.get_mut(&slot.id) {
                                     node.props.insert(
@@ -908,14 +875,6 @@ impl GameSession {
                 if self.pause_on_error && self.last_error.is_none() {
                     self.last_error = slot.backend.last_script_error();
                 }
-            }
-            if let Some(wait) = slot.backend.wait_time() {
-                self.host.with_tree_mut(|tree| {
-                    if let Some(node) = tree.get_mut(&slot.id) {
-                        node.props
-                            .insert("wait_time".to_string(), PropValue::Num(wait));
-                    }
-                });
             }
         }
         self.tick_timers(delta);
@@ -1198,35 +1157,6 @@ pub fn run_with_options(options: &RunOptions) -> Result<()> {
     Ok(())
 }
 
-fn seed_position(tree: &NodeTree, id: &NodeId) -> Option<(f64, f64)> {
-    match tree.get(id)?.props.get("position") {
-        Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
-        _ => None,
-    }
-}
-
-fn seed_text(tree: &NodeTree, id: &NodeId) -> Option<String> {
-    match tree.get(id)?.props.get("text") {
-        Some(PropValue::Str(s)) => Some(s.clone()),
-        _ => None,
-    }
-}
-
-fn seed_wait(tree: &NodeTree, id: &NodeId) -> Option<f64> {
-    match tree.get(id)?.props.get("wait_time") {
-        Some(PropValue::Num(f)) => Some(*f),
-        Some(PropValue::Int(i)) => Some(*i as f64),
-        _ => None,
-    }
-}
-
-fn seed_size(tree: &NodeTree, id: &NodeId) -> Option<(f64, f64)> {
-    match tree.get(id)?.props.get("size") {
-        Some(PropValue::Vec2(w, h)) => Some((*w, *h)),
-        _ => None,
-    }
-}
-
 fn resolve_script(
     script_ref: &str,
     scene_dir: &Path,
@@ -1370,6 +1300,17 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    fn tree_vec2(session: &GameSession, node_id: &str, key: &str) -> Option<(f64, f64)> {
+        session.host.with_tree(|t| {
+            t.get(&NodeId::from(node_id.to_string()))
+                .and_then(|n| n.props.get(key))
+                .and_then(|v| match v {
+                    PropValue::Vec2(x, y) => Some((*x, *y)),
+                    _ => None,
+                })
+        })
+    }
+
     #[test]
     fn script_reload_preserves_custom_attributes_and_velocity() {
         let _guard = SERIAL.lock().unwrap();
@@ -1391,7 +1332,10 @@ mod tests {
             let score: i32 = inst.bind(py).getattr("score").unwrap().extract().unwrap();
             assert_eq!(score, 42);
         });
-        assert_eq!(session.slots[0].backend.velocity(), Some((123.0, 456.0)));
+        assert_eq!(
+            tree_vec2(&session, "mover", "velocity"),
+            Some((123.0, 456.0))
+        );
 
         std::fs::write(&script, src2).unwrap();
         let mut reloaded = false;
@@ -1409,7 +1353,10 @@ mod tests {
             let score: i32 = inst.bind(py).getattr("score").unwrap().extract().unwrap();
             assert_eq!(score, 42);
         });
-        assert_eq!(session.slots[0].backend.velocity(), Some((123.0, 456.0)));
+        assert_eq!(
+            tree_vec2(&session, "mover", "velocity"),
+            Some((123.0, 456.0))
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

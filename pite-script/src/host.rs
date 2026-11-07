@@ -72,15 +72,16 @@ impl ScriptHost {
     /// Missing **node** is a normal runtime scenario — a script or the editor
     /// can drop a node mid-play, and `pite-runtime` still holds slots for it
     /// until the next `rebuild`. Returning `T::default()` and logging keeps
-    /// that recoverable (`dropped_button_disconnects_silently` depends on it:
-    /// removing a node then polling its position must not crash).
+    /// that recoverable (`dropped_button_disconnects_silently` depends on it).
     ///
-    /// Missing **prop** on an *existing* node is the invariant violation the
-    /// `to_node_tree` / `add_node` schema-default filling was introduced to
-    /// eliminate. Debug builds `debug_assert!(false)` to surface it; release
-    /// builds log and fall back to the schema default (looked up via
-    /// `all_props`, so inherited props are found) so a player never sees a
-    /// crash.
+    /// Missing **prop** on an *existing* node is the invariant violation that
+    /// `to_node_tree` / `add_node` filling was introduced to eliminate, so
+    /// debug builds of any *consumer* crate (`pite-runtime`, `pite-editor`,
+    /// ...) panic. Gated to `cfg(not(test))` because `pite-script`'s own
+    /// unit tests build minimal `NodeDesc` fixtures — only the props the
+    /// test reads — which is the one scenario where the invariant doesn't
+    /// apply. Release builds (either side) log and fall back to the schema
+    /// default so a player never sees a crash.
     fn get_or_schema_default<T, F>(&self, node: &str, key: &str, extract: F) -> T
     where
         T: Default,
@@ -95,6 +96,7 @@ impl ScriptHost {
             if let Some(v) = n.props.get(key).and_then(|v| extract(v)) {
                 return v;
             }
+            #[cfg(not(test))]
             debug_assert!(
                 false,
                 "prop {key:?} missing/mistyped on {node:?} (type {:?}); \

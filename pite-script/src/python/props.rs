@@ -270,7 +270,23 @@ macro_rules! pite_props {
                     slf: &::pyo3::Bound<'py, Self>,
                     py: ::pyo3::Python<'py>,
                 ) -> ::pyo3::Py<$crate::vec2::Vec2> {
-                    slf.borrow().$key.clone_ref(py)
+                    let obj = slf.borrow().$key.clone_ref(py);
+                    // Install the host target on first access so
+                    // `self.velocity.x = 5` and `self.velocity = (5, 6)`
+                    // both reach the tree — no eager per-field walk needed
+                    // in `exec()`.
+                    if obj.borrow(py).target.is_none() {
+                        if let Ok((host, node)) =
+                            $crate::python::host_and_path(slf.as_any())
+                        {
+                            obj.borrow_mut(py).set_target(
+                                host,
+                                node,
+                                stringify!($key).to_string(),
+                            );
+                        }
+                    }
+                    obj
                 }
                 #[setter]
                 fn [<set_ $key>]<'py>(
@@ -291,9 +307,19 @@ macro_rules! pite_props {
                             concat!(stringify!($key), " must be Vec2 or (x, y) tuple"),
                         ));
                     };
-                    let position = slf.borrow().$key.clone_ref(py);
-                    let mut v = position.borrow_mut(py);
-                    v.set_xy(x, y);
+                    let obj = slf.borrow().$key.clone_ref(py);
+                    if obj.borrow(py).target.is_none() {
+                        if let Ok((host, node)) =
+                            $crate::python::host_and_path(slf.as_any())
+                        {
+                            obj.borrow_mut(py).set_target(
+                                host,
+                                node,
+                                stringify!($key).to_string(),
+                            );
+                        }
+                    }
+                    obj.borrow_mut(py).set_xy(x, y);
                     Ok(())
                 }
             }
@@ -307,7 +333,19 @@ macro_rules! pite_props {
                 slf: &::pyo3::Bound<'py, Self>,
                 py: ::pyo3::Python<'py>,
             ) -> ::pyo3::Py<$crate::vec2::Vec2> {
-                slf.borrow().$key.clone_ref(py)
+                let obj = slf.borrow().$key.clone_ref(py);
+                if obj.borrow(py).target.is_none() {
+                    if let Ok((host, node)) =
+                        $crate::python::host_and_path(slf.as_any())
+                    {
+                        obj.borrow_mut(py).set_target(
+                            host,
+                            node,
+                            stringify!($key).to_string(),
+                        );
+                    }
+                }
+                obj
             }
         }
     };

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Tree-backed Python accessors. Every pyclass now generates its prop
+  surface from `pite_props! { PyX { key: Kind, ... } }` — no per-pyclass
+  Rust fields mirroring tree state, no `ScriptBackend::position`/`text`/
+  `size`/`velocity`/`wait_time`, no per-frame polling in the runtime.
+
+  Behavior changes for existing scripts:
+  - Writing `self.texture`, `self.atlas`, `self.frame` from Python now
+    reaches the tree, so the renderer picks up the change next frame
+    (previously wrote a dead Rust field — visible fix).
+  - `self.mass`, `self.friction`, `self.restitution`, `self.collision_layer`,
+    `self.collision_mask` on `RigidBody2D`/`StaticBody2D`/`CharacterBody2D`/
+    `Area2D` persist through save/reload (previously Python-only field,
+    discarded on reload).
+  - `self.font_size`, `self.color`, `self.disabled` become writable on
+    `Label` and `Button` (previously no accessor).
+  - `self.friction`, `self.restitution` become writable on `StaticBody2D`
+    (previously only on `RigidBody2D`).
+  - `Camera2D.zoom` is now `float` and script-accessible; the schema was
+    always a `Vec2` but the runtime read `Num` — a pre-existing dead
+    default, fixed to `Num(1.0)`.
+  - `CollisionShape2D.size` returns a `Vec2` instead of a Python tuple
+    (matches `position`; unpacking `x, y = cs.size` still works).
+
+  `self.velocity.x = 5` and `self.velocity = (5, 6)` both work — the
+  `pite_props!` Vec2 accessor installs the host target lazily on first
+  touch, so per-field setup in `exec()` is no longer needed.
+
+  Hot reload preserves tree-backed props without a save-restore pass:
+  the tree is untouched by reload, and the new Python instance reads
+  through the same tree targets. Only user attributes (`self._hit`,
+  `self.score`) survive via the existing `__dict__` swap.
 - Node schemas moved to per-node files (`pite-core/src/nodes/*.rs`), one
   file per type. Three abstract base classes now exist so subclasses
   inherit shared props without redeclaring them:

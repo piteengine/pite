@@ -6,12 +6,7 @@ use super::node::PyNode;
 use super::node2d::PyNode2D;
 
 #[pyclass(extends = PyNode2D, subclass, name = "Area2D")]
-pub(crate) struct PyArea2D {
-    #[pyo3(get, set)]
-    collision_layer: u32,
-    #[pyo3(get, set)]
-    collision_mask: u32,
-}
+pub(crate) struct PyArea2D;
 
 #[pymethods]
 impl PyArea2D {
@@ -20,10 +15,7 @@ impl PyArea2D {
         let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
         Ok(PyClassInitializer::from(PyNode::new())
             .add_subclass(PyNode2D { position: pos })
-            .add_subclass(PyArea2D {
-                collision_layer: 1,
-                collision_mask: 1,
-            }))
+            .add_subclass(PyArea2D))
     }
 
     #[getter]
@@ -76,5 +68,12 @@ impl PyArea2D {
             node_path,
             "area_exited".to_string(),
         ))
+    }
+}
+
+crate::pite_props! {
+    PyArea2D {
+        collision_layer: Int,
+        collision_mask: Int,
     }
 }

@@ -7,16 +7,7 @@ use super::node2d::PyNode2D;
 
 #[pyclass(extends = PyNode2D, subclass, name = "CollisionShape2D")]
 pub(crate) struct PyCollisionShape2D {
-    #[pyo3(get, set)]
-    shape: String,
-    #[pyo3(get, set)]
-    size: (f64, f64),
-    #[pyo3(get, set)]
-    radius: f64,
-    #[pyo3(get, set)]
-    height: f64,
-    #[pyo3(get, set)]
-    disabled: bool,
+    pub(crate) size: Py<crate::vec2::Vec2>,
 }
 
 #[pymethods]
@@ -24,14 +15,19 @@ impl PyCollisionShape2D {
     #[new]
     pub(crate) fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
         let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        let size = Py::new(py, crate::vec2::Vec2::new(32.0, 32.0))?;
         Ok(PyClassInitializer::from(PyNode::new())
             .add_subclass(PyNode2D { position: pos })
-            .add_subclass(PyCollisionShape2D {
-                shape: "box".to_string(),
-                size: (32.0, 32.0),
-                radius: 16.0,
-                height: 32.0,
-                disabled: false,
-            }))
+            .add_subclass(PyCollisionShape2D { size }))
+    }
+}
+
+crate::pite_props! {
+    PyCollisionShape2D {
+        shape: Str,
+        size: Vec2,
+        radius: Num,
+        height: Num,
+        disabled: Bool,
     }
 }

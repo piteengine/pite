@@ -6,14 +6,7 @@ use super::node::PyNode;
 use super::node2d::PyNode2D;
 
 #[pyclass(extends = PyNode2D, subclass, name = "Sprite2D")]
-pub(crate) struct PySprite2D {
-    #[pyo3(get, set)]
-    texture: String,
-    #[pyo3(get, set)]
-    atlas: String,
-    #[pyo3(get, set)]
-    frame: String,
-}
+pub(crate) struct PySprite2D;
 
 #[pymethods]
 impl PySprite2D {
@@ -22,10 +15,14 @@ impl PySprite2D {
         let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
         Ok(PyClassInitializer::from(PyNode::new())
             .add_subclass(PyNode2D { position: pos })
-            .add_subclass(PySprite2D {
-                texture: String::new(),
-                atlas: String::new(),
-                frame: String::new(),
-            }))
+            .add_subclass(PySprite2D))
+    }
+}
+
+crate::pite_props! {
+    PySprite2D {
+        texture: Str,
+        atlas: Str,
+        frame: Str,
     }
 }

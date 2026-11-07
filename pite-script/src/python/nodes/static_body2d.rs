@@ -6,12 +6,7 @@ use super::node::PyNode;
 use super::node2d::PyNode2D;
 
 #[pyclass(extends = PyNode2D, subclass, name = "StaticBody2D")]
-pub(crate) struct PyStaticBody2D {
-    #[pyo3(get, set)]
-    collision_layer: u32,
-    #[pyo3(get, set)]
-    collision_mask: u32,
-}
+pub(crate) struct PyStaticBody2D;
 
 #[pymethods]
 impl PyStaticBody2D {
@@ -20,9 +15,15 @@ impl PyStaticBody2D {
         let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
         Ok(PyClassInitializer::from(PyNode::new())
             .add_subclass(PyNode2D { position: pos })
-            .add_subclass(PyStaticBody2D {
-                collision_layer: 1,
-                collision_mask: 1,
-            }))
+            .add_subclass(PyStaticBody2D))
+    }
+}
+
+crate::pite_props! {
+    PyStaticBody2D {
+        collision_layer: Int,
+        collision_mask: Int,
+        friction: Num,
+        restitution: Num,
     }
 }

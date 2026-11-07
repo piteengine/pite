@@ -64,7 +64,8 @@ class Sprite2D(Node2D):
     atlas: str
     frame: str
 
-class Camera2D(Node2D): ...
+class Camera2D(Node2D):
+    zoom: float
 
 class Timer(Node):
     wait_time: float
@@ -72,15 +73,22 @@ class Timer(Node):
 
 class Label(Node):
     text: str
+    font_size: float
+    color: tuple[int, int, int, int]
 
 class Button(Node2D):
     text: str
     size: Vec2
+    font_size: float
+    color: tuple[int, int, int, int]
+    disabled: bool
     pressed: Signal
 
 class StaticBody2D(Node2D):
     collision_layer: int
     collision_mask: int
+    friction: float
+    restitution: float
 
 class CharacterBody2D(Node2D):
     velocity: Vec2
@@ -113,7 +121,7 @@ class Area2D(Node2D):
 
 class CollisionShape2D(Node2D):
     shape: str
-    size: tuple[float, float]
+    size: Vec2
     radius: float
     height: float
     disabled: bool

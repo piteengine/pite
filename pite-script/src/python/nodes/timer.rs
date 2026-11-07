@@ -5,16 +5,13 @@ use pyo3::PyClassInitializer;
 use super::node::PyNode;
 
 #[pyclass(extends = PyNode, subclass, name = "Timer")]
-pub(crate) struct PyTimer {
-    #[pyo3(get, set)]
-    wait_time: f64,
-}
+pub(crate) struct PyTimer;
 
 #[pymethods]
 impl PyTimer {
     #[new]
     pub(crate) fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new()).add_subclass(PyTimer { wait_time: 1.0 })
+        PyClassInitializer::from(PyNode::new()).add_subclass(PyTimer)
     }
 
     #[getter]
@@ -28,5 +25,11 @@ impl PyTimer {
             node_path,
             "timeout".to_string(),
         ))
+    }
+}
+
+crate::pite_props! {
+    PyTimer {
+        wait_time: Num,
     }
 }

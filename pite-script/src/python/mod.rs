@@ -638,11 +638,10 @@ impl ScriptBackend for Pyo3Backend {
     }
 
     fn reload(&mut self) -> Result<()> {
-        let pos = self.position();
-        let vel = self.velocity();
-        let text = self.text();
-        let size = self.size();
-        let wait = self.wait_time();
+        // Every tree-backed prop (position, velocity, text, size, wait_time,
+        // ...) lives in `tree.props`, which reload never touches: the tree
+        // is what the new Python instance reads through. Only custom user
+        // attributes (self.foo, self._hit) need the `__dict__` swap.
         let old_dict: Option<std::collections::HashMap<String, Py<PyAny>>> = Python::attach(|py| {
             let inst = self.instance.as_ref()?.bind(py);
             let dict = inst.getattr("__dict__").ok()?;
@@ -650,11 +649,7 @@ impl ScriptBackend for Pyo3Backend {
             let mut attrs = std::collections::HashMap::new();
             for (k, v) in py_dict {
                 if let Ok(key) = k.extract::<String>() {
-                    if key != "node_path"
-                        && key != "_descriptor_cache"
-                        && key != "position"
-                        && key != "velocity"
-                    {
+                    if key != "node_path" && key != "_descriptor_cache" {
                         attrs.insert(key, v.into());
                     }
                 }
@@ -663,21 +658,6 @@ impl ScriptBackend for Pyo3Backend {
         });
         self.last_error = None;
         self.exec()?;
-        if let Some((x, y)) = pos {
-            self.set_position(x, y);
-        }
-        if let Some((vx, vy)) = vel {
-            self.set_velocity(vx, vy);
-        }
-        if let Some(text) = text {
-            self.set_text(&text);
-        }
-        if let Some((w, h)) = size {
-            self.set_size(w, h);
-        }
-        if let Some(wait) = wait {
-            self.set_wait_time(wait);
-        }
         if let Some(attrs) = old_dict {
             Python::attach(|py| {
                 if let Some(inst) = &self.instance {
@@ -692,136 +672,6 @@ impl ScriptBackend for Pyo3Backend {
             });
         }
         Ok(())
-    }
-
-    fn position(&self) -> Option<(f64, f64)> {
-        Python::attach(|py| {
-            let inst = self.instance.as_ref()?.bind(py);
-            let attr = inst.getattr("position").ok()?;
-            if let Ok(v) = attr.extract::<crate::vec2::Vec2>() {
-                Some((v.x(), v.y()))
-            } else if let Ok(t) = attr.extract::<(f64, f64)>() {
-                Some(t)
-            } else {
-                None
-            }
-        })
-    }
-
-    fn set_position(&mut self, x: f64, y: f64) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("position", (x, y));
-            }
-        });
-    }
-
-    fn velocity(&self) -> Option<(f64, f64)> {
-        Python::attach(|py| {
-            let inst = self.instance.as_ref()?.bind(py);
-            let attr = inst.getattr("velocity").ok()?;
-            if let Ok(v) = attr.extract::<crate::vec2::Vec2>() {
-                Some((v.x(), v.y()))
-            } else if let Ok(t) = attr.extract::<(f64, f64)>() {
-                Some(t)
-            } else {
-                None
-            }
-        })
-    }
-
-    fn set_velocity(&mut self, vx: f64, vy: f64) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("velocity", (vx, vy));
-            }
-        });
-    }
-
-    fn set_on_floor(&mut self, on_floor: bool) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("_is_on_floor", on_floor);
-            }
-        });
-    }
-
-    fn set_on_wall(&mut self, on_wall: bool) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("_is_on_wall", on_wall);
-            }
-        });
-    }
-
-    fn set_on_ceiling(&mut self, on_ceiling: bool) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("_is_on_ceiling", on_ceiling);
-            }
-        });
-    }
-
-    fn text(&self) -> Option<String> {
-        Python::attach(|py| {
-            self.instance
-                .as_ref()?
-                .bind(py)
-                .getattr("text")
-                .ok()?
-                .extract()
-                .ok()
-        })
-    }
-
-    fn set_text(&mut self, text: &str) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("text", text);
-            }
-        });
-    }
-
-    fn size(&self) -> Option<(f64, f64)> {
-        Python::attach(|py| {
-            let inst = self.instance.as_ref()?.bind(py);
-            let attr = inst.getattr("size").ok()?;
-            if let Ok(v) = attr.extract::<crate::vec2::Vec2>() {
-                Some((v.x(), v.y()))
-            } else if let Ok(t) = attr.extract::<(f64, f64)>() {
-                Some(t)
-            } else {
-                None
-            }
-        })
-    }
-
-    fn set_size(&mut self, w: f64, h: f64) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("size", (w, h));
-            }
-        });
-    }
-
-    fn wait_time(&self) -> Option<f64> {
-        Python::attach(|py| {
-            self.instance
-                .as_ref()?
-                .bind(py)
-                .getattr("wait_time")
-                .ok()?
-                .extract()
-                .ok()
-        })
-    }
-
-    fn set_wait_time(&mut self, wait: f64) {
-        Python::attach(|py| {
-            if let Some(inst) = &self.instance {
-                let _ = inst.bind(py).setattr("wait_time", wait);
-            }
-        });
     }
 
     fn last_error(&self) -> Option<String> {
@@ -896,34 +746,145 @@ class Boom(pite.Node2D):
 
     #[test]
     fn python_moves_sprite_and_vec2_crosses() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
         let dir = test_dir("mover");
         let file = fixture(&dir, "player.py", MOVER);
-        let mut backend = Pyo3Backend::new("/root/Player");
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(
+            NodeId::from("player".to_string()),
+            "Sprite2D",
+        ))
+        .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("player");
+        backend.set_host(host.clone());
         backend.load(&file, "Player").unwrap();
-        backend.set_position(5.0, 6.0);
-        assert_eq!(backend.position(), Some((5.0, 6.0)));
+        host.set_prop("player", "position", pite_core::PropValue::Vec2(5.0, 6.0));
         backend.call_ready().unwrap();
-        assert_eq!(backend.position(), Some((100.0, 200.0)));
+        let p = host.get_vec2("player", "position");
+        assert_eq!((p.x, p.y), (100.0, 200.0));
         backend.call_process(0.5).unwrap();
-        assert_eq!(backend.position(), Some((200.0, 200.0)));
+        let p = host.get_vec2("player", "position");
+        assert_eq!((p.x, p.y), (200.0, 200.0));
         assert!(backend.last_error().is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn exception_is_reported_and_state_survives() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
         let dir = test_dir("boom");
         let file = fixture(&dir, "boom.py", BOOM);
-        let mut backend = Pyo3Backend::new("/root/Boom");
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("boom".to_string()), "Node2D"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("boom");
+        backend.set_host(host.clone());
         backend.load(&file, "Boom").unwrap();
-        backend.set_position(1.0, 2.0);
+        host.set_prop("boom", "position", pite_core::PropValue::Vec2(1.0, 2.0));
         let err = backend.call_ready().unwrap_err();
         assert!(err.to_string().contains("ready exploded"));
         assert!(err.to_string().contains("boom.py"));
-        assert_eq!(backend.position(), Some((1.0, 2.0)));
+        let p = host.get_vec2("boom", "position");
+        assert_eq!((p.x, p.y), (1.0, 2.0));
         assert!(backend.last_error().is_some());
         let err = backend.call_process(0.016).unwrap_err();
         assert!(err.to_string().contains("process exploded"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn label_text_syncs_both_ways() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("label");
+        let file = fixture(&dir, "hud.py", LABELER);
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("hud".to_string()), "Label"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("hud");
+        backend.set_host(host.clone());
+        backend.load(&file, "Hud").unwrap();
+        backend.call_ready().unwrap();
+        assert_eq!(host.get_string("hud", "text"), "HP: 3");
+        backend.call_process(0.016).unwrap();
+        assert_eq!(host.get_string("hud", "text"), "HP: 2");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plain_node_has_no_text_channel() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("notetext");
+        let file = fixture(
+            &dir,
+            "plain_notetext.py",
+            "import pite\n\nclass Plain(pite.Node):\n    pass\n",
+        );
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("plain".to_string()), "Node"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("plain");
+        backend.set_host(host.clone());
+        backend.load(&file, "Plain").unwrap();
+        backend.call_process(0.016).unwrap();
+        Python::attach(|py| {
+            use pyo3::types::PyAnyMethods;
+            let inst = host.lookup_instance(py, "plain").unwrap();
+            assert!(
+                !inst.bind(py).hasattr("text").unwrap_or(true),
+                "plain Node must not expose a `text` attribute"
+            );
+        });
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn button_size_syncs_both_ways() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("size");
+        let file = fixture(&dir, "sizer.py", SIZER);
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("sizer".to_string()), "Button"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("sizer");
+        backend.set_host(host.clone());
+        backend.load(&file, "Sizer").unwrap();
+        host.set_prop("sizer", "size", pite_core::PropValue::Vec2(10.0, 20.0));
+        backend.call_ready().unwrap();
+        let s = host.get_vec2("sizer", "size");
+        assert_eq!((s.x, s.y), (120.0, 40.0));
+        backend.call_process(0.016).unwrap();
+        let s = host.get_vec2("sizer", "size");
+        assert_eq!((s.x, s.y), (121.0, 40.0));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1017,37 +978,6 @@ class Hud(pite.Label):
         self.text = "HP: 2"
 "#;
 
-    #[test]
-    fn label_text_syncs_both_ways() {
-        let dir = test_dir("label");
-        let file = fixture(&dir, "hud.py", LABELER);
-        let mut backend = Pyo3Backend::new("hud");
-        backend.load(&file, "Hud").unwrap();
-        backend.set_text("seed");
-        assert_eq!(backend.text().as_deref(), Some("seed"));
-        backend.call_ready().unwrap();
-        assert_eq!(backend.text().as_deref(), Some("HP: 3"));
-        backend.call_process(0.016).unwrap();
-        assert_eq!(backend.text().as_deref(), Some("HP: 2"));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn plain_node_has_no_text_channel() {
-        let dir = test_dir("notetext");
-        let file = fixture(
-            &dir,
-            "plain_notetext.py",
-            "import pite\n\nclass Plain(pite.Node):\n    pass\n",
-        );
-        let mut backend = Pyo3Backend::new("plain");
-        backend.load(&file, "Plain").unwrap();
-        assert_eq!(backend.text(), None);
-        backend.set_text("ignored");
-        backend.call_process(0.016).unwrap();
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
     const SIZER: &str = r#"
 import pite
 
@@ -1059,21 +989,6 @@ class Sizer(pite.Button):
         w, h = self.size
         self.size = (w + 1.0, h)
 "#;
-
-    #[test]
-    fn button_size_syncs_both_ways() {
-        let dir = test_dir("size");
-        let file = fixture(&dir, "sizer.py", SIZER);
-        let mut backend = Pyo3Backend::new("sizer");
-        backend.load(&file, "Sizer").unwrap();
-        backend.set_size(10.0, 20.0);
-        assert_eq!(backend.size(), Some((10.0, 20.0)));
-        backend.call_ready().unwrap();
-        assert_eq!(backend.size(), Some((120.0, 40.0)));
-        backend.call_process(0.016).unwrap();
-        assert_eq!(backend.size(), Some((121.0, 40.0)));
-        std::fs::remove_dir_all(&dir).ok();
-    }
 
     const SENSOR: &str = r#"
 import pite
@@ -1144,7 +1059,8 @@ class Listener(pite.Node2D):
         crate::input_begin_frame();
         crate::input_set_key("Space", true);
         sensor.call_process(0.016).unwrap();
-        assert_eq!(listener.position(), Some((7.0, 0.0)));
+        let p = host.get_vec2("l", "position");
+        assert_eq!((p.x, p.y), (7.0, 0.0));
         Python::attach(|py| {
             let inst = host.lookup_instance(py, "l").unwrap();
             let msg: String = inst
@@ -1179,7 +1095,8 @@ class Listener(pite.Node2D):
         crate::input_begin_frame();
         crate::input_set_key("Space", true);
         sensor.call_process(0.016).unwrap();
-        assert_eq!(listener.position(), Some((7.0, 0.0)));
+        let p = host.get_vec2("l", "position");
+        assert_eq!((p.x, p.y), (7.0, 0.0));
         std::fs::remove_dir_all(&dir).ok();
     }
 

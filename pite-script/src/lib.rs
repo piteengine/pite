@@ -55,40 +55,6 @@ pub trait ScriptBackend {
     }
     fn reload(&mut self) -> Result<()>;
 
-    fn position(&self) -> Option<(f64, f64)> {
-        None
-    }
-
-    fn set_position(&mut self, _x: f64, _y: f64) {}
-
-    fn velocity(&self) -> Option<(f64, f64)> {
-        None
-    }
-
-    fn set_velocity(&mut self, _vx: f64, _vy: f64) {}
-
-    fn set_on_floor(&mut self, _on_floor: bool) {}
-    fn set_on_wall(&mut self, _on_wall: bool) {}
-    fn set_on_ceiling(&mut self, _on_ceiling: bool) {}
-
-    fn text(&self) -> Option<String> {
-        None
-    }
-
-    fn set_text(&mut self, _text: &str) {}
-
-    fn size(&self) -> Option<(f64, f64)> {
-        None
-    }
-
-    fn set_size(&mut self, _w: f64, _h: f64) {}
-
-    fn wait_time(&self) -> Option<f64> {
-        None
-    }
-
-    fn set_wait_time(&mut self, _wait: f64) {}
-
     fn last_error(&self) -> Option<String> {
         None
     }

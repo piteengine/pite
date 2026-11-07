@@ -7,17 +7,10 @@ use super::node2d::PyNode2D;
 
 #[pyclass(extends = PyNode2D, subclass, name = "CharacterBody2D")]
 pub(crate) struct PyCharacterBody2D {
-    velocity: Py<crate::vec2::Vec2>,
+    pub(crate) velocity: Py<crate::vec2::Vec2>,
     up_direction: Py<crate::vec2::Vec2>,
-    #[pyo3(get, set)]
-    collision_layer: u32,
-    #[pyo3(get, set)]
-    collision_mask: u32,
-    #[pyo3(get, set)]
     _is_on_floor: bool,
-    #[pyo3(get, set)]
     _is_on_wall: bool,
-    #[pyo3(get, set)]
     _is_on_ceiling: bool,
 }
 
@@ -33,36 +26,14 @@ impl PyCharacterBody2D {
             .add_subclass(PyCharacterBody2D {
                 velocity: vel,
                 up_direction: up,
-                collision_layer: 1,
-                collision_mask: 1,
                 _is_on_floor: false,
                 _is_on_wall: false,
                 _is_on_ceiling: false,
             }))
     }
 
-    #[getter]
-    fn velocity(&self, py: Python<'_>) -> Py<crate::vec2::Vec2> {
-        self.velocity.clone_ref(py)
-    }
-
-    #[setter]
-    fn set_velocity(&self, py: Python<'_>, val: &Bound<'_, PyAny>) -> PyResult<()> {
-        let mut b = self.velocity.borrow_mut(py);
-        if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
-            b.set_x(v.x());
-            b.set_y(v.y());
-        } else if let Ok((vx, vy)) = val.extract::<(f64, f64)>() {
-            b.set_x(vx);
-            b.set_y(vy);
-        } else {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                "velocity must be Vec2 or (vx, vy) tuple",
-            ));
-        }
-        Ok(())
-    }
-
+    // `up_direction` is engine-only state (not a tree prop) — the physics
+    // controller reads it from `move_and_slide`, no schema backing needed.
     #[getter]
     fn up_direction(&self, py: Python<'_>) -> Py<crate::vec2::Vec2> {
         self.up_direction.clone_ref(py)
@@ -138,5 +109,13 @@ impl PyCharacterBody2D {
         } else {
             Ok(false)
         }
+    }
+}
+
+crate::pite_props! {
+    PyCharacterBody2D {
+        velocity: Vec2,
+        collision_layer: Int,
+        collision_mask: Int,
     }
 }

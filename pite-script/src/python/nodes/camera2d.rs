@@ -18,3 +18,9 @@ impl PyCamera2D {
             .add_subclass(PyCamera2D))
     }
 }
+
+crate::pite_props! {
+    PyCamera2D {
+        zoom: Num,
+    }
+}

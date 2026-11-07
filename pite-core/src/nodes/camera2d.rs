@@ -13,7 +13,11 @@ pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
 pub static PROPS: &[PropSchema] = &[PropSchema {
     key: "zoom",
     label: "Zoom",
-    default_value: DefaultPropVal::Vec2(1.0, 1.0),
-    hint: PropHint::Vec2 { speed: 0.05 },
+    default_value: DefaultPropVal::Num(1.0),
+    hint: PropHint::Num {
+        speed: 0.05,
+        min: 0.01,
+        max: 100.0,
+    },
     read_only: false,
 }];
