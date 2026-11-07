@@ -13,9 +13,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use pite_core::{global_position, NodeId, NodeTree, PropValue};
 use pite_physics::{PhysicsEvent, PhysicsWorld, ShapeConfig};
 use pite_render::{Renderer2D, WgpuRenderer};
-use pite_script::{
-    input_mouse, input_pressed, input_released, Pyo3Backend, ScriptBackend, ScriptHost,
-};
+use pite_script::{Pyo3Backend, ScriptBackend, ScriptHost};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -82,14 +80,6 @@ pub struct RunOptions {
     pub no_reload: bool,
 }
 
-/// One instantiated node: its tree id, the script it was loaded from (if
-/// any), the backend, and the cached lifecycle flags that drive iteration.
-///
-/// A node with no script still gets a slot (`file = None`, backend holds
-/// the base pyclass) so `pite.Timer.timeout` etc. can live on the pyclass
-/// in a later commit. The three flags are probed once at instantiation
-/// and after every `reload`; `false` means the runtime skips the call
-/// entirely — a scriptless Sprite2D costs zero Python calls per frame.
 struct InstanceSlot {
     id: NodeId,
     type_name: String,
@@ -101,9 +91,6 @@ struct InstanceSlot {
     has_physics_process: bool,
 }
 
-/// Whether a preserved slot can be reused for a node that might have
-/// changed (script path, script presence, node type) since the last
-/// rebuild. Reuse keeps `__dict__`; anything else reinstantiates.
 fn slot_still_valid(
     slot: &InstanceSlot,
     type_name: &str,
@@ -129,8 +116,6 @@ pub struct GameSession {
     _watcher: Option<RecommendedWatcher>,
     watch_rx: Option<Receiver<std::result::Result<notify::Event, notify::Error>>>,
     viewport: (u32, u32),
-    armed: HashSet<String>,
-    timers: std::collections::HashMap<String, f64>,
     physics: Arc<Mutex<PhysicsWorld>>,
     physics_accumulator: f64,
     pub pause_on_error: bool,
@@ -156,8 +141,6 @@ impl GameSession {
             _watcher: None,
             watch_rx: None,
             viewport: (800, 600),
-            armed: HashSet::new(),
-            timers: std::collections::HashMap::new(),
             physics,
             physics_accumulator: 0.0,
             pause_on_error: false,
@@ -168,9 +151,6 @@ impl GameSession {
         pite_script::set_current_physics(Some(session.physics.clone()));
         pite_audio::set_project_dir(session.project_dir.clone());
         pite_script::set_project_dir(session.project_dir.clone());
-        // Install the project's custom-prop declarations before any script's
-        // `_ready` runs; otherwise `get_custom_property` / `set_custom_property`
-        // in `_ready` would see an empty schema.
         if let Some(dir) = session.project_dir.as_deref() {
             if let Ok(manifest) = pite_project::load_manifest(dir) {
                 session.host.set_custom_prop_schema(manifest.props.clone());
@@ -217,8 +197,6 @@ impl GameSession {
             match slot.backend.reload() {
                 Ok(()) => {
                     slot.errored = false;
-                    // Re-probe after reload: a user may have added or
-                    // removed a lifecycle method in the changed file.
                     slot.has_ready = slot.backend.has_ready();
                     slot.has_process = slot.backend.has_process();
                     slot.has_physics_process = slot.backend.has_physics_process();
@@ -258,15 +236,10 @@ impl GameSession {
         self.host.with_tree(|t| t.len())
     }
 
-    /// Number of nodes with a user script attached. Distinct from
-    /// `instance_count`: scriptless nodes still get a slot for engine-owned
-    /// behaviors.
     pub fn scripted_count(&self) -> usize {
         self.instances.iter().filter(|s| s.file.is_some()).count()
     }
 
-    /// Total slots, one per tree node. A scriptless node's slot holds the
-    /// base pyclass.
     pub fn instance_count(&self) -> usize {
         self.instances.len()
     }
@@ -409,55 +382,16 @@ impl GameSession {
         Ok(())
     }
 
-    pub fn button_at(&self, screen: (f64, f64)) -> Option<String> {
-        let ((cx, cy), _) = self.camera_view();
-        let zoom = self.effective_zoom();
-        let (world_x, world_y) = pite_render::screen_to_world(
-            (screen.0 as f32, screen.1 as f32),
-            (cx, cy),
-            zoom,
-            self.viewport,
-        );
-        self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "Button")
-                .find(|n| {
-                    let (w, h) = button_size(n);
-                    let (px, py) = global_position(tree, &n.id);
-                    (world_x - px).abs() <= w / 2.0 && (world_y - py).abs() <= h / 2.0
-                })
-                .map(|n| n.id.to_string())
-        })
-    }
-
-    fn fire_pressed(&self, id: &str) {
-        if !self.host.has_signal(id, "pressed") {
-            return;
-        }
-        if let Err(e) = pite_script::fire_pressed(&self.host, id) {
-            tracing::error!(node = %id, "pressed handlers failed: {e:#}");
-        }
-    }
-
-    fn fire_timeout(&self, id: &str) {
-        if !self.host.has_signal(id, "timeout") {
-            return;
-        }
-        if let Err(e) = pite_script::fire_timeout(&self.host, id) {
-            tracing::error!(node = %id, "timeout handlers failed: {e:#}");
-        }
-    }
-
     fn rebuild(&mut self) -> Result<()> {
         let doc = pite_scene::load_scene_cached(&self.scene)
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
         let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;
         self.host.with_tree_mut(|t| *t = tree);
 
-        // `pressed` belongs to the Button type itself (Godot-style), not to
-        // each script: the engine fires it, so it must be declared BEFORE
-        // any `_ready` runs — scripts connect to it during `_ready`.
-        // Re-declaring it in a script is a harmless overwrite.
+        // Engine-owned signals must be declared BEFORE any `_ready` runs
+        // (scripts connect to them in `_ready`). Base pyclasses don't declare
+        // their own signals — the runtime does, so they also exist when the
+        // node has no script.
         let buttons: Vec<String> = self.host.with_tree(|tree| {
             tree.iter()
                 .filter(|n| n.type_name == "Button")
@@ -472,9 +406,6 @@ impl GameSession {
                 tracing::error!(node = %id, "cannot declare builtin pressed: {e:#}");
             }
         }
-        // `timeout` belongs to the Timer type itself, like `pressed` to
-        // Button: the engine fires it, so it must be declared BEFORE any
-        // `_ready` runs — scripts connect to it during `_ready`.
         let timers: Vec<String> = self.host.with_tree(|tree| {
             tree.iter()
                 .filter(|n| n.type_name == "Timer")
@@ -489,7 +420,6 @@ impl GameSession {
                 tracing::error!(node = %id, "cannot declare builtin timeout: {e:#}");
             }
         }
-
         let areas: Vec<String> = self.host.with_tree(|tree| {
             tree.iter()
                 .filter(|n| n.type_name == "Area2D")
@@ -510,10 +440,6 @@ impl GameSession {
 
         self.rebuild_physics();
 
-        // Every node gets a slot, scripted or not. Scriptless nodes hold the
-        // base pyclass so future engine-owned behaviors (`Timer.timeout`,
-        // `Button.pressed`) can live on the pyclass. Lifecycle flags are
-        // cached so iteration skips nodes that don't expose the hook.
         let all_nodes: Vec<(NodeId, String, Option<(PathBuf, String)>)> =
             self.host.with_tree(|tree| {
                 tree.iter()
@@ -527,9 +453,6 @@ impl GameSession {
                     .collect()
             });
 
-        // Preserve surviving slots so `__dict__` and custom attributes
-        // outlive a rebuild; invalidate (reinstantiate) anything whose
-        // identity — type or script — changed.
         let mut olds: HashMap<String, InstanceSlot> = HashMap::new();
         for slot in self.instances.drain(..) {
             olds.insert(slot.id.to_string(), slot);
@@ -542,9 +465,6 @@ impl GameSession {
                     self.instances.push(slot);
                     continue;
                 }
-                // Identity changed — the old Python instance is not
-                // compatible; drop it and let the reinstantiate branch
-                // create the right base or script backend.
                 self.host.unregister(&id_str);
                 self.host.disconnect_node(&id_str);
             }
@@ -555,14 +475,6 @@ impl GameSession {
                         tracing::warn!(node = %id, script = %path.display(), "missing script, keeping placeholder node");
                         continue;
                     }
-                    let mut backend: Box<dyn ScriptBackend> =
-                        Box::new(Pyo3Backend::new(id_str.clone()));
-                    if let Some(backend) = backend_as_pyo3(&mut backend).filter(|_| true) {
-                        backend.set_host(self.host.clone());
-                    }
-                    // Simpler: construct as Pyo3Backend, then box. The
-                    // trait-object path above avoids exposing the concrete
-                    // type; keep the eager cast here for `set_host`.
                     let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
                     backend.set_host(self.host.clone());
                     match backend.load(&path.to_string_lossy(), &class) {
@@ -627,7 +539,6 @@ impl GameSession {
             }
         }
 
-        // Slots whose nodes vanished in the rebuild.
         for (id_str, _) in olds {
             self.host.unregister(&id_str);
             self.host.disconnect_node(&id_str);
@@ -878,8 +789,13 @@ impl GameSession {
     }
 
     pub fn update(&mut self, delta: f64) {
-        self.poll_buttons();
         pite_audio::poll_audio();
+
+        // Install the current camera pose so `pite.screen_to_world` (used by
+        // `PyButton::_process` to hit-test clicks against world-space button
+        // positions) sees this frame's camera before the `_process` loop.
+        let ((cx, cy), _) = self.camera_view();
+        pite_script::set_camera_view((cx, cy), self.effective_zoom(), self.viewport);
 
         const FIXED_STEP: f64 = 1.0 / 60.0;
         self.physics_accumulator += delta;
@@ -888,9 +804,6 @@ impl GameSession {
         }
 
         while self.physics_accumulator >= FIXED_STEP {
-            // Physics process: only slots that actually expose
-            // `_physics_process` are called. A scriptless Sprite2D's base
-            // pyclass has none, so it costs zero Python calls per tick.
             for slot in &mut self.instances {
                 if slot.errored || !slot.has_physics_process {
                     continue;
@@ -902,9 +815,6 @@ impl GameSession {
                         self.last_error = slot.backend.last_script_error();
                     }
                 }
-                // Push tree-backed position into the physics body so a
-                // script that moved `self.position` sees the move reflected
-                // in the next `move_and_slide`.
                 let pos = self.host.with_tree(|t| {
                     match t.get(&slot.id).and_then(|n| n.props.get("position")) {
                         Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
@@ -923,8 +833,6 @@ impl GameSession {
                 lock.drain_events()
             };
 
-            // Dynamic bodies move on their own; sync the tree so
-            // `self.position` reads the simulated value.
             {
                 let lock = self.physics.lock().unwrap();
                 let mut moved = Vec::new();
@@ -988,6 +896,10 @@ impl GameSession {
             self.physics_accumulator -= FIXED_STEP;
         }
 
+        // `_process` loop: iterates only slots that actually define
+        // `_process` (via the probe cached in `InstanceSlot`). Base `Timer`
+        // and `Button` now carry engine-owned `_process` here — no
+        // `tick_timers`/`poll_buttons` dispatch.
         for slot in &mut self.instances {
             if slot.errored || !slot.has_process {
                 continue;
@@ -1000,85 +912,13 @@ impl GameSession {
                 }
             }
         }
-        self.tick_timers(delta);
     }
 
-    /// Advance every Timer node; fire `timeout` on each elapsed `wait_time`
-    /// and restart the clock (looping). Non-positive waits never fire.
-    fn tick_timers(&mut self, delta: f64) {
-        let timers: Vec<(String, f64)> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "Timer")
-                .filter_map(|n| {
-                    let wait = match n.props.get("wait_time") {
-                        Some(PropValue::Num(f)) => *f,
-                        Some(PropValue::Int(i)) => *i as f64,
-                        _ => return None,
-                    };
-                    (wait > 0.0).then(|| (n.id.to_string(), wait))
-                })
-                .collect()
-        });
-        for (id, wait) in &timers {
-            let fire = {
-                let elapsed = self.timers.entry(id.clone()).or_insert(0.0);
-                *elapsed += delta;
-                if *elapsed >= *wait {
-                    *elapsed = 0.0;
-                    true
-                } else {
-                    false
-                }
-            };
-            if fire {
-                self.fire_timeout(id);
-            }
-        }
-        let live: std::collections::HashSet<String> =
-            timers.into_iter().map(|(id, _)| id).collect();
-        self.timers.retain(|id, _| live.contains(id));
-    }
-
-    fn poll_buttons(&mut self) {
-        let mouse = input_mouse();
-        let hovered = self.button_at(mouse);
-        if input_pressed("MouseLeft") {
-            if let Some(id) = hovered.clone() {
-                self.armed.insert(id);
-            }
-        }
-        if input_released("MouseLeft") {
-            match hovered {
-                Some(id) if self.armed.contains(&id) => self.fire_pressed(&id),
-                _ => {}
-            }
-            self.armed.clear();
-        }
-    }
-
-    /// One frame: pump watchers, run scripts, then retire edge input.
-    ///
-    /// `input_begin_frame()` MUST come last. OS/window events arrive
-    /// between frames, so clearing edges before `update()` wipes presses
-    /// and releases scripts have not consumed yet (`pite.pressed()` would
-    /// read false forever and buttons would never arm). Edges set since
-    /// the previous frame stay visible for exactly one `update()`.
     pub fn frame(&mut self, delta: f64) {
         self.poll_watch();
         self.update(delta);
         pite_script::input_begin_frame();
     }
-}
-
-/// Helper for tests and diagnostics: return the underlying `Pyo3Backend`
-/// only when the boxed value is one. There is exactly one backend today,
-/// so this is a `_ = _` cast in spirit; the empty helper keeps `set_host`
-/// ergonomic for future alternate backends without changing call sites.
-fn backend_as_pyo3<'a>(backend: &'a mut Box<dyn ScriptBackend>) -> Option<&'a mut Pyo3Backend> {
-    // Not actually used by the current call site — see rebuild(). Kept to
-    // document the shape a future multi-backend world would take.
-    let _ = backend;
-    None
 }
 
 fn button_size(node: &pite_core::Node) -> (f64, f64) {
@@ -1222,9 +1062,6 @@ impl App {
     }
 }
 
-/// Resolve a scene argument to an absolute path. `res://` resolves against
-/// the enclosing project root, everything else against the current dir.
-/// Shared by `pite run` and `pite-player` so both accept the same paths.
 pub fn resolve_scene_arg(scene: &str) -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     if let Some(rel) = scene.strip_prefix("res://") {
@@ -1236,9 +1073,6 @@ pub fn resolve_scene_arg(scene: &str) -> Result<PathBuf> {
     Ok(if p.is_absolute() { p } else { cwd.join(p) })
 }
 
-/// Default scene when scene argument is omitted: the enclosing project's
-/// `main_scene`. Same rule `pite edit` uses with no scene; outside a
-/// project it fails loudly instead of guessing.
 pub fn resolve_default_scene() -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     let root = pite_project::find_project_root(&cwd)
@@ -1549,7 +1383,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    const TICKER: &str = "import pite\n\nclass Ticker(pite.Node):\n    def _ready(self):\n        self.get_node(\".\").timeout.connect(self.on_timeout)\n    def on_timeout(self):\n        hud = self.get_node(\"../Hud\")\n        hud.text = str(int(hud.text) + 1)\n";
+    const TICKER: &str = "import pite\n\nclass Ticker(pite.Timer):\n    def _ready(self):\n        self.get_node(\".\").timeout.connect(self.on_timeout)\n    def on_timeout(self):\n        hud = self.get_node(\"../Hud\")\n        hud.text = str(int(hud.text) + 1)\n";
 
     fn make_timer_project(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pite-sess-{tag}-{}", std::process::id()));
@@ -2314,6 +2148,53 @@ class Zone(pite.Area2D):
         let session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
         assert_eq!(session.scripted_count(), 0);
         assert_eq!(session.instance_count(), 3);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// End-to-end check that a bare (unscripted) `Timer` advances its
+    /// `current_elapsed` from `PyTimer::_process`, then resets on fire.
+    /// This exercises the whole new pipeline: base pyclass → `_process` →
+    /// prop update → wrap around. It would fail if either the slot
+    /// instantiation or the `_process` loop regressed.
+    #[test]
+    fn scriptless_timer_advances_elapsed() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-bare-timer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.ptscn"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"tick\"\ntype = \"Timer\"\nname = \"Tick\"\nparent = \"root\"\n\n[node.props]\nwait_time = 0.1\n",
+        )
+        .unwrap();
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        assert_eq!(session.instance_count(), 2);
+        assert_eq!(session.scripted_count(), 0);
+
+        session.update(0.05);
+        let e1 = session.host.with_tree(|t| {
+            t.get(&NodeId::from("tick".to_string()))
+                .and_then(|n| n.props.get("current_elapsed"))
+                .and_then(|v| match v {
+                    PropValue::Num(f) => Some(*f),
+                    _ => None,
+                })
+                .unwrap_or(f64::NAN)
+        });
+        assert!((e1 - 0.05).abs() < 1e-6, "expected 0.05, got {e1}");
+
+        session.update(0.06); // crosses 0.1 → resets
+        let e2 = session.host.with_tree(|t| {
+            t.get(&NodeId::from("tick".to_string()))
+                .and_then(|n| n.props.get("current_elapsed"))
+                .and_then(|v| match v {
+                    PropValue::Num(f) => Some(*f),
+                    _ => None,
+                })
+                .unwrap_or(f64::NAN)
+        });
+        assert!(e2.abs() < 1e-6, "expected 0 (reset), got {e2}");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

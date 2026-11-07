@@ -768,14 +768,6 @@ pub fn resolve_caller_py(
     host.resolve_proxy(py, caller, path)
 }
 
-pub fn fire_pressed(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
-    Python::attach(|py| host.emit(py, id, "pressed", &PyTuple::empty(py)))
-}
-
-pub fn fire_timeout(host: &ScriptHost, id: &str) -> anyhow::Result<()> {
-    Python::attach(|py| host.emit(py, id, "timeout", &PyTuple::empty(py)))
-}
-
 pub fn fire_body_entered(host: &ScriptHost, area_id: &str, body_id: &str) -> anyhow::Result<()> {
     Python::attach(|py| {
         let arg = PyTuple::new(py, [body_id])?;

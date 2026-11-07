@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Engine-owned `Timer` / `Button` behavior moved into their pyclasses'
+  `_process`. `PyTimer::_process` advances `current_elapsed` (new prop) and
+  fires `timeout`; `PyButton::_process` polls mouse state and fires
+  `pressed`. Both are inherited by subclasses via Python MRO. The runtime
+  no longer dispatches either — `tick_timers`, `poll_buttons`,
+  `fire_pressed`, `fire_timeout`, and the private `timers` / `armed`
+  HashMaps are gone.
+
+  - `Timer.current_elapsed: float` is a normal read-write prop
+    (inspectable in the editor, resettable from scripts). `wait_time <= 0`
+    still disables the timer entirely.
+  - `pite.screen_to_world(screen: tuple) -> tuple` (Rust side: `pite_script::screen_to_world`)
+    converts screen pixels to world coordinates using the camera pose the
+    runtime installs each frame. This is what `PyButton._process` uses to
+    hit-test clicks against a world-space button position.
+
+  **Behavior change (footgun)**: a `Timer` or `Button` subclass that
+  overrides `_process` **must** call `super()._process(delta)` — otherwise
+  the engine-owned tick (Timer) or click polling (Button) stops. This
+  matches Godot's footgun class for `CharacterBody2D._physics_process`
+  (override without moving, movement stops). The dogfood scripts don't
+  override `_process` so they continue to work unchanged.
+
+  **Timing change**: button clicks fire during the `_process` loop rather
+  than before physics. In the same frame a click's `pressed` handler and
+  any reaction are still on that frame; the ordering shift only matters
+  if a node's `_process` reads button state and appears *before* the
+  button in the tree — one frame of latency. Documented as such; no
+  existing test or dogfood script depends on the previous ordering.
 - Custom properties: declared in `pite.toml` under `[props]`, typed, validated, and set from Python.
 - Tree-backed Python accessors. Every pyclass now generates its prop
   surface from `pite_props! { PyX { key: Kind, ... } }` — no per-pyclass

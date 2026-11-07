@@ -72,6 +72,7 @@ class Camera2D(Node2D):
 
 class Timer(Node):
     wait_time: float
+    current_elapsed: float
     timeout: Signal
 
 class Label(Node):
