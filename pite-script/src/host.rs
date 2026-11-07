@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 
 use anyhow::Context as _;
-use pite_core::{NodeId, NodeTree, SignalRegistry};
+use pite_core::{NodeId, NodeTree, SignalRegistry, Vec2};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
@@ -66,39 +66,88 @@ impl ScriptHost {
         }
     }
 
-    pub fn get_node_position(&self, id: &str) -> Option<(f64, f64)> {
-        use pite_core::PropValue;
-        let tree = self.tree.lock().unwrap();
-        let node = tree.get(&NodeId::from(id.to_string()))?;
-        match node.props.get("position") {
-            Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
-            _ => Some((0.0, 0.0)),
-        }
+    /// Read a prop, falling back to the schema's declared default when the
+    /// tree lacks it. The invariant (every schema prop is present on every
+    /// node) holds structurally after commit 4 (`to_node_tree` fills defaults);
+    /// until then, and as a permanent safety net for editor-added nodes that
+    /// skipped default filling, the schema default is a safer fallback than a
+    /// hardcoded zero.
+    fn get_or_schema_default<T, F>(&self, node: &str, key: &str, extract: F) -> T
+    where
+        T: Default,
+        F: Fn(&pite_core::PropValue) -> Option<T>,
+    {
+        self.with_tree(|t| {
+            let node_id = NodeId::from(node.to_string());
+            let Some(n) = t.get(&node_id) else {
+                tracing::error!(node = %node, key = %key, "node missing; returning type default");
+                return T::default();
+            };
+            if let Some(v) = n.props.get(key).and_then(|v| extract(v)) {
+                return v;
+            }
+            tracing::error!(
+                node = %node,
+                key = %key,
+                ty = %n.type_name,
+                "prop missing or wrong type; using schema default"
+            );
+            pite_core::type_props(&n.type_name)
+                .iter()
+                .find(|p| p.key == key)
+                .and_then(|p| extract(&p.default_value.to_prop_value()))
+                .unwrap_or_default()
+        })
     }
 
-    pub fn set_node_position(&self, id: &str, x: f64, y: f64) {
-        use pite_core::PropValue;
-        let mut tree = self.tree.lock().unwrap();
-        if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
-            node.props
-                .insert("position".to_string(), PropValue::Vec2(x, y));
-        }
+    pub fn get_f64(&self, node: &str, key: &str) -> f64 {
+        self.get_or_schema_default(node, key, |v| match v {
+            pite_core::PropValue::Num(f) => Some(*f),
+            pite_core::PropValue::Int(i) => Some(*i as f64),
+            _ => None,
+        })
     }
 
-    pub fn set_node_text(&self, id: &str, text: &str) {
-        use pite_core::PropValue;
-        let mut tree = self.tree.lock().unwrap();
-        if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
-            node.props
-                .insert("text".to_string(), PropValue::Str(text.to_string()));
-        }
+    pub fn get_i64(&self, node: &str, key: &str) -> i64 {
+        self.get_or_schema_default(node, key, |v| match v {
+            pite_core::PropValue::Int(i) => Some(*i),
+            pite_core::PropValue::Num(f) => Some(*f as i64),
+            _ => None,
+        })
     }
 
-    pub fn set_node_size(&self, id: &str, w: f64, h: f64) {
-        use pite_core::PropValue;
+    pub fn get_bool(&self, node: &str, key: &str) -> bool {
+        self.get_or_schema_default(node, key, |v| match v {
+            pite_core::PropValue::Bool(b) => Some(*b),
+            _ => None,
+        })
+    }
+
+    pub fn get_string(&self, node: &str, key: &str) -> String {
+        self.get_or_schema_default(node, key, |v| match v {
+            pite_core::PropValue::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+    }
+
+    pub fn get_color_tuple(&self, node: &str, key: &str) -> (u8, u8, u8, u8) {
+        self.get_or_schema_default(node, key, |v| match v {
+            pite_core::PropValue::Color(r, g, b, a) => Some((*r, *g, *b, *a)),
+            _ => None,
+        })
+    }
+
+    pub fn get_vec2(&self, node: &str, key: &str) -> Vec2 {
+        self.get_or_schema_default(node, key, |v| match v {
+            pite_core::PropValue::Vec2(x, y) => Some(Vec2 { x: *x, y: *y }),
+            _ => None,
+        })
+    }
+
+    pub fn set_prop(&self, node: &str, key: &str, value: pite_core::PropValue) {
         let mut tree = self.tree.lock().unwrap();
-        if let Some(node) = tree.get_mut(&NodeId::from(id.to_string())) {
-            node.props.insert("size".to_string(), PropValue::Vec2(w, h));
+        if let Some(n) = tree.get_mut(&NodeId::from(node.to_string())) {
+            n.props.insert(key.to_string(), value);
         }
     }
 

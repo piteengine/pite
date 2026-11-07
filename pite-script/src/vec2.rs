@@ -7,7 +7,7 @@ use std::sync::Arc;
 pub struct Vec2 {
     pub(crate) x: f64,
     pub(crate) y: f64,
-    pub(crate) target: Option<(Arc<crate::ScriptHost>, String)>,
+    pub(crate) target: Option<(Arc<crate::ScriptHost>, String, String)>,
 }
 
 impl std::fmt::Debug for Vec2 {
@@ -21,29 +21,26 @@ impl std::fmt::Debug for Vec2 {
 
 impl Vec2 {
     pub fn x(&self) -> f64 {
-        if let Some((host, node)) = &self.target {
-            if let Some((x, _)) = host.get_node_position(node) {
-                return x;
-            }
+        if let Some((host, node, key)) = &self.target {
+            host.get_vec2(node, key).x
+        } else {
+            self.x
         }
-        self.x
     }
 
     pub fn y(&self) -> f64 {
-        if let Some((host, node)) = &self.target {
-            if let Some((_, y)) = host.get_node_position(node) {
-                return y;
-            }
+        if let Some((host, node, key)) = &self.target {
+            host.get_vec2(node, key).y
+        } else {
+            self.y
         }
-        self.y
     }
 
-    pub fn set_target(&mut self, host: Arc<crate::ScriptHost>, node: String) {
-        if let Some((x, y)) = host.get_node_position(&node) {
-            self.x = x;
-            self.y = y;
-        }
-        self.target = Some((host, node));
+    pub fn set_target(&mut self, host: Arc<crate::ScriptHost>, node: String, key: String) {
+        let vec = host.get_vec2(&node, &key);
+        self.x = vec.x;
+        self.y = vec.y;
+        self.target = Some((host, node, key));
     }
 }
 
@@ -71,10 +68,10 @@ impl Vec2 {
     #[setter]
     pub fn set_x(&mut self, val: f64) {
         self.x = val;
-        if let Some((host, node)) = &self.target {
+        if let Some((host, node, key)) = &self.target {
             let cur_y = self.y();
             self.y = cur_y;
-            host.set_node_position(node, val, cur_y);
+            host.set_prop(node, key, pite_core::PropValue::Vec2(val, cur_y));
         }
     }
 
@@ -86,10 +83,18 @@ impl Vec2 {
     #[setter]
     pub fn set_y(&mut self, val: f64) {
         self.y = val;
-        if let Some((host, node)) = &self.target {
+        if let Some((host, node, key)) = &self.target {
             let cur_x = self.x();
             self.x = cur_x;
-            host.set_node_position(node, cur_x, val);
+            host.set_prop(node, key, pite_core::PropValue::Vec2(cur_x, val));
+        }
+    }
+
+    pub fn set_xy(&mut self, x: f64, y: f64) {
+        self.x = x;
+        self.y = y;
+        if let Some((host, node, key)) = &self.target {
+            host.set_prop(node, key, pite_core::PropValue::Vec2(x, y));
         }
     }
 

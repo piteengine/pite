@@ -23,7 +23,7 @@ impl PyLabel {
     fn set_text(slf: &Bound<'_, Self>, text: String) -> PyResult<()> {
         let node_path: String = slf.getattr("node_path")?.extract()?;
         if let Some(host) = crate::host::current_host() {
-            host.set_node_text(&node_path, &text);
+            host.set_prop(&node_path, "text", pite_core::PropValue::Str(text.clone()));
         }
         let mut b = slf.borrow_mut();
         b.text = text;

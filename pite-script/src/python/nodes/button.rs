@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
+use pite_core::PropValue;
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
@@ -43,7 +45,7 @@ impl PyButton {
     fn set_text(slf: &Bound<'_, Self>, text: String) -> PyResult<()> {
         let node_path: String = slf.getattr("node_path")?.extract()?;
         if let Some(host) = crate::host::current_host() {
-            host.set_node_text(&node_path, &text);
+            host.set_prop(&node_path, "text", PropValue::Str(text.clone()));
         }
         let mut b = slf.borrow_mut();
         b.text = text;
@@ -68,7 +70,7 @@ impl PyButton {
         };
         let node_path: String = slf.getattr("node_path")?.extract()?;
         if let Some(host) = crate::host::current_host() {
-            host.set_node_size(&node_path, w, h);
+            host.set_prop(&node_path, "size", PropValue::Vec2(w, h));
         }
         let py = slf.py();
         let b = slf.borrow();

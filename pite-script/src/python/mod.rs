@@ -11,6 +11,8 @@ use crate::ScriptBackend;
 
 mod nodes;
 
+pub(crate) mod props;
+
 use nodes::{
     PyArea2D, PyButton, PyCamera2D, PyCharacterBody2D, PyCollisionShape2D, PyLabel, PyNode,
     PyNode2D, PyRigidBody2D, PySprite2D, PyStaticBody2D, PyTimer,
@@ -419,7 +421,7 @@ impl Pyo3Backend {
                     if let Ok(mut vec2_bound) =
                         pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
                     {
-                        vec2_bound.set_target(host.clone(), self.node_path.clone());
+                        vec2_bound.set_target(host.clone(), self.node_path.clone(), "position".to_string());
                     }
                 }
             });
@@ -545,7 +547,7 @@ impl Pyo3Backend {
                     if let Ok(mut vec2_bound) =
                         pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
                     {
-                        vec2_bound.set_target(host.clone(), self.node_path.clone());
+                        vec2_bound.set_target(host.clone(), self.node_path.clone(), "position".to_string());
                     }
                 }
                 host.register(self.node_path.clone(), owned.clone_ref(py));
@@ -907,7 +909,7 @@ class Boom(pite.Node2D):
         let dir = test_dir("plain");
         let file = fixture(
             &dir,
-            "plain.py",
+            "plain_noop.py",
             "import pite\n\nclass Plain(pite.Node):\n    pass\n",
         );
         let mut backend = Pyo3Backend::new("/root/Plain");
@@ -956,6 +958,10 @@ class Attacker(pite.Node2D):
             let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
             d.name = name.to_string();
             d.parent = Some(NodeId::from("root".to_string()));
+            d.props.insert(
+                "position".to_string(),
+                pite_core::PropValue::Vec2(0.0, 0.0),
+            );
             tree.insert(d).unwrap();
         }
         let host = Arc::new(crate::ScriptHost::new(tree));
@@ -1007,10 +1013,10 @@ class Hud(pite.Label):
 
     #[test]
     fn plain_node_has_no_text_channel() {
-        let dir = test_dir("notext");
+        let dir = test_dir("notetext");
         let file = fixture(
             &dir,
-            "plain.py",
+            "plain_notetext.py",
             "import pite\n\nclass Plain(pite.Node):\n    pass\n",
         );
         let mut backend = Pyo3Backend::new("plain");
@@ -1093,6 +1099,10 @@ class Listener(pite.Node2D):
             let mut d = NodeDesc::new(NodeId::from(id.to_string()), "Node2D");
             d.name = name.to_string();
             d.parent = Some(NodeId::from("root".to_string()));
+            d.props.insert(
+                "position".to_string(),
+                pite_core::PropValue::Vec2(0.0, 0.0),
+            );
             tree.insert(d).unwrap();
         }
         let host = Arc::new(crate::ScriptHost::new(tree));
@@ -1211,4 +1221,20 @@ class Listener(pite.Node2D):
             assert!(is_space_pressed);
         });
     }
+}
+
+/// Fetch the current `ScriptHost` and this node's path from a `Bound<PyAny>`.
+/// Works at any inheritance depth — the `node_path` attribute is on `PyNode`
+/// (the base), so `getattr` reaches it regardless of the intermediate classes.
+/// Used by `pite_props!` (which is scoped to `pite-script`) and by custom
+/// node methods that need the same pair.
+#[allow(dead_code)] // exercised by pite_props! in cfg(test); real accessors land in commit 5
+pub(crate) fn host_and_path(
+    slf: &Bound<'_, PyAny>,
+) -> PyResult<(std::sync::Arc<crate::ScriptHost>, String)> {
+    let node_path: String = slf.getattr("node_path")?.extract()?;
+    let host = crate::host::current_host().ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err("no script host")
+    })?;
+    Ok((host, node_path))
 }

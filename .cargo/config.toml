@@ -1,0 +1,10 @@
+# pyo3 + multiple-pymethods on macOS: inventory-based registration needs
+# `-undefined dynamic_lookup` so the linker resolves libpython symbols from
+# the running interpreter (CDLL-style) instead of a fixed link-time library.
+# Not needed on Linux/Windows; the sections below only fire on macOS targets.
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
