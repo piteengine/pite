@@ -66,12 +66,21 @@ impl ScriptHost {
         }
     }
 
-    /// Read a prop, falling back to the schema's declared default when the
-    /// tree lacks it. The invariant (every schema prop is present on every
-    /// node) holds structurally after commit 4 (`to_node_tree` fills defaults);
-    /// until then, and as a permanent safety net for editor-added nodes that
-    /// skipped default filling, the schema default is a safer fallback than a
-    /// hardcoded zero.
+    /// Read a prop, trusting the `to_node_tree` invariant that every schema
+    /// prop exists on every node from creation.
+    ///
+    /// Missing **node** is a normal runtime scenario — a script or the editor
+    /// can drop a node mid-play, and `pite-runtime` still holds slots for it
+    /// until the next `rebuild`. Returning `T::default()` and logging keeps
+    /// that recoverable (`dropped_button_disconnects_silently` depends on it:
+    /// removing a node then polling its position must not crash).
+    ///
+    /// Missing **prop** on an *existing* node is the invariant violation the
+    /// `to_node_tree` / `add_node` schema-default filling was introduced to
+    /// eliminate. Debug builds `debug_assert!(false)` to surface it; release
+    /// builds log and fall back to the schema default (looked up via
+    /// `all_props`, so inherited props are found) so a player never sees a
+    /// crash.
     fn get_or_schema_default<T, F>(&self, node: &str, key: &str, extract: F) -> T
     where
         T: Default,
@@ -86,13 +95,19 @@ impl ScriptHost {
             if let Some(v) = n.props.get(key).and_then(|v| extract(v)) {
                 return v;
             }
+            debug_assert!(
+                false,
+                "prop {key:?} missing/mistyped on {node:?} (type {:?}); \
+                 to_node_tree should have filled it",
+                n.type_name
+            );
             tracing::error!(
                 node = %node,
                 key = %key,
                 ty = %n.type_name,
                 "prop missing or wrong type; using schema default"
             );
-            pite_core::type_props(&n.type_name)
+            pite_core::all_props(&n.type_name)
                 .iter()
                 .find(|p| p.key == key)
                 .and_then(|p| extract(&p.default_value.to_prop_value()))

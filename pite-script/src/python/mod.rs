@@ -381,6 +381,21 @@ pub fn extract_script_error(py: Python<'_>, err: &PyErr, ctx: &str) -> ScriptErr
     }
 }
 
+/// Fetch the current `ScriptHost` and this node's path from a `Bound<PyAny>`.
+/// Works at any inheritance depth — the `node_path` attribute is on `PyNode`
+/// (the base), so `getattr` reaches it regardless of the intermediate classes.
+/// Used by `pite_props!` (which is scoped to `pite-script`) and by custom
+/// node methods that need the same pair.
+#[allow(dead_code)] // exercised by pite_props! in cfg(test); real accessors land in commit 5
+pub(crate) fn host_and_path(
+    slf: &Bound<'_, PyAny>,
+) -> PyResult<(std::sync::Arc<crate::ScriptHost>, String)> {
+    let node_path: String = slf.getattr("node_path")?.extract()?;
+    let host = crate::host::current_host()
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("no script host"))?;
+    Ok((host, node_path))
+}
+
 pub struct Pyo3Backend {
     node_path: String,
     file: PathBuf,
@@ -1225,19 +1240,34 @@ class Listener(pite.Node2D):
             assert!(is_space_pressed);
         });
     }
-}
 
-/// Fetch the current `ScriptHost` and this node's path from a `Bound<PyAny>`.
-/// Works at any inheritance depth — the `node_path` attribute is on `PyNode`
-/// (the base), so `getattr` reaches it regardless of the intermediate classes.
-/// Used by `pite_props!` (which is scoped to `pite-script`) and by custom
-/// node methods that need the same pair.
-#[allow(dead_code)] // exercised by pite_props! in cfg(test); real accessors land in commit 5
-pub(crate) fn host_and_path(
-    slf: &Bound<'_, PyAny>,
-) -> PyResult<(std::sync::Arc<crate::ScriptHost>, String)> {
-    let node_path: String = slf.getattr("node_path")?.extract()?;
-    let host = crate::host::current_host()
-        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("no script host"))?;
-    Ok((host, node_path))
+    #[test]
+    fn missing_node_returns_default_not_panic() {
+        // A scripted node can be removed from the tree while its slot still
+        // holds a Python instance (the runtime keeps slots until rebuild).
+        // Reading its props must return the type default, not panic — that
+        // is the contract `dropped_button_disconnects_silently` in
+        // pite-runtime exercises end-to-end.
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let mut tree = NodeTree::new();
+        let mut root = NodeDesc::new(NodeId::from("root".to_string()), "Node2D");
+        root.name = "Root".to_string();
+        tree.insert(root).unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+
+        // Both getters must return the zero default with the node absent.
+        assert_eq!(host.get_f64("ghost", "wait_time"), 0.0);
+        assert_eq!(host.get_bool("ghost", "disabled"), false);
+        assert_eq!(host.get_i64("ghost", "collision_layer"), 0);
+        assert_eq!(host.get_string("ghost", "text"), "");
+        let v = host.get_vec2("ghost", "position");
+        assert_eq!((v.x, v.y), (0.0, 0.0));
+
+        // Writing to a missing node is a silent no-op (already true before
+        // commit 4; the schema-defaults work must not change it).
+        host.set_prop("ghost", "position", pite_core::PropValue::Vec2(9.0, 9.0));
+    }
 }

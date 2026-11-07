@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::props::PropValue;
 
@@ -107,6 +109,32 @@ pub fn type_props(type_name: &str) -> &'static [PropSchema] {
     node_type_schema(type_name).map(|s| s.props).unwrap_or(&[])
 }
 
+/// All props for `type_name`, walking the inheritance chain from leaf to
+/// root and deduplicating by key (leaf declarations shadow ancestors).
+/// The leaf's version of an overridden prop (its default, hint, `read_only`)
+/// wins, so `Button.color` sees `[51, 65, 85, 255]`, not `Control.color`'s
+/// white. Unknown types fall through to `Node` (which declares no props).
+pub fn all_props(type_name: &str) -> Vec<&'static PropSchema> {
+    let mut seen: HashSet<&'static str> = HashSet::new();
+    let mut out = Vec::new();
+    let mut current: Option<String> = Some(type_name.to_string());
+    while let Some(name) = current {
+        if let Some(schema) = node_type_schema(&name) {
+            for prop in schema.props {
+                if seen.insert(prop.key) {
+                    out.push(prop);
+                }
+            }
+            current = schema.inherits.map(String::from);
+        } else if name != "Node" {
+            current = Some("Node".to_string());
+        } else {
+            current = None;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +174,50 @@ mod tests {
         let rigid = type_props("RigidBody2D");
         let keys: Vec<&str> = rigid.iter().map(|p| p.key).collect();
         assert_eq!(keys, vec!["mass", "gravity_scale", "lock_rotation"]);
+    }
+
+    #[test]
+    fn test_all_props_walks_chain() {
+        // Sprite2D → Node2D → Node
+        let keys: Vec<&str> = all_props("Sprite2D").iter().map(|p| p.key).collect();
+        assert_eq!(
+            keys,
+            vec!["texture", "atlas", "frame", "position", "rotation"]
+        );
+
+        // Button shadows Control's color and size; Control's color/size are
+        // filtered out after Button's versions are seen first.
+        let keys: Vec<&str> = all_props("Button").iter().map(|p| p.key).collect();
+        assert_eq!(
+            keys,
+            vec!["text", "color", "size", "disabled", "position", "font_size"]
+        );
+        // Button's own color default wins over Control's white.
+        let color = all_props("Button")
+            .into_iter()
+            .find(|p| p.key == "color")
+            .unwrap();
+        assert_eq!(
+            color.default_value,
+            super::DefaultPropVal::Color([51, 65, 85, 255])
+        );
+
+        // CharacterBody2D → PhysicsBody2D → CollisionObject2D → Node2D → Node
+        let keys: Vec<&str> = all_props("CharacterBody2D").iter().map(|p| p.key).collect();
+        assert_eq!(
+            keys,
+            vec![
+                "velocity",
+                "friction",
+                "restitution",
+                "collision_layer",
+                "collision_mask",
+                "position",
+                "rotation"
+            ]
+        );
+
+        // Unknown type falls through to Node (no props).
+        assert!(all_props("Custom").is_empty());
     }
 }

@@ -254,60 +254,79 @@ pub fn prop_to_toml(value: &PropValue) -> toml::Value {
     }
 }
 
-/// Convert a scene document into a runtime [`NodeTree`].
-/// Missing scripts are placeholders here, never a load failure.
+/// Build `NodeDesc`s from a scene doc, filling schema defaults (inherited
+/// props included) for every declared prop not present in the scene. Ids,
+/// parents, and scripts copy verbatim; callers that remap (e.g.
+/// `instantiate`) do so after.
+///
+/// After this, every schema prop for each node's type is present with a
+/// compatible value — the invariant the runtime getters rely on.
+fn descs_from_doc(doc: &SceneDoc) -> Vec<NodeDesc> {
+    doc.node
+        .iter()
+        .map(|n| {
+            let mut props = Props::default();
+            for prop in pite_core::all_props(&n.type_name) {
+                props.insert(prop.key, prop.default_value.to_prop_value());
+            }
+            // Overlay scene-set values. Coerce integer literals into floats
+            // when the schema expects `Num`, so `mass = 1` (integer syntax)
+            // lands as `Num(1.0)` — matching `mass = 1.0`. Other shape
+            // conversions (array → Vec2, hex → Color) already happen in
+            // `toml_to_prop`.
+            for (k, v) in &n.props {
+                let raw = toml_to_prop(v);
+                let coerced = match (props.get(k), raw) {
+                    (Some(pite_core::PropValue::Num(_)), pite_core::PropValue::Int(i)) => {
+                        pite_core::PropValue::Num(i as f64)
+                    }
+                    (_, other) => other,
+                };
+                props.insert(k.clone(), coerced);
+            }
+            NodeDesc {
+                id: NodeId::from(n.id.clone()),
+                type_name: n.type_name.clone(),
+                name: n.name.clone(),
+                parent: n.parent.clone().map(NodeId::from),
+                props,
+                script: n.script.as_ref().map(|s| ScriptRef {
+                    path: s.path.clone(),
+                    class_name: s.class.clone(),
+                }),
+            }
+        })
+        .collect()
+}
+
+/// Convert a scene document into a runtime [`NodeTree`] with schema defaults
+/// filled. Missing scripts are placeholders here, never a load failure.
 pub fn to_node_tree(doc: &SceneDoc) -> Result<NodeTree> {
     let mut tree = NodeTree::new();
-    for n in &doc.node {
-        let mut props = Props::default();
-        for (k, v) in &n.props {
-            props.insert(k.clone(), toml_to_prop(v));
-        }
-        tree.insert(NodeDesc {
-            id: NodeId::from(n.id.clone()),
-            type_name: n.type_name.clone(),
-            name: n.name.clone(),
-            parent: n.parent.clone().map(NodeId::from),
-            props,
-            script: n.script.as_ref().map(|s| ScriptRef {
-                path: s.path.clone(),
-                class_name: s.class.clone(),
-            }),
-        })
-        .map_err(|e| anyhow::anyhow!("node {:?}: {e}", n.id))?;
+    for desc in descs_from_doc(doc) {
+        let id_str = desc.id.to_string();
+        tree.insert(desc)
+            .map_err(|e| anyhow::anyhow!("node {id_str:?}: {e}"))?;
     }
     Ok(tree)
 }
 
-/// Load the referenced scene, clone its subtree, apply prop overrides.
-/// Returns node records ready to insert into the host tree plus the
-/// remapped id of the referenced scene's root.
+/// Load the referenced scene, fill defaults, remap ids with `prefix`, apply
+/// prop overrides. Returns node records ready to insert into the host tree
+/// plus the remapped id of the referenced scene's root.
 pub fn instantiate(
     scene_path: &Path,
     prefix: &str,
     overrides: &BTreeMap<String, toml::Value>,
 ) -> Result<(Vec<NodeDesc>, String)> {
     let doc = load_scene_cached(scene_path)?;
-    let mut descs = Vec::with_capacity(doc.node.len());
-    for n in &doc.node {
-        let mut props = Props::default();
-        for (k, v) in &n.props {
-            props.insert(k.clone(), toml_to_prop(v));
-        }
-        descs.push(NodeDesc {
-            id: NodeId::from(format!("{prefix}{}", n.id)),
-            type_name: n.type_name.clone(),
-            name: n.name.clone(),
-            parent: n
-                .parent
-                .clone()
-                .map(|p| NodeId::from(format!("{prefix}{p}"))),
-            props,
-            script: n.script.as_ref().map(|s| ScriptRef {
-                path: s.path.clone(),
-                class_name: s.class.clone(),
-            }),
-        });
+    let mut descs = descs_from_doc(&doc);
+    for desc in &mut descs {
+        desc.id = NodeId::from(format!("{prefix}{}", desc.id.as_str()));
+        desc.parent = desc
+            .parent
+            .as_ref()
+            .map(|p| NodeId::from(format!("{prefix}{}", p.as_str())));
     }
     for (key, value) in overrides {
         let (node_id, prop) = key.split_once('.').with_context(|| {

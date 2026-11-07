@@ -39,9 +39,6 @@ fn slugify(name: &str) -> String {
     slug
 }
 
-/// Insert a node of `type_name` under `parent` (defaults to the tree root).
-/// The id is derived from `name` plus a counter until unique.
-/// Unknown types and missing parents are errors.
 pub fn add_node(
     tree: &mut NodeTree,
     parent: Option<NodeId>,
@@ -61,42 +58,12 @@ pub fn add_node(
         .create(id.clone(), type_name)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     node.name = name.to_string();
-
-    match type_name {
-        "StaticBody2D" | "Area2D" => {
-            node.props
-                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
-        }
-        "CharacterBody2D" => {
-            node.props
-                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
-            node.props
-                .insert("velocity".to_string(), PropValue::Vec2(0.0, 0.0));
-        }
-        "RigidBody2D" => {
-            node.props
-                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
-            node.props.insert("mass".to_string(), PropValue::Num(1.0));
-            node.props
-                .insert("gravity_scale".to_string(), PropValue::Num(1.0));
-            node.props
-                .insert("lock_rotation".to_string(), PropValue::Bool(false));
-        }
-        "CollisionShape2D" => {
-            node.props
-                .insert("position".to_string(), PropValue::Vec2(0.0, 0.0));
-            node.props
-                .insert("shape".to_string(), PropValue::Str("box".to_string()));
-            node.props
-                .insert("size".to_string(), PropValue::Vec2(32.0, 32.0));
-            node.props
-                .insert("radius".to_string(), PropValue::Num(16.0));
-            node.props
-                .insert("height".to_string(), PropValue::Num(32.0));
-            node.props
-                .insert("disabled".to_string(), PropValue::Bool(false));
-        }
-        _ => {}
+    // Fill schema defaults (inherited included) so a freshly created node
+    // already satisfies the "every schema prop present" invariant — same
+    // one `to_node_tree` enforces at load time.
+    for prop in pite_core::all_props(type_name) {
+        node.props
+            .insert(prop.key, prop.default_value.to_prop_value());
     }
     let parent = match parent {
         Some(p) => {
@@ -429,7 +396,7 @@ pub fn build_doc(
             type_name: n.type_name.clone(),
             name: n.name.clone(),
             parent: n.parent.clone().map(|p| p.to_string()),
-            props: props_to_toml(&n.props),
+            props: props_to_toml_filtered(&n.type_name, &n.props),
             script: n.script.as_ref().map(|s| SceneScript {
                 path: s.path.clone(),
                 class: s.class_name.clone(),
@@ -450,6 +417,28 @@ pub fn build_doc(
 fn props_to_toml(props: &Props) -> BTreeMap<String, toml::Value> {
     let mut out = BTreeMap::new();
     for (k, v) in &props.0 {
+        out.insert(k.clone(), prop_to_toml(v));
+    }
+    out
+}
+
+/// Like `props_to_toml` but omits props whose value equals the schema
+/// default for `type_name`, keeping scene files minimal. Unknown (non-schema)
+/// props always save. A save → load → save round-trip is byte-identical
+/// because load fills the same defaults before comparing.
+fn props_to_toml_filtered(type_name: &str, props: &Props) -> BTreeMap<String, toml::Value> {
+    let schema_defaults: std::collections::HashMap<&str, pite_core::PropValue> =
+        pite_core::all_props(type_name)
+            .iter()
+            .map(|p| (p.key, p.default_value.to_prop_value()))
+            .collect();
+    let mut out = BTreeMap::new();
+    for (k, v) in &props.0 {
+        if let Some(default) = schema_defaults.get(k.as_str()) {
+            if default == v {
+                continue;
+            }
+        }
         out.insert(k.clone(), prop_to_toml(v));
     }
     out
@@ -488,6 +477,12 @@ fn plan_instance(
 ) -> Result<InstancePlan> {
     let path = resolve_instance_path(&inst.scene, refs)?;
     let ref_doc = pite_scene::load_scene(&path)?;
+    // Fill schema defaults on the reference so prop comparison sees canonical
+    // values. Without this, a live prop equal to a schema default would look
+    // "changed" against a sparse reference and get spuriously recorded as an
+    // override.
+    let ref_tree = pite_scene::to_node_tree(&ref_doc)?;
+
     let mut owned = HashSet::new();
     let mut overrides: BTreeMap<String, toml::Value> = BTreeMap::new();
     for ref_node in &ref_doc.node {
@@ -495,6 +490,9 @@ fn plan_instance(
         let live = tree
             .get(&NodeId::from(live_id.clone()))
             .with_context(|| format!("live tree is missing `{live_id}`"))?;
+        let ref_filled = ref_tree
+            .get(&NodeId::from(ref_node.id.clone()))
+            .with_context(|| format!("reference tree is missing `{}`", ref_node.id))?;
         owned.insert(live_id.clone());
         if live.type_name != ref_node.type_name || live.name != ref_node.name {
             anyhow::bail!("`{live_id}` was renamed or retyped; overrides carry props only");
@@ -519,7 +517,9 @@ fn plan_instance(
                 anyhow::bail!("`{live_id}` was reparented inside the instance");
             }
         }
-        for key in ref_node.props.keys() {
+        // Full prop comparison: ref_filled is schema-filled, live is
+        // schema-filled-then-overridden. Compare every key.
+        for key in ref_filled.props.0.keys() {
             if !live.props.0.contains_key(key) {
                 anyhow::bail!(
                     "prop `{key}` was removed from `{live_id}`; an instance cannot \
@@ -528,7 +528,8 @@ fn plan_instance(
             }
         }
         for (key, value) in props_to_toml(&live.props) {
-            if ref_node.props.get(&key) != Some(&value) {
+            let ref_value = ref_filled.props.get(&key).map(prop_to_toml);
+            if ref_value.as_ref() != Some(&value) {
                 overrides.insert(format!("{}.{}", ref_node.id, key), value);
             }
         }

@@ -26,8 +26,8 @@ pub use node::{Node, NodeDesc, NodeId, ScriptRef};
 pub use props::{Color, PropValue, Props};
 pub use registry::{NodeFactory, NodeTypeRegistry};
 pub use schema::{
-    inheritance_chain, node_type_schema, type_props, DefaultPropVal, NodeTypeSchema, PropHint,
-    PropSchema, NODE_SCHEMAS,
+    all_props, inheritance_chain, node_type_schema, type_props, DefaultPropVal, NodeTypeSchema,
+    PropHint, PropSchema, NODE_SCHEMAS,
 };
 pub use signals::{SignalDef, SignalRegistry};
 pub use tree::NodeTree;
