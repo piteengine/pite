@@ -524,18 +524,28 @@ mod tests {
         std::fs::write(stdlib.join("os.py"), b"import sys\n").unwrap();
         std::fs::write(stdlib.join("site-packages").join("junk.py"), b"x = 1\n").unwrap();
         std::fs::write(stdlib.join("__pycache__").join("os.pyc"), b"junk").unwrap();
-        let zip = dir.join("python312.zip");
-        zip_dir(&stdlib, &zip).unwrap();
-        let out = std::process::Command::new("python3")
-            .arg("-c")
-            .arg("import zipfile,sys; print(sorted(zipfile.ZipFile(sys.argv[1]).namelist()))")
-            .arg(&zip)
-            .output()
-            .expect("python3 available to list the zip");
-        let listing = String::from_utf8_lossy(&out.stdout).into_owned();
-        assert!(listing.contains("os.py"), "got: {listing}");
-        assert!(!listing.contains("site-packages"), "got: {listing}");
-        assert!(!listing.contains("__pycache__"), "got: {listing}");
+        let zip_path = dir.join("python312.zip");
+        zip_dir(&stdlib, &zip_path).unwrap();
+
+        // Inspect with the `zip` crate (same one that wrote the archive), so
+        // the assertion runs everywhere without shelling out to `python3`
+        // — which is `python.exe` on Windows, not `python3`.
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "os.py"),
+            "os.py missing, got: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("site-packages/")),
+            "site-packages leaked into the stdlib zip: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("__pycache__/")),
+            "__pycache__ leaked into the stdlib zip: {names:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

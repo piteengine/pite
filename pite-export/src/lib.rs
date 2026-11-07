@@ -734,13 +734,24 @@ def _once():
         let _guard = SERIAL.lock().unwrap();
         let prev = std::env::var_os("PITE_PYTHON");
         let (dir, bin) = fixture("pyok");
-        let fake = dir.join("fake312");
-        std::fs::write(&fake, "#!/bin/sh\necho \"Python 3.12.99\"\n").unwrap();
+
+        // Windows cannot exec a shebang script — it needs `.bat`/`.cmd`/`.exe`.
+        // Give each platform its natural fake-Python shape.
         #[cfg(unix)]
-        {
+        let fake = {
+            let path = dir.join("fake312");
+            std::fs::write(&path, "#!/bin/sh\necho \"Python 3.12.99\"\n").unwrap();
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        #[cfg(windows)]
+        let fake = {
+            let path = dir.join("fake312.bat");
+            std::fs::write(&path, "@echo off\r\necho Python 3.12.99\r\n").unwrap();
+            path
+        };
+
         std::env::set_var("PITE_PYTHON", &fake);
         let report = export_project(
             &dir,
@@ -799,15 +810,22 @@ def _once():
         assert!(staged.lib.ends_with("libpython3.12.so.1.0"), "{staged:?}");
         assert!(staged.lib.is_file());
         assert!(staged.stdlib_zip.is_file());
-        let listing = std::process::Command::new("python3")
-            .arg("-c")
-            .arg("import zipfile,sys; print(sorted(zipfile.ZipFile(sys.argv[1]).namelist()))")
-            .arg(&staged.stdlib_zip)
-            .output()
-            .expect("python3 lists the zip");
-        let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
-        assert!(listing.contains("os.py"), "{listing}");
-        assert!(!listing.contains("site-packages"), "{listing}");
+
+        // Inspect the stdlib zip with the `zip` crate, not `python3`
+        // (Windows names it `python.exe`; the crate is portable).
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(&staged.stdlib_zip).unwrap()).unwrap();
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "os.py"),
+            "os.py missing, got: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("site-packages/")),
+            "site-packages leaked into the stdlib zip: {names:?}"
+        );
         assert!(
             !out.join(".staging").exists(),
             "staging dir must be cleaned up"
@@ -856,15 +874,20 @@ def _once():
         assert!(staged.lib.ends_with("libpython3.12.dylib"), "{staged:?}");
         assert!(staged.lib.is_file());
         assert!(staged.stdlib_zip.is_file());
-        let listing = std::process::Command::new("python3")
-            .arg("-c")
-            .arg("import zipfile,sys; print(sorted(zipfile.ZipFile(sys.argv[1]).namelist()))")
-            .arg(&staged.stdlib_zip)
-            .output()
-            .expect("python3 lists the zip");
-        let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
-        assert!(listing.contains("os.py"), "{listing}");
-        assert!(!listing.contains("site-packages"), "{listing}");
+
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(&staged.stdlib_zip).unwrap()).unwrap();
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "os.py"),
+            "os.py missing, got: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("site-packages/")),
+            "site-packages leaked into the stdlib zip: {names:?}"
+        );
         assert!(
             !out.join(".staging").exists(),
             "staging dir must be cleaned up"
