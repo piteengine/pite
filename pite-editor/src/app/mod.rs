@@ -159,6 +159,7 @@ pub struct EditorApp {
     pub(super) asset_modal: Option<assets::AssetModal>,
     pub(super) asset_clipboard: Option<assets::AssetClipboardEntry>,
     pub(super) hovered_asset_folder: Option<String>,
+    pub(super) custom_props: std::collections::HashMap<String, String>,
 }
 
 impl EditorApp {
@@ -176,6 +177,7 @@ impl EditorApp {
                 },
                 |m| (m.project.window_width, m.project.window_height),
             );
+        let custom_props = Self::load_custom_props(project_dir.as_deref());
         Ok(Self {
             session,
             scene_path: scene.to_path_buf(),
@@ -219,6 +221,7 @@ impl EditorApp {
             asset_modal: None,
             asset_clipboard: None,
             hovered_asset_folder: None,
+            custom_props,
         })
     }
 

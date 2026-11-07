@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Custom properties: declared in `pite.toml` under `[props]`, typed, validated, and set from Python.
 - Tree-backed Python accessors. Every pyclass now generates its prop
   surface from `pite_props! { PyX { key: Kind, ... } }` — no per-pyclass
   Rust fields mirroring tree state, no `ScriptBackend::position`/`text`/

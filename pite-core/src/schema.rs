@@ -135,6 +135,67 @@ pub fn all_props(type_name: &str) -> Vec<&'static PropSchema> {
     out
 }
 
+/// True when `type_str` names a type a `[props]` entry may declare.
+/// Accepts aliases so hand-written manifests stay forgiving.
+pub fn is_valid_custom_prop_type(type_str: &str) -> bool {
+    matches!(
+        type_str,
+        "string"
+            | "str"
+            | "int"
+            | "integer"
+            | "number"
+            | "num"
+            | "float"
+            | "bool"
+            | "boolean"
+            | "vec2"
+            | "color"
+    )
+}
+
+/// Check a `PropValue` against a `[props]` declared type name. Errors name
+/// the expected and actual types so `pite check` and Python `set_custom_property`
+/// surface the same message.
+pub fn validate_custom_prop_type(type_str: &str, value: &PropValue) -> Result<(), String> {
+    let want = match type_str {
+        "string" | "str" => matches!(value, PropValue::Str(_)),
+        "int" | "integer" => matches!(value, PropValue::Int(_)),
+        "number" | "num" | "float" => matches!(value, PropValue::Num(_)),
+        "bool" | "boolean" => matches!(value, PropValue::Bool(_)),
+        "vec2" => matches!(value, PropValue::Vec2(_, _)),
+        "color" => matches!(value, PropValue::Color(_, _, _, _)),
+        other => {
+            return Err(format!(
+                "unknown custom prop type {:?} (want one of: {})",
+                other,
+                crate::CUSTOM_PROP_TYPES.join(", ")
+            ));
+        }
+    };
+    if want {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected {}, got {}",
+            canonical_type_name(type_str),
+            value.type_name()
+        ))
+    }
+}
+
+fn canonical_type_name(type_str: &str) -> &'static str {
+    match type_str {
+        "string" | "str" => "string",
+        "int" | "integer" => "int",
+        "number" | "num" | "float" => "number",
+        "bool" | "boolean" => "bool",
+        "vec2" => "vec2",
+        "color" => "color",
+        _ => "unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +280,38 @@ mod tests {
 
         // Unknown type falls through to Node (no props).
         assert!(all_props("Custom").is_empty());
+    }
+
+    #[test]
+    fn custom_prop_types_validate() {
+        use crate::PropValue;
+        // Aliases are accepted.
+        assert!(is_valid_custom_prop_type("string"));
+        assert!(is_valid_custom_prop_type("str"));
+        assert!(is_valid_custom_prop_type("number"));
+        assert!(is_valid_custom_prop_type("float"));
+        assert!(is_valid_custom_prop_type("bool"));
+        assert!(is_valid_custom_prop_type("boolean"));
+        assert!(!is_valid_custom_prop_type("bytes"));
+        assert!(!is_valid_custom_prop_type(""));
+
+        // Value checks.
+        assert!(validate_custom_prop_type("string", &PropValue::Str("hi".into())).is_ok());
+        assert!(validate_custom_prop_type("string", &PropValue::Int(1)).is_err());
+        assert!(validate_custom_prop_type("int", &PropValue::Int(1)).is_ok());
+        assert!(validate_custom_prop_type("int", &PropValue::Num(1.5)).is_err());
+        assert!(validate_custom_prop_type("number", &PropValue::Num(1.5)).is_ok());
+        assert!(validate_custom_prop_type("number", &PropValue::Int(1)).is_err());
+        assert!(validate_custom_prop_type("bool", &PropValue::Bool(true)).is_ok());
+        assert!(validate_custom_prop_type("vec2", &PropValue::Vec2(1.0, 2.0)).is_ok());
+        assert!(validate_custom_prop_type("color", &PropValue::Color(1, 2, 3, 4)).is_ok());
+
+        // Unknown type name errors with the canonical list.
+        let err = validate_custom_prop_type("bytes", &PropValue::Str("".into())).unwrap_err();
+        assert!(err.contains("unknown custom prop type"), "got {err:?}");
+        assert!(
+            err.contains("string, int, number, bool, vec2, color"),
+            "got {err:?}"
+        );
     }
 }

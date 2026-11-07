@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -134,6 +135,7 @@ pub fn run(path: Option<&str>, reimport_assets: bool, strict: bool, json: bool) 
         check_scene_ref(
             &root,
             &manifest.project.main_scene,
+            &manifest.props,
             &mut errors,
             &mut warnings,
             &mut cache,
@@ -201,6 +203,7 @@ pub fn run(path: Option<&str>, reimport_assets: bool, strict: bool, json: bool) 
 fn check_scene_ref(
     root: &Path,
     scene_ref: &str,
+    custom_props: &HashMap<String, String>,
     errors: &mut Vec<String>,
     warnings: &mut Vec<String>,
     cache: &mut Vec<String>,
@@ -395,6 +398,39 @@ fn check_scene_ref(
                 }
             }
         }
+        // Custom-prop validation: every non-schema prop either matches a
+        // `[props]` declaration (silent), or is undeclared (warning).
+        // Schema props skip — they have typed accessors and their own
+        // per-type checks above.
+        let schema_keys: HashSet<&str> = pite_core::all_props(&node.type_name)
+            .iter()
+            .map(|p| p.key)
+            .collect();
+        let mut prop_keys: Vec<&String> = node.props.keys().collect();
+        prop_keys.sort();
+        for key in prop_keys {
+            if schema_keys.contains(key.as_str()) {
+                continue;
+            }
+            let raw = &node.props[key];
+            match custom_props.get(key) {
+                Some(declared_type) => {
+                    let value = pite_scene::toml_to_prop(raw);
+                    if let Err(e) = pite_core::validate_custom_prop_type(declared_type, &value) {
+                        errors.push(format!(
+                            "scene {}: node {:?} custom prop {key:?} {e}",
+                            path.display(),
+                            node.id
+                        ));
+                    }
+                }
+                None => warnings.push(format!(
+                    "scene {}: node {:?} has unknown prop {key:?}; declare it in [props] to silence",
+                    path.display(),
+                    node.id
+                )),
+            }
+        }
     }
     for inst in &doc.instance {
         let ref_path = if let Some(rel) = inst.scene.strip_prefix("res://") {
@@ -457,6 +493,7 @@ fn check_scene_ref(
         check_scene_ref(
             root,
             &nested_ref,
+            custom_props,
             errors,
             warnings,
             cache,
@@ -605,6 +642,7 @@ texture = "res://assets/gone.png"
         check_scene_ref(
             root,
             "res://scenes/main.ptscn",
+            &HashMap::new(),
             &mut errors,
             &mut warnings,
             &mut cache,
@@ -821,6 +859,7 @@ texture = "res://assets/gone.png"
         check_scene_ref(
             &root,
             "res://scenes/main.ptscn",
+            &HashMap::new(),
             &mut errors,
             &mut warnings,
             &mut cache,
@@ -834,6 +873,63 @@ texture = "res://assets/gone.png"
         assert!(errors.is_empty(), "got: {errors:?}");
         assert_eq!(warnings.len(), 1, "got: {warnings:?}");
         assert!(warnings[0].contains("\"numpy\""), "got: {warnings:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn custom_props_are_validated() {
+        let root = fixture_root(99);
+        // Scene with a declared + an undeclared custom prop, plus a type
+        // mismatch against a declared type.
+        std::fs::write(
+            root.join("scenes").join("main.ptscn"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[node.props]\nspawn_group = \"warrior\"\nboss_hp = \"lots\"\ntypo_field = 42\n",
+        )
+        .unwrap();
+        let mut custom = HashMap::new();
+        custom.insert("spawn_group".to_string(), "string".to_string());
+        custom.insert("boss_hp".to_string(), "int".to_string());
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut cache = Vec::new();
+        let mut atlas = Vec::new();
+        let mut visited = HashSet::new();
+        let mut referenced = HashSet::new();
+        check_scene_ref(
+            &root,
+            "res://scenes/main.ptscn",
+            &custom,
+            &mut errors,
+            &mut warnings,
+            &mut cache,
+            &mut atlas,
+            &pite_assets::UidRegistry::default(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut visited,
+            &mut referenced,
+        );
+        // spawn_group: silent (declared, correct type).
+        // boss_hp: error (declared as int, scene value is string).
+        // typo_field: warning (undeclared).
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("custom prop \"boss_hp\"")
+                    && e.contains("expected int, got string")),
+            "got errors: {errors:?}"
+        );
+        assert!(
+            !errors.iter().any(|e| e.contains("spawn_group")),
+            "spawn_group must be silent, got errors: {errors:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("unknown prop \"typo_field\"")),
+            "got warnings: {warnings:?}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

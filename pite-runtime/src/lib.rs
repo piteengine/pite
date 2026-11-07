@@ -138,6 +138,14 @@ impl GameSession {
         pite_script::set_current_physics(Some(session.physics.clone()));
         pite_audio::set_project_dir(session.project_dir.clone());
         pite_script::set_project_dir(session.project_dir.clone());
+        // Install the project's custom-prop declarations before any script's
+        // `_ready` runs; otherwise `get_custom_property` / `set_custom_property`
+        // in `_ready` would see an empty schema.
+        if let Some(dir) = session.project_dir.as_deref() {
+            if let Ok(manifest) = pite_project::load_manifest(dir) {
+                session.host.set_custom_prop_schema(manifest.props.clone());
+            }
+        }
         session.rebuild()?;
         if !session.no_reload {
             session.start_watcher()?;

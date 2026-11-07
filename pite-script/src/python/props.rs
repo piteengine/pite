@@ -351,6 +351,69 @@ macro_rules! pite_props {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Python ↔ PropValue conversions for the custom-prop API
+// ---------------------------------------------------------------------------
+
+/// Convert an arbitrary Python object into a `PropValue`, picking the first
+/// variant whose Rust type extracts without error. Order matters:
+///
+/// - `bool` before `int` (bool is a subclass of int; `extract::<i64>()` on
+///   `True` returns 1, so the bool check has to come first).
+/// - `int` before `float` (an int extracts as `f64` too, but we want
+///   `Int(1)` for `1`, not `Num(1.0)`).
+/// - `String` before tuples (a string never extracts as a 2-tuple, but the
+///   order is stable and cheap).
+/// - `(f64, f64)` (vec2) before `(u8, u8, u8[, u8])` (color): the two are
+///   disjoint by length, so the first fitting pattern wins.
+pub(crate) fn py_to_prop(
+    value: &::pyo3::Bound<'_, ::pyo3::PyAny>,
+) -> ::pyo3::PyResult<pite_core::PropValue> {
+    use ::pyo3::types::{PyAnyMethods, PyBool};
+
+    if value.is_instance_of::<PyBool>() {
+        return Ok(pite_core::PropValue::Bool(value.extract::<bool>()?));
+    }
+    if let Ok(i) = value.extract::<i64>() {
+        return Ok(pite_core::PropValue::Int(i));
+    }
+    if let Ok(f) = value.extract::<f64>() {
+        return Ok(pite_core::PropValue::Num(f));
+    }
+    if let Ok(s) = value.extract::<String>() {
+        return Ok(pite_core::PropValue::Str(s));
+    }
+    if let Ok((x, y)) = value.extract::<(f64, f64)>() {
+        return Ok(pite_core::PropValue::Vec2(x, y));
+    }
+    if let Ok((r, g, b)) = value.extract::<(u8, u8, u8)>() {
+        return Ok(pite_core::PropValue::Color(r, g, b, 255));
+    }
+    if let Ok((r, g, b, a)) = value.extract::<(u8, u8, u8, u8)>() {
+        return Ok(pite_core::PropValue::Color(r, g, b, a));
+    }
+    Err(::pyo3::exceptions::PyTypeError::new_err(
+        "value must be str, int, float, bool, (x, y) tuple, or (r, g, b[, a]) tuple",
+    ))
+}
+
+/// Convert a `PropValue` back to a plain Python value (`str`, `float`, `int`,
+/// `bool`, `(x, y)`, or `(r, g, b, a)`).
+pub(crate) fn prop_to_py(
+    py: ::pyo3::Python<'_>,
+    value: &pite_core::PropValue,
+) -> ::pyo3::PyResult<::pyo3::Py<::pyo3::PyAny>> {
+    use ::pyo3::IntoPyObjectExt;
+    match value {
+        pite_core::PropValue::Str(s) => s.clone().into_py_any(py),
+        pite_core::PropValue::Num(f) => f.into_py_any(py),
+        pite_core::PropValue::Int(i) => i.into_py_any(py),
+        pite_core::PropValue::Bool(b) => b.into_py_any(py),
+        pite_core::PropValue::Vec2(x, y) => (*x, *y).into_py_any(py),
+        pite_core::PropValue::Color(r, g, b, a) => (*r, *g, *b, *a).into_py_any(py),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Compilation test: `pite_props!` must expand to valid `#[pymethods]`

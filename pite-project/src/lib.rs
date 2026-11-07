@@ -19,10 +19,17 @@ pub struct PiteManifest {
     pub export: ExportConfig,
     /// Pinned third-party packages (`pite vendor add`). The table is the
     /// lock: committed `vendor/` bytes must match it (`pite vendor verify`).
-    /// No `form` field yet — absent means zipped wheels; unpacked trees
-    /// arrive with explicit forms later, keeping this shape working.
     #[serde(default)]
     pub vendor: HashMap<String, VendorEntry>,
+    /// Project-level custom prop declarations. Each entry is `name = "type"`
+    /// with `type` one of `string`, `int`, `number`, `bool`, `vec2`, `color`
+    /// (aliases accepted). Props declared here are readable/writable from
+    /// scripts via `get_custom_property` / `set_custom_property`, survive
+    /// scene saves, and no longer trip `pite check` "unknown prop" warnings.
+    /// Deleting a declaration is safe: unread nodes ignore it, and scripts
+    /// that write it fail loudly at the next `set_custom_property`.
+    #[serde(default)]
+    pub props: HashMap<String, String>,
     #[serde(flatten, default)]
     pub extra: HashMap<String, toml::Value>,
 }
@@ -187,6 +194,29 @@ pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) 
             "manifest: icon {:?} must be res:// or empty (absolute paths are forbidden)",
             manifest.project.icon
         ));
+    }
+    // `[props]` type names must be recognized by `pite_core`, and no entry
+    // may collide with a schema prop key (that would let `set_custom_property`
+    // succeed on a `Node` but fail on a `Node2D` — confusing).
+    let schema_keys: std::collections::HashSet<&str> = pite_core::NODE_SCHEMAS
+        .iter()
+        .flat_map(|s| s.props.iter().map(|p| p.key))
+        .collect();
+    let mut props_names: Vec<&String> = manifest.props.keys().collect();
+    props_names.sort();
+    for name in props_names {
+        let ty = &manifest.props[name];
+        if !pite_core::is_valid_custom_prop_type(ty) {
+            errors.push(format!(
+                "manifest: [props] {name:?} has unknown type {ty:?} (want one of: {})",
+                pite_core::CUSTOM_PROP_TYPES.join(", ")
+            ));
+        }
+        if schema_keys.contains(name.as_str()) {
+            errors.push(format!(
+                "manifest: [props] {name:?} collides with a schema prop name; pick a different key"
+            ));
+        }
     }
     (errors, warnings)
 }
@@ -517,5 +547,30 @@ mod tests {
         let second = std::fs::read_to_string(dir.join(MANIFEST_FILE)).unwrap();
         assert_eq!(first, second, "save churned:\n{first}\n---\n{second}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn custom_props_round_trip_and_validate() {
+        let manifest = load_text(
+            "[project]\nname = \"x\"\n\n[props]\nspawn_group = \"string\"\nboss_hp = \"int\"\ntint = \"color\"\n",
+        );
+        assert_eq!(manifest.props.len(), 3);
+        assert_eq!(manifest.props["spawn_group"], "string");
+        let (errors, warnings) = validate_manifest(&manifest);
+        assert!(errors.is_empty(), "got {errors:?}");
+        assert!(warnings.is_empty(), "got {warnings:?}");
+
+        let bad = load_text("[props]\nfoo = \"bytes\"\nposition = \"number\"\n");
+        let (errors, _) = validate_manifest(&bad);
+        assert!(
+            errors.iter().any(|e| e.contains("unknown type \"bytes\"")),
+            "got {errors:?}"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("collides with a schema prop")),
+            "got {errors:?}"
+        );
     }
 }

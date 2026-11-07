@@ -42,6 +42,10 @@ pub struct ScriptHost {
     connections: Mutex<HashMap<(String, String), Vec<(String, String)>>>,
     callable_connections: Mutex<HashMap<(String, String), Vec<Py<PyAny>>>>,
     proxy_cache: Mutex<HashMap<(String, String), Py<NodeProxy>>>,
+    /// Declared custom props from `[props]`: `name -> type name`. Populated
+    /// by `GameSession::open` from the project manifest. Read by
+    /// `set_custom_property` to validate writes.
+    custom_prop_schema: RwLock<HashMap<String, String>>,
 }
 
 pub const SIGNAL_TYPES: &[&str] = &["int", "float", "str", "bool"];
@@ -63,6 +67,7 @@ impl ScriptHost {
             connections: Mutex::new(HashMap::new()),
             callable_connections: Mutex::new(HashMap::new()),
             proxy_cache: Mutex::new(HashMap::new()),
+            custom_prop_schema: RwLock::new(HashMap::new()),
         }
     }
 
@@ -166,6 +171,95 @@ impl ScriptHost {
         if let Some(n) = tree.get_mut(&NodeId::from(node.to_string())) {
             n.props.insert(key.to_string(), value);
         }
+    }
+
+    /// Install the project's `[props]` declarations. Called once by
+    /// `GameSession::open` from the manifest; subsequent reloads must
+    /// re-call if the manifest changed.
+    pub fn set_custom_prop_schema(&self, schema: HashMap<String, String>) {
+        *self.custom_prop_schema.write().unwrap() = schema;
+    }
+
+    /// Whether `key` names a schema prop (inherited included) on a node of
+    /// `type_name`. A prop that is schema-backed has its own typed accessor
+    /// and must not go through the custom-prop API.
+    fn is_schema_prop(&self, type_name: &str, key: &str) -> bool {
+        pite_core::all_props(type_name).iter().any(|p| p.key == key)
+    }
+
+    /// Read a custom (non-schema) prop. `Ok(None)` when unset.
+    ///
+    /// Errors when the node doesn't exist, or when `key` names a schema
+    /// prop (schema props live behind typed accessors — mixing routes would
+    /// let a caller dodge `PropValue` type checks).
+    pub fn get_custom_property(
+        &self,
+        node: &str,
+        key: &str,
+    ) -> anyhow::Result<Option<pite_core::PropValue>> {
+        let tree = self.tree.lock().unwrap();
+        let n = tree
+            .get(&NodeId::from(node.to_string()))
+            .ok_or_else(|| anyhow::anyhow!("node `{node}` no longer exists"))?;
+        if self.is_schema_prop(&n.type_name, key) {
+            anyhow::bail!(
+                "`{key}` is a schema prop on {}; use the typed accessor instead",
+                n.type_name
+            );
+        }
+        Ok(n.props.get(key).cloned())
+    }
+
+    /// Write a custom (non-schema) prop. The key must be declared in
+    /// `[props]` with a type compatible with `value`; both errors surface
+    /// as `anyhow::Error` (converted to `ValueError` by the Python wrapper).
+    pub fn set_custom_property(
+        &self,
+        node: &str,
+        key: &str,
+        value: pite_core::PropValue,
+    ) -> anyhow::Result<()> {
+        let type_name = {
+            let tree = self.tree.lock().unwrap();
+            let n = tree
+                .get(&NodeId::from(node.to_string()))
+                .ok_or_else(|| anyhow::anyhow!("node `{node}` no longer exists"))?;
+            if self.is_schema_prop(&n.type_name, key) {
+                anyhow::bail!(
+                    "`{key}` is a schema prop on {}; use the typed setter instead",
+                    n.type_name
+                );
+            }
+            n.type_name.clone()
+        };
+        let declared = {
+            let schema = self.custom_prop_schema.read().unwrap();
+            schema.get(key).cloned()
+        };
+        let declared = declared.ok_or_else(|| {
+            anyhow::anyhow!(
+                "`{key}` is not declared in [props]; add `{key} = \"<type>\"` to pite.toml"
+            )
+        })?;
+        pite_core::validate_custom_prop_type(&declared, &value)
+            .map_err(|e| anyhow::anyhow!("`{key}` on {type_name}: {e}"))?;
+        self.set_prop(node, key, value);
+        Ok(())
+    }
+
+    /// Remove a custom (non-schema) prop. Returns `true` if it was present.
+    pub fn remove_custom_property(&self, node: &str, key: &str) -> anyhow::Result<bool> {
+        let mut tree = self.tree.lock().unwrap();
+        let n = tree
+            .get_mut(&NodeId::from(node.to_string()))
+            .ok_or_else(|| anyhow::anyhow!("node `{node}` no longer exists"))?;
+        if self.is_schema_prop(&n.type_name, key) {
+            anyhow::bail!(
+                "`{key}` is a schema prop on {}; use the reset button in the inspector instead",
+                n.type_name
+            );
+        }
+        Ok(n.props.0.remove(key).is_some())
     }
 
     pub fn resolve_proxy(

@@ -90,7 +90,26 @@ impl PropValue {
             _ => None,
         }
     }
+
+    /// Canonical human-readable type name, used in custom-prop type
+    /// mismatch errors (`expected int, got string`).
+    pub const fn type_name(&self) -> &'static str {
+        match self {
+            PropValue::Str(_) => "string",
+            PropValue::Num(_) => "number",
+            PropValue::Int(_) => "int",
+            PropValue::Bool(_) => "bool",
+            PropValue::Vec2(_, _) => "vec2",
+            PropValue::Color(_, _, _, _) => "color",
+        }
+    }
 }
+
+/// Canonical spellings of the types a `[props]` entry may declare.
+/// Aliases (`str`, `num`, `float`, `boolean`, ...) are accepted by
+/// [`crate::is_valid_custom_prop_type`]; this is the list surfaced in
+/// error messages and documentation.
+pub const CUSTOM_PROP_TYPES: &[&str] = &["string", "int", "number", "bool", "vec2", "color"];
 
 /// String→value prop map with typed accessors. Unknown props preserved.
 #[derive(Clone, Debug, Default, PartialEq)]

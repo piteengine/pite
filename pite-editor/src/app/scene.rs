@@ -59,6 +59,15 @@ impl EditorApp {
             )
     }
 
+    pub(super) fn load_custom_props(
+        project_dir: Option<&Path>,
+    ) -> std::collections::HashMap<String, String> {
+        project_dir
+            .and_then(|d| pite_project::load_manifest(d).ok())
+            .map(|m| m.props)
+            .unwrap_or_default()
+    }
+
     pub(super) fn recent_file() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
@@ -121,6 +130,7 @@ impl EditorApp {
                 self.session = session;
                 self.scene_path = file.to_path_buf();
                 self.project_dir = pite_project::find_project_root(file);
+                self.custom_props = Self::load_custom_props(self.project_dir.as_deref());
                 self.view_size = Self::view_size_for(self.project_dir.as_deref());
                 self.selected = None;
                 self.viewport_dirty = true;

@@ -204,7 +204,7 @@ pub fn validate(doc: &SceneDoc) -> Vec<String> {
     issues
 }
 
-fn toml_to_prop(value: &toml::Value) -> PropValue {
+pub fn toml_to_prop(value: &toml::Value) -> PropValue {
     match value {
         toml::Value::String(s) => {
             if let Some(c) = parse_hex_color(s) {

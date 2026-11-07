@@ -113,6 +113,7 @@ impl EditorApp {
                     manifest.project.window_width,
                     manifest.project.window_height,
                 );
+                self.custom_props = manifest.props.clone();
                 self.viewport_dirty = true;
                 self.settings = None;
                 self.log("saved project settings.");

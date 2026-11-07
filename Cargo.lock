@@ -3245,6 +3245,7 @@ name = "pite-project"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "pite-core",
  "pite-scene",
  "serde",
  "toml",

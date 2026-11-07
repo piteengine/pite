@@ -667,12 +667,17 @@ impl EditorApp {
             }
 
             ui.add_space(4.0);
-            let prop_name_id = ui.make_persistent_id("add_custom_prop_name");
-            let prop_type_id = ui.make_persistent_id("add_custom_prop_type");
-            let mut draft_name =
-                ui.data_mut(|d| d.get_temp_mut_or_default::<String>(prop_name_id).clone());
-            let mut draft_type =
-                ui.data_mut(|d| d.get_temp_mut_or_default::<usize>(prop_type_id).clone());
+            // Add UI: pick from `[props]` declared keys that aren't yet set
+            // on this node. Type is declared in the manifest, not chosen here.
+            let available: Vec<String> = self
+                .custom_props
+                .keys()
+                .filter(|k| !node.props.0.contains_key(k.as_str()))
+                .cloned()
+                .collect();
+            let prop_choice_id = ui.make_persistent_id("add_custom_prop_choice");
+            let mut draft_choice: Option<String> =
+                ui.data_mut(|d| d.get_temp::<Option<String>>(prop_choice_id).flatten());
 
             let add_grid_id = ui.make_persistent_id(format!("sec_grid_add_custom_{}", id));
             egui::Grid::new(add_grid_id)
@@ -682,21 +687,45 @@ impl EditorApp {
                 .min_row_height(row_h)
                 .spacing(grid_spacing)
                 .show(ui, |ui| {
-                    // Col 0: Name
+                    // Col 0: declared-prop ComboBox (or an "all declared" hint).
                     ui.allocate_ui_with_layout(
                         egui::vec2(label_w, row_h),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut draft_name)
-                                    .desired_width(label_w)
-                                    .min_size(egui::vec2(label_w, row_h))
-                                    .hint_text("Name…"),
-                            );
+                            if available.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(if self.custom_props.is_empty() {
+                                        "(no [props])"
+                                    } else {
+                                        "(all set)"
+                                    })
+                                    .color(crate::theme::FAINT)
+                                    .size(11.0),
+                                );
+                            } else {
+                                let selected_text = draft_choice
+                                    .clone()
+                                    .filter(|c| available.contains(c))
+                                    .unwrap_or_else(|| available[0].clone());
+                                draft_choice = Some(selected_text.clone());
+                                let combo_w = (label_w - 4.0).max(40.0);
+                                egui::ComboBox::from_id_salt("custom_prop_choice_combo")
+                                    .width(combo_w)
+                                    .selected_text(&selected_text)
+                                    .show_ui(ui, |ui| {
+                                        for opt in &available {
+                                            ui.selectable_value(
+                                                &mut draft_choice,
+                                                Some(opt.clone()),
+                                                opt,
+                                            );
+                                        }
+                                    });
+                            }
                         },
                     );
 
-                    // Col 1: Type + Add button
+                    // Col 1: type hint + Add button
                     ui.allocate_ui_with_layout(
                         egui::vec2(col1_w, row_h),
                         egui::Layout::left_to_right(egui::Align::Center),
@@ -704,26 +733,17 @@ impl EditorApp {
                             ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
                             ui.spacing_mut().interact_size.y = row_h;
 
-                            let combo_w = (col1_w - action_w - 4.0).max(30.0);
+                            let can_add = !available.is_empty() && draft_choice.is_some();
+                            if let Some(choice) = draft_choice.as_ref().filter(|_| can_add) {
+                                if let Some(ty) = self.custom_props.get(choice.as_str()) {
+                                    ui.label(
+                                        egui::RichText::new(format!(": {ty}"))
+                                            .color(crate::theme::FAINT)
+                                            .size(11.0),
+                                    );
+                                }
+                            }
 
-                            egui::ComboBox::from_id_salt("custom_prop_type_combo")
-                                .width(combo_w)
-                                .selected_text(match draft_type {
-                                    0 => "Number",
-                                    1 => "Vector2",
-                                    2 => "String",
-                                    3 => "Boolean",
-                                    _ => "Integer",
-                                })
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut draft_type, 0, "Number");
-                                    ui.selectable_value(&mut draft_type, 1, "Vector2");
-                                    ui.selectable_value(&mut draft_type, 2, "String");
-                                    ui.selectable_value(&mut draft_type, 3, "Boolean");
-                                    ui.selectable_value(&mut draft_type, 4, "Integer");
-                                });
-
-                            let can_add = !draft_name.trim().is_empty();
                             let add_btn = egui::Button::new(
                                 egui::RichText::new(regular::PLUS)
                                     .size(13.0)
@@ -736,19 +756,18 @@ impl EditorApp {
                             .frame(false);
                             if ui
                                 .add_sized(egui::vec2(action_w, row_h), add_btn)
-                                .on_hover_text("Add property")
+                                .on_hover_text("Add declared custom prop with its schema default")
                                 .clicked()
                                 && can_add
                             {
-                                let default_val = match draft_type {
-                                    0 => PropValue::Num(0.0),
-                                    1 => PropValue::Vec2(0.0, 0.0),
-                                    2 => PropValue::Str(String::new()),
-                                    3 => PropValue::Bool(false),
-                                    _ => PropValue::Int(0),
-                                };
-                                self.set_prop(&node_id, draft_name.trim(), default_val);
-                                draft_name.clear();
+                                if let Some(choice) = draft_choice.clone() {
+                                    if let Some(ty) = self.custom_props.get(choice.as_str()) {
+                                        if let Some(default) = default_for_custom_type(ty) {
+                                            self.set_prop(&node_id, &choice, default);
+                                            draft_choice = None;
+                                        }
+                                    }
+                                }
                             }
                         },
                     );
@@ -757,8 +776,7 @@ impl EditorApp {
                 });
 
             ui.data_mut(|d| {
-                *d.get_temp_mut_or_default::<String>(prop_name_id) = draft_name;
-                *d.get_temp_mut_or_default::<usize>(prop_type_id) = draft_type;
+                d.insert_temp::<Option<String>>(prop_choice_id, draft_choice);
             });
             ui.add_space(2.0);
         }
@@ -1174,6 +1192,22 @@ fn render_custom_value_editor(
                 None
             }
         }
+    }
+}
+
+/// Schema default for a `[props]`-declared type. Used by the inspector's
+/// add-UI to seed a fresh value before the user edits it. `None` for
+/// unrecognized types (they'd already have failed manifest validation, so
+/// this shouldn't happen in practice — the fallback is silent no-op).
+fn default_for_custom_type(ty: &str) -> Option<PropValue> {
+    match ty {
+        "string" | "str" => Some(PropValue::Str(String::new())),
+        "int" | "integer" => Some(PropValue::Int(0)),
+        "number" | "num" | "float" => Some(PropValue::Num(0.0)),
+        "bool" | "boolean" => Some(PropValue::Bool(false)),
+        "vec2" => Some(PropValue::Vec2(0.0, 0.0)),
+        "color" => Some(PropValue::Color(255, 255, 255, 255)),
+        _ => None,
     }
 }
 
