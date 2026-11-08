@@ -271,8 +271,8 @@ pub fn find_stubs_dir(start: &Path) -> Option<PathBuf> {
 /// never shipped these files, and the walk-up search above finds nothing
 /// there. `pite.py` is the source sibling the checker needs beside `pite.pyi`
 /// (the real module is native via PyO3); types always come from the stubs.
-const EMBEDDED_STUBS: &str = include_str!("../python/pite.pyi");
-const EMBEDDED_SOURCE: &str = include_str!("../python/pite.py");
+const EMBEDDED_STUBS: &str = include_str!(concat!(env!("OUT_DIR"), "/pite.pyi"));
+const EMBEDDED_SOURCE: &str = include_str!(concat!(env!("OUT_DIR"), "/pite.py"));
 
 /// Write the embedded stubs into `dir`, skipping files that already match.
 /// Returns the dir for `extraPaths`.
@@ -1464,6 +1464,43 @@ mod tests {
             EMBEDDED_STUBS
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn generated_stub_covers_pyclass_surface() {
+        // Every concrete type in the schema must have a class in the
+        // generated stub. Abstract bases (`Control`, `CollisionObject2D`,
+        // `PhysicsBody2D`) have no pyclass and must NOT appear — the
+        // `class ...` line check is on their tail too.
+        for schema in pite_core::NODE_SCHEMAS {
+            let header_with_parent = format!("class {}(", schema.type_name);
+            let header_bare = format!("class {}:", schema.type_name);
+            let present = EMBEDDED_STUBS.contains(&header_with_parent)
+                || EMBEDDED_STUBS.contains(&header_bare);
+            if schema.abstract_class {
+                assert!(
+                    !present,
+                    "abstract type {} must not appear in the stub",
+                    schema.type_name
+                );
+            } else {
+                assert!(
+                    present,
+                    "concrete type {} is missing from the stub — update class_members in build.rs",
+                    schema.type_name
+                );
+            }
+        }
+        // Hand-templated surface spot-checks.
+        for line in [
+            "class Signal:",
+            "class Vec2:",
+            "class InputQuery:",
+            "held: InputQuery",
+            "def raycast(",
+        ] {
+            assert!(EMBEDDED_STUBS.contains(line), "stub missing {line:?}");
+        }
     }
 
     #[test]

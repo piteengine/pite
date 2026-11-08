@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- `pite.pyi` and `pite.py` are generated at build time (commit 11).
+  - `pite-editor/build.rs` emits both to `$OUT_DIR` from
+    `pite_core::NODE_SCHEMAS`; `lsp.rs` embeds them via `include_str!`,
+    so the shipped stubs can never drift from the schema. A new node
+    type in the schema auto-adds its stub class.
+  - Removed the four committed stub files (`pite-editor/python/pite.{pyi,py}`
+    and `python/pite/pite.{pyi,py}`). The single source of truth is
+    `pite-editor/build.rs`; the editor materializes the generated stubs
+    to a versioned scratch dir on first use, exactly as it did for
+    installed bundles before.
+  - `pite-editor`'s `generated_stub_covers_pyclass_surface` test fails
+    if a concrete schema type is missing from the generated stub, or if
+    an abstract base leaks in.
+
+  **Known drift (not fixed here):** the schema chain for `Button` is
+  `Button → Control → Node`, but `PyButton` extends `PyNode2D`, so the
+  runtime `Button` exposes `position` and `rotation` that the schema
+  doesn't declare. The generator hard-codes `Button`'s Python parent to
+  `Node2D` and lists `size` (not `position`) in `class_members` to match
+  the actual pyclass surface. Resolving the mismatch (widen
+  `Control.inherits = Node2D`, or narrow `PyButton` to `PyNode`) is a
+  separate change — flagged so it doesn't get lost.
 - Python accessors and renderer rotation:
   - `is_on_floor` / `is_on_wall` / `is_on_ceiling` on
     `CharacterBody2D` are now **attribute accessors**, not methods:

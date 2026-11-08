@@ -34,12 +34,17 @@ than the pin warn in the console but still serve.
   as a section with no `analysis` and is silently dropped — which once
   starved `import pite` of its stubs with no error anywhere.
 
-The shipped `python/pite/pite.pyi` stubs are put on the server's
-`extraPaths` (via `didChangeConfiguration` plus `workspace/configuration`
-answers), so `import pite` resolves with the full engine API. The editor
-first looks for a checkout's stubs beside the project; when none exist
-(installed bundles never shipped the file) it materializes the stubs baked
-into the binary to a versioned scratch dir instead, so resolution works
-everywhere. `pite.py` ships beside `pite.pyi` as the source sibling the
-checker needs (the real module is native via PyO3) — no diagnostic rules are
-disabled. No DAP, no rename support — out of scope for this slice.
+The `pite.pyi` stubs are **generated at build time** by `pite-editor/build.rs`
+from `pite_core::NODE_SCHEMAS`, so adding a node type automatically adds its
+stub class. The generated stub plus its `pite.py` source sibling are baked
+into the editor binary via `include_str!` and materialized to a versioned
+scratch dir on first use; that dir goes on the server's `extraPaths` (via
+`didChangeConfiguration` plus `workspace/configuration` answers), so
+`import pite` resolves with the full engine API everywhere — installed
+bundles and source checkouts alike. There is no committed `.pyi`; the build
+output is the single source of truth, and `pite-editor`'s
+`generated_stub_covers_pyclass_surface` test fails if a schema type is
+missing a stub class. `pite.py` ships beside `pite.pyi` as the source
+sibling the checker needs (the real module is native via PyO3) — no
+diagnostic rules are disabled. No DAP, no rename support — out of scope for
+this slice.
