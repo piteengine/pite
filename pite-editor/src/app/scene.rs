@@ -8,6 +8,13 @@ use crate::ops;
 use super::{EditorApp, Tab};
 
 impl EditorApp {
+    pub(super) fn save_all(&mut self) {
+        self.save_scene();
+        if self.code_file.is_some() {
+            self.save_code();
+        }
+    }
+
     pub(super) fn save_scene(&mut self) {
         let source = match std::fs::metadata(&self.scene_path) {
             Ok(_) => match pite_scene::load_scene(&self.scene_path) {

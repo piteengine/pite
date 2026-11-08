@@ -287,16 +287,15 @@ impl EditorApp {
 
 impl eframe::App for EditorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let save_shortcut = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
-        if save_shortcut {
-            self.save_scene();
-        }
         let cmd = |key: egui::Key| {
             ctx.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(key))
         };
         let cmd_shift = |key: egui::Key| {
             ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(key))
         };
+        if cmd(egui::Key::S) {
+            self.save_all();
+        }
         if cmd(egui::Key::N) {
             self.new_scene_via_dialog();
         }
@@ -443,8 +442,8 @@ impl eframe::App for EditorApp {
                         });
                     }
                     ui.separator();
-                    if ui.button("Save Scene  Ctrl+S").clicked() {
-                        self.save_scene();
+                    if ui.button("Save  Ctrl+S").clicked() {
+                        self.save_all();
                         ui.close();
                     }
                     if ui.button("Save Scene As…  Ctrl+Shift+S").clicked() {
@@ -787,15 +786,15 @@ impl eframe::App for EditorApp {
             ui.horizontal(|ui| match self.tab {
                 Tab::Viewport => {
                     ui.label(self.scene_path.to_string_lossy().as_ref());
-                    if icons::icon_button(ui, Icon::Save, "Save scene (Ctrl+S)").clicked() {
-                        self.save_scene();
+                    if icons::icon_button(ui, Icon::Save, "Save (Ctrl+S)").clicked() {
+                        self.save_all();
                     }
                 }
                 Tab::Code => {
                     if let Some(file) = self.code_file.clone() {
                         ui.label(file.to_string_lossy().as_ref());
-                        if icons::icon_button(ui, Icon::Save, "Save script (Ctrl+S)").clicked() {
-                            self.save_code();
+                        if icons::icon_button(ui, Icon::Save, "Save (Ctrl+S)").clicked() {
+                            self.save_all();
                         }
                     } else {
                         ui.label("Open a .py file from Assets.");

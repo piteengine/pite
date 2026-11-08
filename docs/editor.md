@@ -28,11 +28,13 @@ before each `session.frame()`, with the cursor rescaled into offscreen
 pixels. Input stays out of the way — it only forwards while the pointer is
 over the viewport, so the code pane and shortcuts keep priority.
 
-## Save scene
+## Save scene and code
 
-`Scene` > `Save Scene`, the save icon button, or `Ctrl+S` / `Cmd+S`
-(`command` modifier). Serializes the live tree (`ops::build_doc` →
-`pite_scene::save_scene`) and writes `scene_path`. Success and failure both
+`Scene` > `Save`, the save icon button, or `Ctrl+S` / `Cmd+S`
+(`command` modifier) saves both the open scene and any open code file (script)
+at once. Serializes the live tree (`ops::build_doc` → `pite_scene::save_scene`)
+and writes `scene_path`, and writes any open code in the Code tab to its file
+(triggering script hot reload). Success and failure both
 land in the console; saves never panic and never fail silently. `Scene` also
 holds `New Scene` (`Ctrl+N`, root-only blank via a native save dialog),
 `Open Scene…` (`Ctrl+O`, native picker), `Open Recent` (last ten, kept in
@@ -40,7 +42,7 @@ holds `New Scene` (`Ctrl+N`, root-only blank via a native save dialog),
 (`Ctrl+Q`). `Help` links the repository and issue tracker, shows an `About`
 window, and copies debug info (version, scene, project, LSP state) to the
 clipboard besides logging it. Below the `Viewport` / `Code` tabs a path bar shows the open scene or
-the open script with its own save icon button; the Code tab itself is just the
+the open script with a save icon button; the Code tab itself is just the
 gutter plus a borderless editor filling the panel like the viewport.
 
 The scene file on disk stays authoritative: save reads it first and re-attaches

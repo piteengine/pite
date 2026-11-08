@@ -266,3 +266,60 @@ fn rename_asset_rel_and_reference_pairs() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn save_all_saves_both_scene_and_open_code() {
+    let dir = std::env::temp_dir().join(format!("pite-save-all-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene_path = dir.join("main.ptscn");
+    let script_path = dir.join("player.py");
+    std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+    std::fs::write(&script_path, "# initial script").unwrap();
+
+    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    app.session.host().with_tree_mut(|tree| {
+        let root = tree.root().unwrap().clone();
+        ops::add_node(tree, Some(root), "Node2D", "child_node").unwrap();
+    });
+
+    app.code_file = Some(script_path.clone());
+    app.code_text = "print('updated script')\n".to_string();
+
+    app.save_all();
+
+    let saved_scene = std::fs::read_to_string(&scene_path).unwrap();
+    assert!(
+        saved_scene.contains("child_node"),
+        "scene was not saved: {saved_scene}"
+    );
+
+    let saved_script = std::fs::read_to_string(&script_path).unwrap();
+    assert_eq!(saved_script, "print('updated script')\n");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_all_without_code_file_saves_scene_only() {
+    let dir = std::env::temp_dir().join(format!("pite-save-all-no-code-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene_path = dir.join("main.ptscn");
+    std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+
+    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    app.session.host().with_tree_mut(|tree| {
+        let root = tree.root().unwrap().clone();
+        ops::add_node(tree, Some(root), "Node2D", "solo_node").unwrap();
+    });
+    assert!(app.code_file.is_none());
+
+    app.save_all();
+
+    let saved_scene = std::fs::read_to_string(&scene_path).unwrap();
+    assert!(
+        saved_scene.contains("solo_node"),
+        "scene was not saved: {saved_scene}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
