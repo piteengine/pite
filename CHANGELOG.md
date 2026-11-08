@@ -2,7 +2,31 @@
 
 ## Unreleased
 
-- `pite.pyi` and `pite.py` are generated at build time (commit 11).
+- Schema-driven docs and tooltips.
+  - `NodeTypeSchema` gains `description: &'static str`; `PropSchema`
+    gains `doc: &'static str`. Both are required, so a new prop or node
+    type without docs fails to compile.
+  - Editor tree rows show the node's schema description above
+    `Type:` / `Script:` lines. Inspector prop rows show the prop doc on
+    hover. The add-node dialog's description card reads the same string.
+  - `pite-editor/build.rs` now writes `docs/reference/nodes/*.md`
+    (one file per concrete node type plus an `index.md`) directly into
+    the workspace `docs/` tree on every schema change. Files are only
+    rewritten when their content differs, so `git status` stays quiet
+    unless the schema actually moved.
+  - Removed `description_for()` from `pite-editor/src/app/tree.rs` —
+    that was the last hand-written string table duplicating schema data.
+    The tree builder now reads `schema.description` via
+    `pite_core::node_type_schema`.
+  - Test `generated_node_docs_cover_all_types` in `pite-editor/src/lib.rs`
+    fails if a concrete type has no generated `.md`.
+
+  After this, `pite-core/src/nodes/*.rs` is the single source of truth
+  for node metadata — description, props, defaults, hints, docs, and
+  inheritance all live there. Adding a node type touches one file and
+  everything else (`.pyi`, add-node tree, icons, colors, tooltips,
+  docs) derives from it.
+- `pite.pyi` and `pite.py` are generated at build time.
   - `pite-editor/build.rs` emits both to `$OUT_DIR` from
     `pite_core::NODE_SCHEMAS`; `lsp.rs` embeds them via `include_str!`,
     so the shipped stubs can never drift from the schema. A new node

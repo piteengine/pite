@@ -473,7 +473,10 @@ impl EditorApp {
                                 egui::vec2(label_w, row_h),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    ui.add(egui::Label::new(label_style).truncate());
+                                    let resp = ui.add(egui::Label::new(label_style).truncate());
+                                    if !def.doc.is_empty() {
+                                        resp.on_hover_text(def.doc);
+                                    }
                                 },
                             );
 

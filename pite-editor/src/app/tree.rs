@@ -78,25 +78,21 @@ fn build_node_hierarchy() -> Vec<NodeTypeInfo> {
     }
     roots
         .into_iter()
-        .map(|schema| build_branch(schema.type_name, &by_parent))
+        .map(|schema| build_branch(schema, &by_parent))
         .collect()
 }
 
 fn build_branch(
-    type_name: &'static str,
+    schema: &'static NodeTypeSchema,
     by_parent: &HashMap<&'static str, Vec<&'static NodeTypeSchema>>,
 ) -> NodeTypeInfo {
     let children = by_parent
-        .get(type_name)
-        .map(|kids| {
-            kids.iter()
-                .map(|s| build_branch(s.type_name, by_parent))
-                .collect()
-        })
+        .get(schema.type_name)
+        .map(|kids| kids.iter().map(|s| build_branch(s, by_parent)).collect())
         .unwrap_or_default();
     NodeTypeInfo {
-        type_name,
-        description: description_for(type_name),
+        type_name: schema.type_name,
+        description: schema.description,
         children,
     }
 }
@@ -110,38 +106,6 @@ fn nearest_visible_ancestor(type_name: &'static str) -> Option<&'static str> {
             return Some(schema.type_name);
         }
         current = schema.inherits;
-    }
-    None
-}
-
-/// Prose only — commit 12 moves these into the schema. Structure above is
-/// already fully schema-derived.
-fn description_for(type_name: &str) -> &'static str {
-    match type_name {
-        "Node" => "Base class for all scene objects. Does not have a 2D transform.",
-        "Node2D" => "2D game object with position, rotation, and scale.",
-        "Sprite2D" => "Displays a 2D texture or spritesheet frame.",
-        "Camera2D" => "2D viewport camera that can follow the player or stay fixed.",
-        "CollisionShape2D" => "Defines a 2D collision boundary (box, circle, capsule).",
-        "Area2D" => "2D detection area for triggers and overlap signals.",
-        "StaticBody2D" => "Static 2D physics body that does not move.",
-        "CharacterBody2D" => "2D physics body specialized for characters controlled by script.",
-        "RigidBody2D" => "Dynamic 2D physics body simulated by the physics engine.",
-        "Label" => "Displays formatted text on the screen.",
-        "Button" => "Clickable UI button with hover/pressed states.",
-        "Timer" => "Countdown timer that emits a timeout signal periodically or once.",
-        _ => "Engine scene node.",
-    }
-}
-
-fn find_description(hierarchy: &[NodeTypeInfo], target: &str) -> Option<&'static str> {
-    for item in hierarchy {
-        if item.type_name == target {
-            return Some(item.description);
-        }
-        if let Some(desc) = find_description(&item.children, target) {
-            return Some(desc);
-        }
     }
     None
 }
@@ -600,11 +564,18 @@ impl EditorApp {
             crate::theme::TEXT,
         );
 
-        let hover_info = if let Some((class, _)) = &script {
-            format!("Type: {type_name}\nScript: {class}")
-        } else {
-            format!("Type: {type_name}")
-        };
+        let description = pite_core::node_type_schema(&type_name)
+            .map(|s| s.description)
+            .unwrap_or("");
+        let mut hover_info = String::new();
+        if !description.is_empty() {
+            hover_info.push_str(description);
+            hover_info.push_str("\n\n");
+        }
+        hover_info.push_str(&format!("Type: {type_name}"));
+        if let Some((class, _)) = &script {
+            hover_info.push_str(&format!("\nScript: {class}"));
+        }
         let row_resp = row_resp.on_hover_text(hover_info);
 
         // Script badge on right if script is attached
@@ -858,7 +829,8 @@ impl EditorApp {
                 ui.separator();
 
                 // Description card
-                let desc = find_description(node_hierarchy(), &modal.selected_type)
+                let desc = pite_core::node_type_schema(&modal.selected_type)
+                    .map(|s| s.description)
                     .unwrap_or("Engine scene node.");
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(16, 20, 24))

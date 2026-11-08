@@ -21,6 +21,8 @@ use pite_core::{NodeTypeSchema, NODE_SCHEMAS};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../pite-core/src/schema.rs");
+    println!("cargo:rerun-if-changed=../pite-core/src/nodes");
 
     // The list of types is schema-derived; the class *bodies* are hand-
     // mapped below (see `class_members`) to match each pyclass's actual
@@ -32,6 +34,8 @@ fn main() {
     let out = std::env::var("OUT_DIR").expect("OUT_DIR set by cargo");
     std::fs::write(std::path::Path::new(&out).join("pite.pyi"), stubs).expect("write pite.pyi");
     std::fs::write(std::path::Path::new(&out).join("pite.py"), source).expect("write pite.py");
+
+    generate_docs();
 }
 
 /// Concrete types, parent-first. `Node` is the root; `pite_core::NODE_SCHEMAS`
@@ -251,4 +255,122 @@ come from `pite.pyi`. Never imported at runtime; never put on `sys.path`.
 \"\"\"
 "
     .to_string()
+}
+
+// ---------------------------------------------------------------------------
+// docs/reference/nodes/*.md — one markdown file per concrete node type,
+// plus an index. Written into the workspace `docs/` tree (skipped when
+// unchanged so `git status` stays quiet unless the schema actually moved).
+// ---------------------------------------------------------------------------
+
+fn generate_docs() {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let root = std::path::Path::new(&manifest)
+        .parent()
+        .expect("workspace root");
+    let dir = root.join("docs").join("reference").join("nodes");
+    std::fs::create_dir_all(&dir).expect("create docs dir");
+
+    let mut names: Vec<&str> = Vec::new();
+    for schema in concrete_types() {
+        write_if_changed(
+            &dir.join(format!("{}.md", schema.type_name)),
+            &render_node_doc(schema),
+        );
+        names.push(schema.type_name);
+    }
+    names.sort_unstable();
+
+    let mut index = String::from(
+        "# Node Reference\n\n\
+         Every node type in the engine, derived from `pite_core::NODE_SCHEMAS` \
+         at build time. Do not edit these files by hand — `pite-editor/build.rs` \
+         rewrites them whenever the schema changes.\n\n",
+    );
+    for name in &names {
+        let desc = pite_core::node_type_schema(name)
+            .map(|s| s.description)
+            .unwrap_or("");
+        index.push_str(&format!("- [`{name}`]({name}.md) — {desc}\n"));
+    }
+    write_if_changed(&dir.join("index.md"), &index);
+}
+
+fn write_if_changed(path: &std::path::Path, content: &str) {
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        if existing == content {
+            return;
+        }
+    }
+    std::fs::write(path, content).expect("write docs file");
+}
+
+fn render_node_doc(schema: &pite_core::NodeTypeSchema) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# {}\n\n", schema.type_name));
+    out.push_str(&format!("{}\n\n", schema.description));
+
+    let chain = pite_core::inheritance_chain(schema.type_name);
+    let ancestors: Vec<&str> = chain
+        .iter()
+        .copied()
+        .filter(|n| *n != schema.type_name)
+        .collect();
+    if !ancestors.is_empty() {
+        let links: Vec<String> = ancestors.iter().map(|n| format!("`{n}`")).collect();
+        out.push_str(&format!("**Inherits:** {}\n\n", links.join(" → ")));
+    }
+
+    let mut sections: Vec<(&str, &[pite_core::PropSchema])> = Vec::new();
+    for owner in &chain {
+        let props = pite_core::type_props(owner);
+        if !props.is_empty() {
+            sections.push((*owner, props));
+        }
+    }
+    if sections.is_empty() {
+        out.push_str("_No properties._\n");
+        return out;
+    }
+    out.push_str("## Properties\n\n");
+    for (owner, props) in sections {
+        out.push_str(&format!("### {}\n\n", owner));
+        out.push_str("| Property | Type | Default | Description |\n");
+        out.push_str("|---|---|---|---|\n");
+        for p in props {
+            let ty = default_type_name(&p.default_value);
+            let default = format_default(&p.default_value);
+            let doc = if p.doc.is_empty() { "—" } else { p.doc };
+            out.push_str(&format!(
+                "| `{}` | {} | {} | {} |\n",
+                p.key, ty, default, doc
+            ));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn default_type_name(v: &pite_core::DefaultPropVal) -> &'static str {
+    use pite_core::DefaultPropVal::*;
+    match v {
+        Str(_) => "str",
+        Num(_) => "number",
+        Int(_) => "int",
+        Bool(_) => "bool",
+        Vec2(_, _) => "vec2",
+        Color(_) => "color",
+    }
+}
+
+fn format_default(v: &pite_core::DefaultPropVal) -> String {
+    use pite_core::DefaultPropVal::*;
+    match v {
+        Str(s) => format!("`{:?}`", s),
+        Num(n) => format!("`{}`", n),
+        Int(i) => format!("`{}`", i),
+        Bool(b) => format!("`{}`", b),
+        Vec2(x, y) => format!("`({}, {})`", x, y),
+        Color([r, g, b, a]) => format!("`#{:02x}{:02x}{:02x}{:02x}`", r, g, b, a),
+    }
 }

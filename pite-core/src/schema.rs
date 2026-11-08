@@ -59,6 +59,11 @@ pub enum PropHint {
 pub struct PropSchema {
     pub key: &'static str,
     pub label: &'static str,
+    /// One-line description surfaced as a hover tooltip in the inspector
+    /// and as the Description column in the generated node reference
+    /// (`docs/reference/nodes/*.md`). Required (no default) so a prop
+    /// without docs fails to compile.
+    pub doc: &'static str,
     pub default_value: DefaultPropVal,
     pub hint: PropHint,
     pub read_only: bool, // To Python
@@ -67,6 +72,9 @@ pub struct PropSchema {
 #[derive(Clone, Copy, Debug)]
 pub struct NodeTypeSchema {
     pub type_name: &'static str,
+    /// One-line description surfaced in the editor's add-node dialog,
+    /// tree-row hover tooltip, and generated node reference. Required.
+    pub description: &'static str,
     pub inherits: Option<&'static str>,
     pub props: &'static [PropSchema],
     /// Abstract types exist in the schema chain so subclasses inherit their
@@ -313,5 +321,30 @@ mod tests {
             err.contains("string, int, number, bool, vec2, color"),
             "got {err:?}"
         );
+    }
+
+    #[test]
+    fn every_schema_has_description_and_every_prop_has_doc() {
+        for schema in crate::NODE_SCHEMAS {
+            assert!(
+                !schema.description.is_empty(),
+                "{} has no description",
+                schema.type_name
+            );
+            for prop in schema.props {
+                assert!(
+                    !prop.doc.is_empty(),
+                    "{}::{} has no doc",
+                    schema.type_name,
+                    prop.key
+                );
+                assert!(
+                    !prop.label.is_empty(),
+                    "{}::{} has no label",
+                    schema.type_name,
+                    prop.key
+                );
+            }
+        }
     }
 }

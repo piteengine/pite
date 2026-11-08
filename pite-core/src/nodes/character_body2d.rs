@@ -7,6 +7,7 @@ use crate::schema::{DefaultPropVal, NodeTypeSchema, PropHint, PropSchema};
 
 pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
     type_name: "CharacterBody2D",
+    description: "Kinematic body driven by script via `move_and_slide()`. Slides along obstacles, ignores sensors.",
     inherits: Some("PhysicsBody2D"),
     abstract_class: false,
     props: PROPS,
@@ -15,6 +16,7 @@ pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
 pub static PROPS: &[PropSchema] = &[PropSchema {
     key: "velocity",
     label: "Velocity",
+    doc: "Desired velocity in world units per second. `move_and_slide()` consumes and updates it.",
     default_value: DefaultPropVal::Vec2(0.0, 0.0),
     hint: PropHint::Vec2 { speed: 1.0 },
     read_only: false,

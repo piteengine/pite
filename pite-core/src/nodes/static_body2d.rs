@@ -6,6 +6,7 @@ use crate::schema::{NodeTypeSchema, PropSchema};
 
 pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
     type_name: "StaticBody2D",
+    description: "Immovable physics body: floors, walls, platforms. Never responds to impulses.",
     inherits: Some("PhysicsBody2D"),
     abstract_class: false,
     props: PROPS,

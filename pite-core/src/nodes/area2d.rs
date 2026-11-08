@@ -6,6 +6,8 @@ use crate::schema::NodeTypeSchema;
 
 pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
     type_name: "Area2D",
+    description:
+        "Trigger zone for overlap detection. Emits body_entered/body_exited and area_* signals.",
     inherits: Some("CollisionObject2D"),
     abstract_class: false,
     props: PROPS,
