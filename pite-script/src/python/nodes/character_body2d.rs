@@ -56,14 +56,17 @@ impl PyCharacterBody2D {
         Ok(())
     }
 
+    #[getter]
     fn is_on_floor(&self) -> bool {
         self._is_on_floor
     }
 
+    #[getter]
     fn is_on_wall(&self) -> bool {
         self._is_on_wall
     }
 
+    #[getter]
     fn is_on_ceiling(&self) -> bool {
         self._is_on_ceiling
     }
@@ -115,6 +118,8 @@ impl PyCharacterBody2D {
 crate::pite_props! {
     PyCharacterBody2D {
         velocity: Vec2,
+        friction: Num,
+        restitution: Num,
         collision_layer: Int,
         collision_mask: Int,
     }

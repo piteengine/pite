@@ -61,6 +61,7 @@ class Node:
 
 class Node2D(Node):
     position: Vec2
+    rotation: float
 
 class Sprite2D(Node2D):
     texture: str
@@ -99,9 +100,11 @@ class CharacterBody2D(Node2D):
     up_direction: Vec2
     collision_layer: int
     collision_mask: int
-    def is_on_floor(self) -> bool: ...
-    def is_on_wall(self) -> bool: ...
-    def is_on_ceiling(self) -> bool: ...
+    friction: float
+    restitution: float
+    is_on_floor: bool
+    is_on_wall: bool
+    is_on_ceiling: bool
     def move_and_slide(self) -> bool: ...
 
 class RigidBody2D(Node2D):

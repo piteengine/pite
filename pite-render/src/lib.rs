@@ -15,18 +15,21 @@ const FULL_UV: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 pub trait Renderer2D {
     fn begin_frame(&mut self) -> Result<()>;
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()>;
-    /// Draw `texture`, optionally from one named atlas frame. The default
-    /// ignores the frame, so impls without atlas support stay correct.
+    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, rotation: f64) -> Result<()>;
+    /// Draw `texture`, optionally from one named atlas frame, rotated by
+    /// `rotation` radians around the sprite center. The default impl
+    /// forwards to `draw_sprite`, so impls without atlas support stay
+    /// correct.
     fn draw_sprite_frame(
         &mut self,
         texture: &str,
         frame: Option<&str>,
         x: f64,
         y: f64,
+        rotation: f64,
     ) -> Result<()> {
         let _ = frame;
-        self.draw_sprite(texture, x, y)
+        self.draw_sprite(texture, x, y, rotation)
     }
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
@@ -44,7 +47,7 @@ impl Renderer2D for NoopRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, _texture: &str, _x: f64, _y: f64) -> Result<()> {
+    fn draw_sprite(&mut self, _texture: &str, _x: f64, _y: f64, _rotation: f64) -> Result<()> {
         Ok(())
     }
 
@@ -126,24 +129,43 @@ fn quad_for(
     h_px: f32,
     size: (u32, u32),
     uv: [f32; 4],
+    rotation: f32,
 ) -> [SpriteVertex; 6] {
-    let hw = w_px / size.0 as f32;
-    let hh = h_px / size.1 as f32;
-    let (cx, cy) = center_ndc;
+    // Rotation must be uniform in pixel space — rotating in NDC would
+    // shear for non-square viewports. Compute corners in pixels, rotate,
+    // then convert to NDC.
+    let cx_px = (center_ndc.0 + 1.0) * size.0 as f32 * 0.5;
+    let cy_px = (1.0 - center_ndc.1) * size.1 as f32 * 0.5;
+    let hw = w_px * 0.5;
+    let hh = h_px * 0.5;
+    let (sin_r, cos_r) = rotation.sin_cos();
+
+    let to_ndc = |px: f32, py: f32| -> [f32; 2] {
+        [
+            px / size.0 as f32 * 2.0 - 1.0,
+            1.0 - py / size.1 as f32 * 2.0,
+        ]
+    };
+    let corner = |dx: f32, dy: f32| -> [f32; 2] {
+        let rx = cx_px + dx * cos_r - dy * sin_r;
+        let ry = cy_px + dx * sin_r + dy * cos_r;
+        to_ndc(rx, ry)
+    };
+
     let tl = SpriteVertex {
-        pos: [cx - hw, cy + hh],
+        pos: corner(-hw, -hh),
         uv: [uv[0], uv[1]],
     };
     let tr = SpriteVertex {
-        pos: [cx + hw, cy + hh],
+        pos: corner(hw, -hh),
         uv: [uv[2], uv[1]],
     };
     let br = SpriteVertex {
-        pos: [cx + hw, cy - hh],
+        pos: corner(hw, hh),
         uv: [uv[2], uv[3]],
     };
     let bl = SpriteVertex {
-        pos: [cx - hw, cy - hh],
+        pos: corner(-hw, hh),
         uv: [uv[0], uv[3]],
     };
     // The pipeline is TriangleList, so a quad is two whole triangles. Four
@@ -192,6 +214,8 @@ struct QueuedSprite {
     /// Frame size in pixels; `None` means "the whole texture".
     size_px: Option<(u32, u32)>,
     uv: [f32; 4],
+    /// Radians, positive = clockwise on screen (y-down NDC).
+    rotation: f32,
 }
 
 impl QueuedSprite {
@@ -202,6 +226,7 @@ impl QueuedSprite {
             size_world: None,
             size_px: None,
             uv: FULL_UV,
+            rotation: 0.0,
         }
     }
 }
@@ -368,7 +393,7 @@ fn build_groups(
         };
         let screen = world_to_screen(sprite.world, cam, zoom, size);
         let ndc = screen_to_ndc(screen, size);
-        let quad = quad_for(ndc, w, h, size, sprite.uv);
+        let quad = quad_for(ndc, w, h, size, sprite.uv, sprite.rotation);
         if !groups.contains_key(&sprite.tex_key) {
             order.push(sprite.tex_key.clone());
         }
@@ -555,9 +580,10 @@ impl SharedQueue {
         &self.textures[key]
     }
 
-    fn queue_sprite(&mut self, texture: &str, world: (f64, f64)) {
-        self.queue_list
-            .push(QueuedSprite::plain(texture.to_string(), world));
+    fn queue_sprite(&mut self, texture: &str, world: (f64, f64), rotation: f32) {
+        let mut q = QueuedSprite::plain(texture.to_string(), world);
+        q.rotation = rotation;
+        self.queue_list.push(q);
     }
 
     fn queue_sprite_frame(
@@ -565,9 +591,10 @@ impl SharedQueue {
         texture: &str,
         frame: Option<&str>,
         world: (f64, f64),
+        rotation: f32,
     ) -> Result<()> {
         let Some(frame) = frame else {
-            self.queue_sprite(texture, world);
+            self.queue_sprite(texture, world, rotation);
             return Ok(());
         };
         let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
@@ -577,6 +604,7 @@ impl SharedQueue {
             size_world: None,
             size_px: Some(size_px),
             uv,
+            rotation,
         });
         Ok(())
     }
@@ -735,8 +763,8 @@ impl Renderer2D for WgpuRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
-        self.shared.queue_sprite(texture, (x, y));
+    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, rotation: f64) -> Result<()> {
+        self.shared.queue_sprite(texture, (x, y), rotation as f32);
         Ok(())
     }
 
@@ -746,8 +774,10 @@ impl Renderer2D for WgpuRenderer {
         frame: Option<&str>,
         x: f64,
         y: f64,
+        rotation: f64,
     ) -> Result<()> {
-        self.shared.queue_sprite_frame(texture, frame, (x, y))
+        self.shared
+            .queue_sprite_frame(texture, frame, (x, y), rotation as f32)
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
@@ -984,8 +1014,8 @@ impl Renderer2D for OffscreenRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
-        self.shared.queue_sprite(texture, (x, y));
+    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, rotation: f64) -> Result<()> {
+        self.shared.queue_sprite(texture, (x, y), rotation as f32);
         Ok(())
     }
 
@@ -995,8 +1025,10 @@ impl Renderer2D for OffscreenRenderer {
         frame: Option<&str>,
         x: f64,
         y: f64,
+        rotation: f64,
     ) -> Result<()> {
-        self.shared.queue_sprite_frame(texture, frame, (x, y))
+        self.shared
+            .queue_sprite_frame(texture, frame, (x, y), rotation as f32)
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
@@ -1045,7 +1077,7 @@ mod tests {
 
     #[test]
     fn quad_is_centered_and_textured() {
-        let quad = quad_for((0.0, 0.0), 32.0, 32.0, (800, 600), FULL_UV);
+        let quad = quad_for((0.0, 0.0), 32.0, 32.0, (800, 600), FULL_UV, 0.0);
         assert_eq!(quad.len(), 6);
         let to_px = |ndc: f32, size: u32| (ndc + 1.0) / 2.0 * size as f32;
         assert!((to_px(quad[0].pos[0], 800) - 384.0).abs() < 0.01);
@@ -1054,6 +1086,23 @@ mod tests {
         assert!((to_px(quad[2].pos[1], 600) - 284.0).abs() < 0.01);
         assert_eq!(quad[0].uv, [0.0, 0.0]);
         assert_eq!(quad[2].uv, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn rotated_quad_has_rotated_corners() {
+        // 100x50 sprite centered on a 200x200 canvas. 90° moves the
+        // top-left corner from pixel (-50, -25) to (25, -50), i.e. NDC
+        // (-0.5, 0.25) → (0.25, 0.5).
+        let quad = quad_for(
+            (0.0, 0.0),
+            100.0,
+            50.0,
+            (200, 200),
+            FULL_UV,
+            std::f32::consts::FRAC_PI_2,
+        );
+        assert!((quad[0].pos[0] - 0.25).abs() < 0.01, "{}", quad[0].pos[0]);
+        assert!((quad[0].pos[1] - 0.5).abs() < 0.01, "{}", quad[0].pos[1]);
     }
 
     #[test]
@@ -1259,6 +1308,7 @@ mod tests {
             Some("player"),
             0.0,
             0.0,
+            0.0,
         )
         .expect("queue sprite");
         let rgba = r.render_to_rgba().expect("offscreen readback");
@@ -1282,6 +1332,7 @@ mod tests {
         r.draw_sprite_frame(
             "../examples/minimal-2d/assets/sheet.png",
             Some("player"),
+            0.0,
             0.0,
             0.0,
         )
@@ -1478,6 +1529,7 @@ mod atlas_draw_tests {
             size_world: None,
             size_px: Some((frame.w, frame.h)),
             uv: frame.uv(atlas.size),
+            rotation: 0.0,
         }
     }
 

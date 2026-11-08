@@ -21,5 +21,6 @@ impl PyNode2D {
 crate::pite_props! {
     PyNode2D {
         position: Vec2,
+        rotation: Num,
     }
 }

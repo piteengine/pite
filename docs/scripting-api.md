@@ -120,14 +120,14 @@ class Player(pite.CharacterBody2D):
         # Gravity
         self.velocity.y += 980.0 * delta
 
-        if pite.pressed.space and self.is_on_floor():
+        if pite.pressed.space and self.is_on_floor:
             self.velocity.y = -400.0
 
         self.move_and_slide()
 ```
 
 - `move_and_slide() -> bool`: Advances shape along `velocity * dt` using obstacle sliding collision resolution (ignoring sensor areas). Updates `velocity`, `position`, and collision contact flags.
-- `is_on_floor() -> bool`, `is_on_wall() -> bool`, `is_on_ceiling() -> bool`: Collision contact queries relative to `up_direction` (default `(0.0, -1.0)`).
+- `is_on_floor: bool`, `is_on_wall: bool`, `is_on_ceiling: bool`: Collision contact flags relative to `up_direction` (default `(0.0, -1.0)`). These are **attributes**, not methods — `if self.is_on_floor:` (no parens). Calling them as methods raises `TypeError`.
 
 ### RigidBody2D Dynamics
 

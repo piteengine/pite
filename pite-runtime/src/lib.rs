@@ -106,6 +106,56 @@ fn slot_still_valid(
     }
 }
 
+/// Read `key` from `node.props`, falling back to the type's schema default
+/// (and coercing integer literals to numbers). `rebuild_physics` uses these
+/// instead of hardcoded fallbacks so a schema default change propagates
+/// without touching the runtime.
+fn prop_num(node: &Node, key: &str) -> f32 {
+    if let Some(PropValue::Num(n)) = node.props.get(key) {
+        return *n as f32;
+    }
+    if let Some(PropValue::Int(n)) = node.props.get(key) {
+        return *n as f32;
+    }
+    pite_core::all_props(&node.type_name)
+        .iter()
+        .find(|p| p.key == key)
+        .and_then(|p| match p.default_value {
+            pite_core::DefaultPropVal::Num(n) => Some(n as f32),
+            pite_core::DefaultPropVal::Int(n) => Some(n as f32),
+            _ => None,
+        })
+        .unwrap_or(0.0)
+}
+
+fn prop_int(node: &Node, key: &str) -> i64 {
+    if let Some(PropValue::Int(n)) = node.props.get(key) {
+        return *n;
+    }
+    if let Some(PropValue::Num(n)) = node.props.get(key) {
+        return *n as i64;
+    }
+    pite_core::all_props(&node.type_name)
+        .iter()
+        .find(|p| p.key == key)
+        .and_then(|p| match p.default_value {
+            pite_core::DefaultPropVal::Int(n) => Some(n),
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
+fn prop_bool(node: &Node, key: &str) -> bool {
+    if let Some(PropValue::Bool(b)) = node.props.get(key) {
+        return *b;
+    }
+    pite_core::all_props(&node.type_name)
+        .iter()
+        .find(|p| p.key == key)
+        .map(|p| matches!(p.default_value, pite_core::DefaultPropVal::Bool(true)))
+        .unwrap_or(false)
+}
+
 /// Which physics body a node type becomes. One place decides; both
 /// `rebuild_physics` and `CollisionShape2D`'s parent-body walker ask this
 /// instead of repeating the type match.
@@ -155,6 +205,7 @@ enum NodeDraw {
         atlas: Option<String>,
         frame: Option<String>,
         pos: (f64, f64),
+        rotation: f32,
     },
     Text {
         text: String,
@@ -186,6 +237,7 @@ fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 atlas: prop("atlas"),
                 frame: prop("frame"),
                 pos,
+                rotation: prop_num(node, "rotation"),
             })
         }
         RenderRole::Label => {
@@ -450,6 +502,7 @@ impl GameSession {
                     atlas,
                     frame,
                     pos,
+                    rotation,
                 } => {
                     let has_texture = !texture.is_empty();
                     if has_texture && atlas.is_some() {
@@ -464,6 +517,7 @@ impl GameSession {
                                 Some(&frame),
                                 pos.0,
                                 pos.1,
+                                rotation as f64,
                             )?;
                         }
                         (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
@@ -471,7 +525,12 @@ impl GameSession {
                         (None, None) => {
                             if has_texture {
                                 let resolved = self.resolve_path(&texture);
-                                r.draw_sprite(&resolved.to_string_lossy(), pos.0, pos.1)?;
+                                r.draw_sprite(
+                                    &resolved.to_string_lossy(),
+                                    pos.0,
+                                    pos.1,
+                                    rotation as f64,
+                                )?;
                             }
                         }
                     }
@@ -730,10 +789,7 @@ impl GameSession {
         self.host.with_tree(|tree| {
             for node in tree.iter() {
                 let pos = global_position(tree, &node.id);
-                let rot = match node.props.get("rotation") {
-                    Some(PropValue::Num(r)) => *r as f32,
-                    _ => 0.0,
-                };
+                let rot = prop_num(node, "rotation");
                 if let Some(role) = physics_role(&node.type_name) {
                     match role {
                         PhysicsRole::Static => {
@@ -751,25 +807,13 @@ impl GameSession {
                             );
                         }
                         PhysicsRole::Rigid => {
-                            let mass = match node.props.get("mass") {
-                                Some(PropValue::Num(m)) => *m as f32,
-                                _ => 1.0,
-                            };
-                            let grav = match node.props.get("gravity_scale") {
-                                Some(PropValue::Num(g)) => *g as f32,
-                                _ => 1.0,
-                            };
-                            let lock_rot = match node.props.get("lock_rotation") {
-                                Some(PropValue::Bool(b)) => *b,
-                                _ => false,
-                            };
                             world.add_rigid_body(
                                 node.id.clone(),
                                 (pos.0 as f32, pos.1 as f32),
                                 rot,
-                                mass,
-                                grav,
-                                lock_rot,
+                                prop_num(node, "mass"),
+                                prop_num(node, "gravity_scale"),
+                                prop_bool(node, "lock_rotation"),
                             );
                         }
                         PhysicsRole::Area => {
@@ -854,22 +898,13 @@ impl GameSession {
                     }
                 };
 
-                let layer = match body.props.get("collision_layer") {
-                    Some(PropValue::Int(l)) => *l as u32,
-                    _ => 1,
-                };
-                let mask = match body.props.get("collision_mask") {
-                    Some(PropValue::Int(m)) => *m as u32,
-                    _ => 1,
-                };
-                let friction = match body.props.get("friction") {
-                    Some(PropValue::Num(f)) => *f as f32,
-                    _ => 0.5,
-                };
-                let restitution = match body.props.get("restitution") {
-                    Some(PropValue::Num(r)) => *r as f32,
-                    _ => 0.0,
-                };
+                let layer = prop_int(body, "collision_layer") as u32;
+                let mask = prop_int(body, "collision_mask") as u32;
+                // `friction`/`restitution` live on `PhysicsBody2D`; Area2D
+                // doesn't inherit them, so it falls through to 0.0 (harmless
+                // — sensors don't apply either).
+                let friction = prop_num(body, "friction");
+                let restitution = prop_num(body, "restitution");
 
                 let is_sensor = body.type_name == "Area2D";
 
@@ -1812,7 +1847,7 @@ mod tests {
             Ok(())
         }
 
-        fn draw_sprite(&mut self, texture: &str, x: f64, y: f64) -> Result<()> {
+        fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, _rotation: f64) -> Result<()> {
             self.calls.push((texture.to_string(), None, (x, y)));
             Ok(())
         }
@@ -1823,6 +1858,7 @@ mod tests {
             frame: Option<&str>,
             x: f64,
             y: f64,
+            _rotation: f64,
         ) -> Result<()> {
             self.calls
                 .push((texture.to_string(), frame.map(str::to_string), (x, y)));

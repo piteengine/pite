@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Python accessors and renderer rotation:
+  - `is_on_floor` / `is_on_wall` / `is_on_ceiling` on
+    `CharacterBody2D` are now **attribute accessors**, not methods:
+    `if self.is_on_floor:`. Calling them as methods raises
+    `TypeError`. **Breaking** for any script still using the old
+    `self.is_on_floor()` form — update those call sites.
+  - `Node2D.rotation` is now Python-accessible and synced through the
+    tree; the renderer honors it — sprites rotate about their center.
+    Rotation is stored in radians (the inspector edits degrees via the
+    `AngleDeg` hint).
+  - `CharacterBody2D.friction` / `.restitution` are now script-accessible
+    (both were already schema props via `PhysicsBody2D`, but had no
+    Python accessor).
+  - `rebuild_physics` falls back to schema defaults instead of literal
+    numbers, so a schema-default change propagates without a runtime
+    edit. Behavior-preserving (fallbacks already matched schema).
 - Editor and runtime helpers derive from schema (no more hand-written
   per-type maps that could drift from `pite_core::NODE_SCHEMAS`):
   - `pite-editor`: add-node dialog tree built at runtime from
