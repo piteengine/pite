@@ -66,9 +66,7 @@ never panic and never fail silently.
 
 ## Tree ops
 
-Header `Add` opens an inline add-child form: a ComboBox over the registered
-types (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`),
-a name field, `Add`/`Cancel`. The new node goes under the selected node, or
+Header `Add` opens a modal dialog showing the schema-derived node type hierarchy (flattening abstract bases so concrete nodes sit under their nearest visible ancestor), a description card, and a name field (`Create`/`Cancel`). The new node goes under the selected node, or
 the root when nothing is selected. Rows are drag-and-droppable via a dedicated
 12 px grip handle left of the label, so click-to-select, double-click expand,
 and right-click never fight it. Right-click on a row opens a context menu:
@@ -99,6 +97,7 @@ nothing is auto-inserted:
 | `Str(s)` | single-line text edit |
 | `Bool(b)` | checkbox |
 | `Vec2(x, y)` | two `DragValue`s |
+| `Color(r, g, b, a)` | color swatch button + alpha hex picker |
 | future variants | compile error here by design (no silent fallback) |
 
 Title line and script section (label + `Open script`) are unchanged. The

@@ -15,7 +15,7 @@ members = [
     "pite-physics",
     "pite-player",
 ]
-exclude = ["examples", "python"]
+exclude = ["examples"]
 
 [workspace.package]
 version = "0.3.0"

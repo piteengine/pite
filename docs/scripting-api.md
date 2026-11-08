@@ -20,7 +20,7 @@ class Player(pite.Node2D):
 
 - One file exports one class; attach with `path` + `class` in the scene file. `snake_case` everywhere.
 - `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
-- `position` is a mutable `Vec2` proxy backed directly by the engine's node transform. You can mutate `.x` and `.y` in-place (`self.position.x += 10`), reassign with a tuple or vector (`self.position = (100, 200)`), or unpack as a tuple (`x, y = self.position`). `Sprite2D` adds `texture: str`, `Timer` adds `wait_time: float` and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping). Non-positive `wait_time` never fires. Connect during `_ready` like `Button.pressed` — no declaration needed, `Label` adds `text: str` (same direct update — set it and the screen updates). `Button` extends `Node2D` with `text` plus a `size` prop (`[w, h]`, default `[120, 40]`).
+- `position` is a mutable `Vec2` proxy backed directly by the engine's node transform. You can mutate `.x` and `.y` in-place (`self.position.x += 10`), reassign with a tuple or vector (`self.position = (100, 200)`), or unpack as a tuple (`x, y = self.position`). `rotation` is a float in radians. `Sprite2D` adds `texture: str`, `atlas: str`, and `frame: str`. `Camera2D` adds `zoom: float`. `Timer` adds `wait_time: float`, `current_elapsed: float`, and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping; non-positive `wait_time` never fires). Subclasses of `Timer` or `Button` that override `_process` **must** call `super()._process(delta)` so engine timer accumulation and click polling continue running. `Label` and `Button` inherit `Node2D` transform (`position`, `rotation`) and UI styling (`color`, `font_size`). `Label` adds `text: str`. `Button` adds `text: str`, `size: Vec2`, `disabled: bool`, and an engine-owned `pressed` signal.
 - Declarative node descriptors: declare child or node references as class attributes:
   ```python
   sprite = pite.child("Sprite2D")
@@ -37,6 +37,23 @@ self.get_node("../Player").take_damage(1)
 Paths resolve against node names: `..` (parent), `.` (self), `Child` (named child), `/root/…` (absolute). A miss raises `KeyError`.
 
 For the type checker `get_node` returns a plain `Node`: anything beyond the declared surface (custom signals, script methods, per-type members) is dynamically typed instead of warning, and a miss still raises at runtime.
+
+## Custom Properties
+
+Nodes can access project-level custom properties declared under `[props]` in `pite.toml`:
+
+```python
+# Read custom prop (returns None if unset):
+spawn = self.get_custom_property("spawn_group")
+
+# Write custom prop (type-checked against manifest, raises ValueError on mismatch):
+self.set_custom_property("spawn_group", "elite_guards")
+
+# Remove custom prop (returns True if it was present):
+was_present = self.remove_custom_property("spawn_group")
+```
+
+Schema properties (`position`, `text`, etc.) are rejected by `get_custom_property`/`set_custom_property`/`remove_custom_property` with `ValueError` — use direct typed attributes instead.
 
 ## Signals
 
@@ -59,7 +76,7 @@ class Player(pite.Node2D):
 ```python
 class HitButton(pite.Button):
     def _ready(self):
-        self.get_node(".").pressed.connect(self.on_pressed)
+        self.pressed.connect(self.on_pressed)
 
     def on_pressed(self):
         self.get_node("../Player").hit.emit(1)
@@ -76,6 +93,7 @@ if pite.pressed.space:
 
 - `pite.held.<key>` is true while down (continuous movement); `pite.pressed.<key>` fires on the single frame it goes down (single steps); `pite.released.<key>` on the frame it comes up. `mouse()` returns a `Vec2` with `.x` and `.y` (and tuple unpacking `x, y = pite.mouse()`).
 - Key attributes: `space`, `enter`, `escape`, `tab`, `backspace`, `shift`, `ctrl`, `alt`, `left`, `right`, `up`, `down`, `mouse_left`, `mouse_right`, `mouse_middle`, `a`–`z`, `num0`–`num9`.
+- `pite.screen_to_world((screen_x, screen_y)) -> (world_x, world_y)` transforms screen pixel coordinates to world coordinates using the current camera view (used e.g. for button hit-testing).
 - String-based input calls (e.g., `pite.held("Space")`) are deprecated and raise `TypeError`. Input is pumped on the main thread and visible inside `_process` and `_physics_process`.
 
 ## Audio
