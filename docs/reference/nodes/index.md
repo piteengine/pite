@@ -9,7 +9,7 @@ Every node type in the engine, derived from `pite_core::NODE_SCHEMAS` at build t
 - [`CollisionShape2D`](CollisionShape2D.md) — Geometric collider attached to a parent physics body or Area2D.
 - [`Label`](Label.md) — Draws text centered on its global position.
 - [`Node`](Node.md) — Base class for all scene objects. Does not have a 2D transform.
-- [`Node2D`](Node2D.md) — 2D game object with position, rotation, and scale.
+- [`Node2D`](Node2D.md) — 2D game object with position and rotation.
 - [`RigidBody2D`](RigidBody2D.md) — Dynamic physics body simulated by gravity, impulses, and forces.
 - [`Sprite2D`](Sprite2D.md) — Displays a 2D texture or one frame from a spritesheet atlas.
 - [`StaticBody2D`](StaticBody2D.md) — Immovable physics body: floors, walls, platforms. Never responds to impulses.

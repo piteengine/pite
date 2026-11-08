@@ -5,7 +5,7 @@ use crate::schema::{DefaultPropVal, NodeTypeSchema, PropHint, PropSchema};
 
 pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
     type_name: "Node2D",
-    description: "2D game object with position, rotation, and scale.",
+    description: "2D game object with position and rotation.",
     inherits: Some("Node"),
     abstract_class: false,
     props: PROPS,

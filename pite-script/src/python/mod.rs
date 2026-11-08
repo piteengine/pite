@@ -993,6 +993,43 @@ class Hud(pite.Label):
     }
 
     #[test]
+    fn label_inherits_node2d_position_and_rotation() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let dir = test_dir("label_pos");
+        let file = fixture(
+            &dir,
+            "hud_pos.py",
+            r#"
+import pite
+
+class HudPos(pite.Label):
+    def _ready(self):
+        self.position = (100.0, 200.0)
+        self.rotation = 1.57
+"#,
+        );
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(NodeId::from("hud".to_string()), "Label"))
+            .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("hud");
+        backend.set_host(host.clone());
+        backend.load(&file, "HudPos").unwrap();
+        backend.call_ready().unwrap();
+        assert_eq!(
+            host.get_vec2("hud", "position"),
+            pite_core::Vec2 { x: 100.0, y: 200.0 }
+        );
+        assert_eq!(host.get_f64("hud", "rotation"), 1.57);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn plain_node_has_no_text_channel() {
         let _guard = crate::host::HOST_SERIAL.lock().unwrap();
         use pite_core::{NodeDesc, NodeId, NodeTree};

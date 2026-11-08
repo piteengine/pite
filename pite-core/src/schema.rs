@@ -226,7 +226,7 @@ mod tests {
         );
         assert_eq!(
             inheritance_chain("Button"),
-            vec!["Button", "Control", "Node"]
+            vec!["Button", "Control", "Node2D", "Node"]
         );
         assert_eq!(inheritance_chain("Node"), vec!["Node"]);
         assert_eq!(inheritance_chain("Custom"), vec!["Custom", "Node"]);
@@ -255,11 +255,20 @@ mod tests {
         );
 
         // Button shadows Control's color and size; Control's color/size are
-        // filtered out after Button's versions are seen first.
+        // filtered out after Button's versions are seen first; position and rotation
+        // come from Node2D.
         let keys: Vec<&str> = all_props("Button").iter().map(|p| p.key).collect();
         assert_eq!(
             keys,
-            vec!["text", "color", "size", "disabled", "position", "font_size"]
+            vec![
+                "text",
+                "color",
+                "size",
+                "disabled",
+                "font_size",
+                "position",
+                "rotation"
+            ]
         );
         // Button's own color default wins over Control's white.
         let color = all_props("Button")

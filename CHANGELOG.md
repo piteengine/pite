@@ -40,14 +40,12 @@
     if a concrete schema type is missing from the generated stub, or if
     an abstract base leaks in.
 
-  **Known drift (not fixed here):** the schema chain for `Button` is
-  `Button → Control → Node`, but `PyButton` extends `PyNode2D`, so the
-  runtime `Button` exposes `position` and `rotation` that the schema
-  doesn't declare. The generator hard-codes `Button`'s Python parent to
-  `Node2D` and lists `size` (not `position`) in `class_members` to match
-  the actual pyclass surface. Resolving the mismatch (widen
-  `Control.inherits = Node2D`, or narrow `PyButton` to `PyNode`) is a
-  separate change — flagged so it doesn't get lost.
+  - `Control` inherits `Node2D` (`Node → Node2D → Control → Label & Button`):
+    `Control` inherits `position` and `rotation` from `Node2D`, and both
+    `PyButton` and `PyLabel` extend `PyNode2D`. Resolves the previous
+    drift where `Button`'s Python parent was hardcoded and `Label` had no
+    Python transform accessors. Overridden properties in ancestor tables are
+    shadowed in generated documentation, eliminating duplicate property rows.
 - Python accessors and renderer rotation:
   - `is_on_floor` / `is_on_wall` / `is_on_ceiling` on
     `CharacterBody2D` are now **attribute accessors**, not methods:

@@ -8,12 +8,6 @@
 //! The pyclass hierarchy is flatter than the schema chain because abstract
 //! bases (`Control`, `CollisionObject2D`, `PhysicsBody2D`) have no Python
 //! class. The generator walks schema inheritance and skips abstract nodes.
-//!
-//! **Known drift:** `Button.inherits = Control → Node` in schema, but
-//! `PyButton` extends `PyNode2D` (so Button gets `position`/`rotation`
-//! from Python). The generator hard-codes that one parent below. A future
-//! commit will either widen `Control.inherits = Node2D` or narrow
-//! `PyButton` to `PyNode`; whichever way, drop the hardcode then.
 
 use std::fmt::Write;
 
@@ -50,10 +44,6 @@ fn concrete_types() -> Vec<&'static NodeTypeSchema> {
 }
 
 fn python_parent(type_name: &str) -> Option<&'static str> {
-    // One known deviation from the schema chain. See module docs.
-    if type_name == "Button" {
-        return Some("Node2D");
-    }
     let mut current = pite_core::node_type_schema(type_name)?.inherits;
     while let Some(name) = current {
         let schema = pite_core::node_type_schema(name)?;
@@ -321,11 +311,14 @@ fn render_node_doc(schema: &pite_core::NodeTypeSchema) -> String {
         out.push_str(&format!("**Inherits:** {}\n\n", links.join(" → ")));
     }
 
-    let mut sections: Vec<(&str, &[pite_core::PropSchema])> = Vec::new();
+    let mut seen_keys = std::collections::HashSet::new();
+    let mut sections: Vec<(&str, Vec<&pite_core::PropSchema>)> = Vec::new();
     for owner in &chain {
         let props = pite_core::type_props(owner);
-        if !props.is_empty() {
-            sections.push((*owner, props));
+        let unshadowed: Vec<&pite_core::PropSchema> =
+            props.iter().filter(|p| seen_keys.insert(p.key)).collect();
+        if !unshadowed.is_empty() {
+            sections.push((*owner, unshadowed));
         }
     }
     if sections.is_empty() {

@@ -1,25 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Abstract base for UI elements: position, size, color, font size.
+//! Abstract base for UI elements: size, color, font size.
 
 use crate::schema::{DefaultPropVal, NodeTypeSchema, PropHint, PropSchema};
 
 pub static SCHEMA: NodeTypeSchema = NodeTypeSchema {
     type_name: "Control",
-    description: "Abstract base for UI elements: position, size, color, and font size.",
-    inherits: Some("Node"),
+    description: "Abstract base for UI elements: size, color, and font size.",
+    inherits: Some("Node2D"),
     abstract_class: true,
     props: PROPS,
 };
 
 pub static PROPS: &[PropSchema] = &[
-    PropSchema {
-        key: "position",
-        label: "Position",
-        doc: "Position relative to the parent, in world units.",
-        default_value: DefaultPropVal::Vec2(0.0, 0.0),
-        hint: PropHint::Vec2 { speed: 1.0 },
-        read_only: false,
-    },
     PropSchema {
         key: "size",
         label: "Size",

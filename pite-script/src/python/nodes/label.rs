@@ -3,15 +3,19 @@ use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
 use super::node::PyNode;
+use super::node2d::PyNode2D;
 
-#[pyclass(extends = PyNode, subclass, name = "Label")]
+#[pyclass(extends = PyNode2D, subclass, name = "Label")]
 pub(crate) struct PyLabel;
 
 #[pymethods]
 impl PyLabel {
     #[new]
-    pub(crate) fn new() -> PyClassInitializer<Self> {
-        PyClassInitializer::from(PyNode::new()).add_subclass(PyLabel)
+    pub(crate) fn new(py: Python<'_>) -> PyResult<PyClassInitializer<Self>> {
+        let pos = Py::new(py, crate::vec2::Vec2::new(0.0, 0.0))?;
+        Ok(PyClassInitializer::from(PyNode::new())
+            .add_subclass(PyNode2D { position: pos })
+            .add_subclass(PyLabel))
     }
 }
 

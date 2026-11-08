@@ -1,6 +1,6 @@
 # Node2D
 
-2D game object with position, rotation, and scale.
+2D game object with position and rotation.
 
 **Inherits:** `Node`
 
