@@ -31,6 +31,9 @@ pub fn resolve_sprite_source(
     atlas_ref: Option<&str>,
     frame: Option<&str>,
 ) -> Result<SpriteSource> {
+    let texture = texture.filter(|s| !s.is_empty());
+    let atlas_ref = atlas_ref.filter(|s| !s.is_empty());
+    let frame = frame.filter(|s| !s.is_empty());
     match (texture, atlas_ref, frame) {
         (Some(_), Some(_), _) => bail!("`texture` and `atlas` are mutually exclusive"),
         (None, Some(_), None) => bail!("`atlas` requires a `frame`"),
@@ -169,11 +172,27 @@ mod tests {
             SpriteSource::Texture("res://a.png".to_string())
         );
         assert_eq!(
+            resolve_sprite_source(Some("res://a.png"), Some(""), Some("")).unwrap(),
+            SpriteSource::Texture("res://a.png".to_string())
+        );
+        assert_eq!(
             resolve_sprite_source(None, None, None).unwrap(),
             SpriteSource::Empty
         );
         assert_eq!(
+            resolve_sprite_source(Some(""), Some(""), Some("")).unwrap(),
+            SpriteSource::Empty
+        );
+        assert_eq!(
             resolve_sprite_source(None, Some("res://sheet.atlas.json"), Some("player")).unwrap(),
+            SpriteSource::Atlas {
+                atlas: "res://sheet.atlas.json".to_string(),
+                frame: "player".to_string()
+            }
+        );
+        assert_eq!(
+            resolve_sprite_source(Some(""), Some("res://sheet.atlas.json"), Some("player"))
+                .unwrap(),
             SpriteSource::Atlas {
                 atlas: "res://sheet.atlas.json".to_string(),
                 frame: "player".to_string()

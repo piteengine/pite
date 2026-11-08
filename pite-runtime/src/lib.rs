@@ -234,7 +234,7 @@ fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
     match role {
         RenderRole::Sprite => {
             let prop = |key: &str| match node.props.get(key) {
-                Some(PropValue::Str(s)) => Some(s.clone()),
+                Some(PropValue::Str(s)) if !s.is_empty() => Some(s.clone()),
                 _ => None,
             };
             Some(NodeDraw::Sprite {
@@ -515,6 +515,8 @@ impl GameSession {
                     rotation,
                 } => {
                     let has_texture = !texture.is_empty();
+                    let atlas = atlas.filter(|s| !s.is_empty());
+                    let frame = frame.filter(|s| !s.is_empty());
                     if has_texture && atlas.is_some() {
                         anyhow::bail!("node {id}: `texture` and `atlas` are mutually exclusive");
                     }
@@ -2071,6 +2073,27 @@ mod tests {
             err.to_string().contains("mutually exclusive"),
             "unexpected: {err:#}"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plain_texture_sprite_draws_without_mutual_exclusion_error() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("pite-plain-texture-draw-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+        std::fs::write(
+            dir.join("scenes").join("main.ptscn"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"sprite\"\ntype = \"Sprite2D\"\nname = \"Sprite\"\nparent = \"root\"\n\n[node.props]\ntexture = \"res://assets/player.png\"\n",
+        )
+        .unwrap();
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        let mut recorder = RecordingRenderer::default();
+        session
+            .draw_into(&mut recorder)
+            .expect("plain texture sprite must draw cleanly without atlas collision");
         std::fs::remove_dir_all(&dir).ok();
     }
 
