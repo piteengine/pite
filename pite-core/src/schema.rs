@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use std::collections::HashSet;
 
-// SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::props::PropValue;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
