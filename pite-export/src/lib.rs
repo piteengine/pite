@@ -22,6 +22,7 @@ pub struct ExportOptions {
     pub out_dir: Option<PathBuf>,
     pub binary: Option<PathBuf>,
     pub skip_python_check: bool,
+    /// Bundle a pinned CPython so the export runs without system Python.
     pub bundle_python: bool,
 }
 
@@ -37,9 +38,12 @@ impl Default for ExportOptions {
     }
 }
 
+/// How the exported launcher finds its interpreter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PythonChoice {
+    /// A pinned CPython staged into `<out>/python`.
     Bundled { zip: PathBuf },
+    /// Fall back to whatever Python 3.12 the machine has.
     System,
 }
 
@@ -84,6 +88,10 @@ fn is_python312(p: &Path) -> bool {
     text.contains("Python 3.12")
 }
 
+/// Owns the export directory for the length of an export. Every failure path is
+/// a `?`, so without this a run that dies partway — a wrong archive layout once
+/// left 136 MB of unpacked CPython behind — also wedges the next attempt,
+/// because the exists-guard refuses to overwrite what the failed run left.
 struct ExportDir {
     path: PathBuf,
     complete: bool,
@@ -194,6 +202,9 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
             let mut staged = python_bundle::stage(&spec, zip, &out.join("python"))
                 .context("cannot stage the bundled Python")?;
             if opts.platform == "windows" {
+                // Windows resolves DLLs from the exe's own directory before
+                // PATH, so the interpreter DLL lives next to the binary and
+                // the staged copy is dropped instead of shipped twice.
                 let dll = staged
                     .lib
                     .file_name()
@@ -260,6 +271,9 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     })
 }
 
+/// Bundled mode needs no Python on PATH: the loader finds `libpython` through
+/// `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` (or a `$ORIGIN` RUNPATH when the binary was built with one)
+/// and the stdlib comes from the zip. Proved on Linux and macOS.
 fn unix_launcher(
     game: &str,
     bin: &str,
@@ -300,6 +314,11 @@ fn unix_launcher(
     }
 }
 
+/// Body of the Windows loader config. The interpreter reads this from beside its
+/// own DLL and ignores `PYTHONPATH` entirely once it exists, so it is the only
+/// thing that points it at the stdlib zip. Entries resolve against the DLL's
+/// directory, and must stay relative: an absolute path would break the export as
+/// soon as the folder is moved or copied to another machine.
 fn windows_pth(bin_dir: &Path, bundle: &python_bundle::StagedBundle) -> Result<String> {
     let python_dir = bundle
         .root
@@ -323,6 +342,9 @@ fn windows_pth(bin_dir: &Path, bundle: &python_bundle::StagedBundle) -> Result<S
     Ok(format!("..\\{python_dir}\\{zip}\r\n.\r\n"))
 }
 
+/// Windows resolves DLLs from the exe's own directory first, so the staged
+/// interpreter sits next to `bin/<game>.exe`, and the `_pth` file beside it
+/// carries the stdlib zip. No Python install, no PATH juggling.
 fn windows_launcher(
     game: &str,
     bin: &str,
@@ -350,6 +372,11 @@ fn windows_launcher(
     }
 }
 
+/// Which binary an export ships: an explicit `--binary`, else a `pite-player`
+/// sibling named for the target platform. Engine bundles ship player binaries
+/// for all platforms. If no sibling binary is found beside the engine, export
+/// automatically downloads and caches the target platform's player binary.
+/// The full `pite` binary is never shipped: it carries the editor.
 fn select_binary(opts: &ExportOptions) -> Result<PathBuf> {
     select_binary_from(opts, std::env::current_exe().ok())
 }
@@ -386,6 +413,7 @@ fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Res
     }
 }
 
+/// Path of `target` relative to the export root, with `/` separators.
 fn rel_to(root: &Path, target: &Path) -> String {
     target
         .strip_prefix(root)
@@ -414,6 +442,7 @@ fn readme(game: &str, platform: &str, python: &PythonChoice) -> String {
     )
 }
 
+/// Every file under `dir`, recursively.
 fn stage_tree(dir: &Path, out: &mut std::collections::HashSet<PathBuf>) -> Result<()> {
     for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
         let path = entry
@@ -480,6 +509,8 @@ fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Res
     for extra in &manifest.export.include {
         files.insert(root.join(extra));
     }
+    // Vendored third-party packages ship whole: the lock pins them, the
+    // runtime puts them on sys.path in dev and export alike.
     let vendor_dir = root.join("vendor");
     if vendor_dir.is_dir() {
         stage_tree(&vendor_dir, &mut files)?;
@@ -505,6 +536,9 @@ fn resolve_ref(root: &Path, scene_dir: Option<&Path>, r: &str) -> Option<PathBuf
     scene_dir.map(|d| d.join(p))
 }
 
+/// An atlas sidecar is only half an asset: without its sheet the runtime draws
+/// its magenta fallback. Resolved through the same helper `pite_runtime` uses,
+/// so an export can never ship a different file than the game looks for.
 fn atlas_sheet(atlas: &Path) -> Option<PathBuf> {
     atlas
         .file_name()?
@@ -734,7 +768,6 @@ def _once():
         let _guard = SERIAL.lock().unwrap();
         let prev = std::env::var_os("PITE_PYTHON");
         let (dir, bin) = fixture("pyok");
-
         // Windows cannot exec a shebang script — it needs `.bat`/`.cmd`/`.exe`.
         // Give each platform its natural fake-Python shape.
         #[cfg(unix)]
@@ -751,7 +784,6 @@ def _once():
             std::fs::write(&path, "@echo off\r\necho Python 3.12.99\r\n").unwrap();
             path
         };
-
         std::env::set_var("PITE_PYTHON", &fake);
         let report = export_project(
             &dir,
@@ -810,7 +842,6 @@ def _once():
         assert!(staged.lib.ends_with("libpython3.12.so.1.0"), "{staged:?}");
         assert!(staged.lib.is_file());
         assert!(staged.stdlib_zip.is_file());
-
         // Inspect the stdlib zip with the `zip` crate, not `python3`
         // (Windows names it `python.exe`; the crate is portable).
         let mut archive =
@@ -874,7 +905,6 @@ def _once():
         assert!(staged.lib.ends_with("libpython3.12.dylib"), "{staged:?}");
         assert!(staged.lib.is_file());
         assert!(staged.stdlib_zip.is_file());
-
         let mut archive =
             zip::ZipArchive::new(std::fs::File::open(&staged.stdlib_zip).unwrap()).unwrap();
         let names: Vec<String> = (0..archive.len())
@@ -895,6 +925,8 @@ def _once():
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Real download + export layout. Gated: it fetches a pinned 60 MB archive
+    /// the first time, then runs from the local toolchain cache.
     #[test]
     fn bundled_export_layout_has_runtime_and_stdlib() {
         if std::env::var("PITE_BUNDLE_SMOKE").is_err() {
@@ -993,6 +1025,10 @@ def _once():
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// A run that dies after creating its output must not leave that directory
+    /// behind: the next attempt refuses to overwrite it, so the failure becomes
+    /// sticky. Unreadable engine binary fails the copy step, which runs after
+    /// the game and bin directories already exist.
     #[cfg(unix)]
     #[test]
     fn failed_export_leaves_no_directory_behind() {
@@ -1023,6 +1059,10 @@ def _once():
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// The loader config is the only thing pointing the interpreter at the stdlib
+    /// once it exists, and its entries resolve against the DLL's directory. An
+    /// absolute path would work on the build machine and break the moment the
+    /// export is copied, so pin the exact shape.
     #[test]
     fn windows_loader_config_names_the_stdlib_relatively() {
         let bundle = python_bundle::StagedBundle {
@@ -1038,6 +1078,8 @@ def _once():
         );
     }
 
+    /// A staged `python/` that is not a sibling of `bin/` has no nameable
+    /// relative path: error rather than write an entry that cannot resolve.
     #[test]
     fn windows_loader_config_rejects_an_unreachable_stdlib() {
         let bundle = python_bundle::StagedBundle {
@@ -1051,6 +1093,8 @@ def _once():
         assert!(err.contains("not a sibling"), "{err}");
     }
 
+    /// Windows export layout, end to end against the real pinned archive. Skips
+    /// when that archive is not cached, so CI stays offline.
     #[test]
     fn windows_export_ships_the_interpreter_beside_the_binary() {
         let Some(spec) = python_bundle::pinned("windows") else {
@@ -1277,6 +1321,8 @@ def _once():
 
     #[test]
     fn foreign_platform_uses_bundled_sibling() {
+        // Engine bundles ship both players, so a foreign-named sibling next
+        // to the exe is picked with no download and no compiler involved.
         let foreign = if std::env::consts::OS == "windows" {
             "linux"
         } else {
