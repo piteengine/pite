@@ -1,4 +1,8 @@
-# Scripting API (Python)
+---
+icon: lucide/file-code-corner
+---
+
+# Scripting API
 
 Gameplay scripts are Python classes inheriting the `pite` module, executed embedded in the engine process (CPython 3.12).
 
@@ -22,10 +26,12 @@ class Player(pite.Node2D):
 - `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
 - `position` is a mutable `Vec2` proxy backed directly by the engine's node transform. You can mutate `.x` and `.y` in-place (`self.position.x += 10`), reassign with a tuple or vector (`self.position = (100, 200)`), or unpack as a tuple (`x, y = self.position`). `rotation` is a float in radians. `Sprite2D` adds `texture: str`, `atlas: str`, and `frame: str`. `Camera2D` adds `zoom: float`. `Timer` adds `wait_time: float`, `current_elapsed: float`, and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping; non-positive `wait_time` never fires). Subclasses of `Timer` or `Button` that override `_process` **must** call `super()._process(delta)` so engine timer accumulation and click polling continue running. `Label` and `Button` inherit `Node2D` transform (`position`, `rotation`) and UI styling (`color`, `font_size`). `Label` adds `text: str`. `Button` adds `text: str`, `size: Vec2`, `disabled: bool`, and an engine-owned `pressed` signal.
 - Declarative node descriptors: declare child or node references as class attributes:
+
   ```python
   sprite = pite.child("Sprite2D")
   target = pite.node("../Target")
   ```
+
   Descriptors resolve once on first access and cache the proxy. A missing node raises `KeyError`.
 - The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`. Repeated `get_node` calls are automatically cached.
 - Talk across nodes with direct calls through `get_node`, which returns a proxy to the live node:
@@ -171,6 +177,7 @@ class Coin(pite.Area2D):
 ```
 
 Built-in signals:
+
 - `body_entered(body_id: str)`
 - `body_exited(body_id: str)`
 - `area_entered(area_id: str)`
@@ -185,6 +192,7 @@ if hit is not None:
 ```
 
 Returns `None` if no solid obstacle intersects, or a dict containing:
+
 - `point`: `(float, float)` world coordinate of intersection.
 - `normal`: `(float, float)` surface normal at intersection point.
 - `distance`: `float` distance from ray origin.

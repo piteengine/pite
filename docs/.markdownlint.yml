@@ -1,0 +1,90 @@
+default: true
+MD003:
+  style: atx
+MD004:
+  style: dash
+MD007:
+  indent: 4
+  strict: true
+MD010:
+  spaces_per_tab: 4
+MD013: false
+MD022:
+  include_front-matter: true
+MD025:
+  front_matter_title: ""
+MD029:
+  style: ordered
+MD033:
+  allowed_elements:
+    - img
+    - div
+MD035:
+  style: ---
+MD046: false # Doesn't work for admonitions
+MD048:
+  style: backtick
+MD049:
+  style: asterisk
+MD050:
+  style: asterisk
+MD054:
+  collapsed: false
+  shortcut: false
+  url_inline: false
+MD055:
+  style: leading_and_trailing
+MD059:
+  prohibited_texts:
+    - "link"
+    - "links"
+    - "click"
+    - "click here"
+    - "click me"
+    - "tap here"
+    - "here"
+    - "there"
+    - "this"
+    - "that"
+    - "these"
+    - "those"
+    - "more"
+    - "info"
+    - "information"
+    - "details"
+    - "page"
+    - "site"
+    - "go here"
+    - "visit"
+    - "visit this"
+    - "download"
+    - "download here"
+    - "read more"
+    - "learn more"
+    - "see more"
+    - "view"
+    - "view more"
+    - "find out"
+    - "find out more"
+    - "check"
+    - "check it out"
+    - "click for more"
+    - "follow this link"
+    - "continue"
+    - "read"
+    - "start"
+    - "next"
+    - "back"
+    - "previous"
+    - "article"
+    - "document"
+    - "file"
+    - "PDF"
+    - "video"
+    - "presentation"
+    - "slides"
+    - "source"
+    - "reference"
+    - "example"
+MD060:
+  style: aligned

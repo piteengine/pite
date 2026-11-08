@@ -9,3 +9,4 @@ _cache/
 examples/*/dist/
 .ruff_cache/
 /site
+repomix*
