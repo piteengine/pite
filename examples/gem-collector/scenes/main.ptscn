@@ -22,7 +22,7 @@ name = "ScoreLabel"
 parent = "root"
 
 [node.props]
-color = "#facc15"
+color = "#facc15ff"
 font_size = 32.0
 position = [120.0, 50.0]
 text = "Score: 0"
@@ -35,7 +35,6 @@ parent = "root"
 
 [node.props]
 position = [640.0, 360.0]
-velocity = [0.0, 0.0]
 
 [node.script]
 path = "res://scripts/player.py"
@@ -57,12 +56,10 @@ name = "Collider"
 parent = "player"
 
 [node.props]
-disabled = false
 height = 35.0
 position = [0.0, 20.0]
 radius = 25.0
 shape = "capsule"
-size = [32.0, 32.0]
 
 [[node]]
 id = "area2d"
@@ -93,12 +90,7 @@ name = "Collider"
 parent = "area2d"
 
 [node.props]
-disabled = false
-height = 32.0
-position = [0.0, 0.0]
-radius = 16.0
 shape = "circle"
-size = [32.0, 32.0]
 
 [[node]]
 id = "timelabel"

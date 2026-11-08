@@ -905,6 +905,26 @@ prefix = "e1_"
         );
     }
 
+    #[test]
+    fn gem_collector_scene_save_is_byte_identical() {
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("examples")
+            .join("gem-collector");
+        let scene = project.join("scenes").join("main.ptscn");
+        let source = pite_scene::load_scene(&scene).expect("gem-collector scene parses");
+        let tree = pite_scene::build_tree(&source, &project.join("scenes"), Some(&project))
+            .expect("tree builds");
+        let refs = InstanceRefs {
+            scene_dir: &project.join("scenes"),
+            project_dir: Some(&project),
+        };
+        let doc = build_doc(&tree, Some(&source), Some(refs)).expect("save builds");
+        let first = pite_scene::save_scene(&doc).unwrap();
+        let on_disk = std::fs::read_to_string(&scene).unwrap();
+        assert_eq!(first, on_disk, "gem-collector scene save must match disk");
+    }
+
     fn rooted_tree() -> NodeTree {
         let mut tree = NodeTree::new();
         add_node(&mut tree, None, "Node2D", "Main").unwrap();

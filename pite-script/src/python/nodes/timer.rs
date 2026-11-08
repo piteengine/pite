@@ -34,7 +34,9 @@ impl PyTimer {
             // Reset BEFORE emit so reentrant handlers observe the reset state.
             host.set_prop(&node, "current_elapsed", pite_core::PropValue::Num(0.0));
             let empty = pyo3::types::PyTuple::empty(py);
-            let _ = host.emit(py, &node, "timeout", &empty);
+            if let Err(e) = host.emit(py, &node, "timeout", &empty) {
+                tracing::error!(node = %node, "timer timeout error: {e:#}");
+            }
         } else {
             host.set_prop(&node, "current_elapsed", pite_core::PropValue::Num(elapsed));
         }

@@ -542,9 +542,11 @@ impl ScriptHost {
             let py_args: Vec<Py<PyAny>> = values.iter().map(|v| v.to_object(py)).collect();
             let tuple = PyTuple::new(py, py_args).map_err(|e| anyhow::anyhow!("{e}"))?;
             for c in callables {
-                c.bind(py)
-                    .call(tuple.clone(), None)
-                    .map_err(|e| anyhow::anyhow!("callable raised: {e}"))?;
+                if let Err(e) = c.bind(py).call(tuple.clone(), None) {
+                    tracing::error!(source = %source, signal = %signal, "signal handler error: {e:#}");
+                    e.print_and_set_sys_last_vars(py);
+                    anyhow::bail!("callable raised: {e}");
+                }
             }
         }
         let targets: Vec<(String, String)> = self
@@ -562,12 +564,14 @@ impl ScriptHost {
                 anyhow::anyhow!("{target}: handler {handler:?} missing for signal {signal:?}")
             })?;
             let py_args: Vec<Py<PyAny>> = values.iter().map(|v| v.to_object(py)).collect();
-            callable
-                .call(
-                    PyTuple::new(py, py_args).map_err(|e| anyhow::anyhow!("{e}"))?,
-                    None,
-                )
-                .map_err(|e| anyhow::anyhow!("{target}.{handler} raised: {e}"))?;
+            if let Err(e) = callable.call(
+                PyTuple::new(py, py_args).map_err(|e| anyhow::anyhow!("{e}"))?,
+                None,
+            ) {
+                tracing::error!(target = %target, handler = %handler, signal = %signal, "signal handler error: {e:#}");
+                e.print_and_set_sys_last_vars(py);
+                anyhow::bail!("{target}.{handler} raised: {e}");
+            }
         }
         Ok(())
     }
@@ -778,9 +782,164 @@ impl NodeProxy {
         Ok(())
     }
 
+    #[getter]
+    fn color(&self) -> PyResult<(u8, u8, u8, u8)> {
+        use pite_core::PropValue;
+        self.host.with_tree(|tree| {
+            let node = tree
+                .get(&NodeId::from(self.target.clone()))
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyKeyError::new_err(format!(
+                        "node {:?} no longer exists",
+                        self.target
+                    ))
+                })?;
+            match node.props.get("color") {
+                Some(PropValue::Color(r, g, b, a)) => Ok((*r, *g, *b, *a)),
+                _ => Ok((255, 255, 255, 255)),
+            }
+        })
+    }
+
+    #[setter]
+    fn set_color(&self, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let (r, g, b, a) = if let Ok(s) = val.extract::<String>() {
+            let c = pite_scene::parse_hex_color(&s).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid hex color: {s}"))
+            })?;
+            (c.r, c.g, c.b, c.a)
+        } else if let Ok(rgba) = val.extract::<(u8, u8, u8, u8)>() {
+            rgba
+        } else if let Ok(rgb) = val.extract::<(u8, u8, u8)>() {
+            (rgb.0, rgb.1, rgb.2, 255)
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "color must be a hex string (e.g. '#EF4444') or (r, g, b[, a]) tuple",
+            ));
+        };
+        use pite_core::PropValue;
+        self.host.with_tree_mut(|tree| {
+            if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
+                node.props
+                    .insert("color".to_string(), PropValue::Color(r, g, b, a));
+            }
+        });
+        Ok(())
+    }
+
+    fn __setattr__(&self, py: Python<'_>, name: String, val: Bound<'_, PyAny>) -> PyResult<()> {
+        if name == "position" {
+            return self.set_position(&val);
+        }
+        if name == "text" {
+            let s = val.extract::<String>()?;
+            self.set_text(s);
+            return Ok(());
+        }
+        if name == "size" {
+            return self.set_size(&val);
+        }
+        if name == "color" {
+            return self.set_color(&val);
+        }
+
+        // Try setting on attached Python script instance first (e.g. player.speed = 0.0)
+        if let Some(inst) = self.host.lookup_instance(py, &self.target) {
+            if inst.bind(py).hasattr(name.as_str())? {
+                return inst.bind(py).setattr(name.as_str(), val);
+            }
+        }
+
+        // Check if it's a schema property on the node
+        let node_type = self.host.with_tree(|tree| {
+            tree.get(&NodeId::from(self.target.clone()))
+                .map(|n| n.type_name.clone())
+        });
+        if let Some(type_name) = node_type {
+            let schema_props = pite_core::schema::all_props(&type_name);
+            if let Some(prop_schema) = schema_props.iter().find(|p| p.key == name) {
+                let prop_val = match prop_schema.hint {
+                    pite_core::schema::PropHint::Color => {
+                        let (r, g, b, a) = if let Ok(s) = val.extract::<String>() {
+                            let c = pite_scene::parse_hex_color(&s).ok_or_else(|| {
+                                pyo3::exceptions::PyValueError::new_err(format!(
+                                    "invalid hex color: {s}"
+                                ))
+                            })?;
+                            (c.r, c.g, c.b, c.a)
+                        } else if let Ok(rgba) = val.extract::<(u8, u8, u8, u8)>() {
+                            rgba
+                        } else if let Ok(rgb) = val.extract::<(u8, u8, u8)>() {
+                            (rgb.0, rgb.1, rgb.2, 255)
+                        } else {
+                            return Err(pyo3::exceptions::PyTypeError::new_err(
+                                "color must be hex string or tuple",
+                            ));
+                        };
+                        pite_core::PropValue::Color(r, g, b, a)
+                    }
+                    pite_core::schema::PropHint::Num { .. }
+                    | pite_core::schema::PropHint::AngleDeg => {
+                        let n = val.extract::<f64>()?;
+                        pite_core::PropValue::Num(n)
+                    }
+                    pite_core::schema::PropHint::Int { .. } => {
+                        let i = val.extract::<i64>()?;
+                        pite_core::PropValue::Int(i)
+                    }
+                    pite_core::schema::PropHint::Bool => {
+                        let b = val.extract::<bool>()?;
+                        pite_core::PropValue::Bool(b)
+                    }
+                    pite_core::schema::PropHint::Vec2 { .. } => {
+                        let (x, y) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+                            (v.x(), v.y())
+                        } else if let Ok(t) = val.extract::<(f64, f64)>() {
+                            t
+                        } else {
+                            return Err(pyo3::exceptions::PyTypeError::new_err(
+                                "expected Vec2 or (x, y)",
+                            ));
+                        };
+                        pite_core::PropValue::Vec2(x, y)
+                    }
+                    _ => {
+                        let s = val.extract::<String>()?;
+                        pite_core::PropValue::Str(s)
+                    }
+                };
+                self.host.with_tree_mut(|tree| {
+                    if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
+                        node.props.insert(name.clone(), prop_val);
+                    }
+                });
+                return Ok(());
+            }
+        }
+
+        // If instance exists, set dynamic attribute on it
+        if let Some(inst) = self.host.lookup_instance(py, &self.target) {
+            return inst.bind(py).setattr(name.as_str(), val);
+        }
+
+        Err(pyo3::exceptions::PyAttributeError::new_err(format!(
+            "node {:?} has no property or script attribute {:?}",
+            self.target, name
+        )))
+    }
+
     fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<Py<PyAny>> {
-        if name == "position" || name == "text" || name == "size" {
-            return Err(pyo3::exceptions::PyAttributeError::new_err(name));
+        if name == "position" {
+            return Ok(Bound::new(py, self.position()?)?.into_any().unbind());
+        }
+        if name == "text" {
+            return Ok(self.text()?.into_pyobject(py)?.into_any().unbind());
+        }
+        if name == "size" {
+            return Ok(Bound::new(py, self.size()?)?.into_any().unbind());
+        }
+        if name == "color" {
+            return Ok(self.color()?.into_pyobject(py)?.into_any().unbind());
         }
         if self.host.has_signal(&self.target, &name) {
             let bound = BoundSignal {
@@ -790,13 +949,47 @@ impl NodeProxy {
             };
             return Ok(Bound::new(py, bound)?.into_any().unbind());
         }
-        let inst = self.host.lookup_instance(py, &self.target).ok_or_else(|| {
-            pyo3::exceptions::PyAttributeError::new_err(format!(
-                "node {:?} has no script with {name:?}",
-                self.target
-            ))
-        })?;
-        inst.bind(py).getattr(name.as_str()).map(|b| b.into())
+
+        if let Some(inst) = self.host.lookup_instance(py, &self.target) {
+            if inst.bind(py).hasattr(name.as_str())? {
+                return inst.bind(py).getattr(name.as_str()).map(|b| b.into());
+            }
+        }
+
+        use pite_core::PropValue;
+        let prop = self.host.with_tree(|tree| {
+            tree.get(&NodeId::from(self.target.clone()))
+                .and_then(|node| node.props.get(&name).cloned())
+        });
+        if let Some(prop) = prop {
+            match prop {
+                PropValue::Str(s) => return Ok(s.into_pyobject(py)?.into_any().unbind()),
+                PropValue::Num(n) => return Ok(n.into_pyobject(py)?.into_any().unbind()),
+                PropValue::Int(i) => return Ok(i.into_pyobject(py)?.into_any().unbind()),
+                PropValue::Bool(b) => {
+                    return Ok(pyo3::types::PyBool::new(py, b)
+                        .to_owned()
+                        .unbind()
+                        .into_any());
+                }
+                PropValue::Vec2(x, y) => {
+                    let v = crate::vec2::Vec2::new(x, y);
+                    return Ok(Bound::new(py, v)?.into_any().unbind());
+                }
+                PropValue::Color(r, g, b, a) => {
+                    return Ok((r, g, b, a).into_pyobject(py)?.into_any().unbind());
+                }
+            }
+        }
+
+        if let Some(inst) = self.host.lookup_instance(py, &self.target) {
+            return inst.bind(py).getattr(name.as_str()).map(|b| b.into());
+        }
+
+        Err(pyo3::exceptions::PyAttributeError::new_err(format!(
+            "node {:?} has no script or property with {name:?}",
+            self.target
+        )))
     }
 }
 

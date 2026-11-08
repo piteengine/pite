@@ -1061,6 +1061,18 @@ impl GameSession {
                 }
             }
 
+            // Sync tree positions for non-rigid bodies/areas into physics before step
+            self.host.with_tree(|tree| {
+                let mut lock = self.physics.lock().unwrap();
+                for node in tree.iter() {
+                    let id = &node.id;
+                    if !lock.is_rigid_body(id) {
+                        let pos = global_position(tree, id);
+                        lock.set_body_position(id, pos);
+                    }
+                }
+            });
+
             let events = {
                 let mut lock = self.physics.lock().unwrap();
                 lock.step();
@@ -1091,38 +1103,46 @@ impl GameSession {
             for ev in events {
                 match ev {
                     PhysicsEvent::BodyEntered { area_id, body_id } => {
-                        let _ = pite_script::fire_body_entered(
+                        if let Err(e) = pite_script::fire_body_entered(
                             &self.host,
                             area_id.as_str(),
                             body_id.as_str(),
-                        );
+                        ) {
+                            tracing::error!(area = %area_id, body = %body_id, "body_entered error: {e:#}");
+                        }
                     }
                     PhysicsEvent::BodyExited { area_id, body_id } => {
-                        let _ = pite_script::fire_body_exited(
+                        if let Err(e) = pite_script::fire_body_exited(
                             &self.host,
                             area_id.as_str(),
                             body_id.as_str(),
-                        );
+                        ) {
+                            tracing::error!(area = %area_id, body = %body_id, "body_exited error: {e:#}");
+                        }
                     }
                     PhysicsEvent::AreaEntered {
                         area_id,
                         other_area_id,
                     } => {
-                        let _ = pite_script::fire_area_entered(
+                        if let Err(e) = pite_script::fire_area_entered(
                             &self.host,
                             area_id.as_str(),
                             other_area_id.as_str(),
-                        );
+                        ) {
+                            tracing::error!(area = %area_id, other = %other_area_id, "area_entered error: {e:#}");
+                        }
                     }
                     PhysicsEvent::AreaExited {
                         area_id,
                         other_area_id,
                     } => {
-                        let _ = pite_script::fire_area_exited(
+                        if let Err(e) = pite_script::fire_area_exited(
                             &self.host,
                             area_id.as_str(),
                             other_area_id.as_str(),
-                        );
+                        ) {
+                            tracing::error!(area = %area_id, other = %other_area_id, "area_exited error: {e:#}");
+                        }
                     }
                 }
             }
@@ -2593,6 +2613,171 @@ class MapScript(pite.TileMap2D):
             (player_y - 90.0).abs() < 2.0,
             "Player should rest on tilemap floor at y=90, got {player_y}"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_gem_collector_e2e_mechanics() {
+        let _guard = SERIAL.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pite-sess-gemcol-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+
+        let scene = r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "timelabel"
+type = "Label"
+name = "TimeLabel"
+parent = "root"
+
+[node.props]
+text = "Time: 1"
+
+[[node]]
+id = "gametimer"
+type = "Timer"
+name = "GameTimer"
+parent = "root"
+
+[node.props]
+wait_time = 0.03
+
+[node.script]
+path = "res://scripts/game_timer.py"
+class = "GameTimer"
+
+[[node]]
+id = "player"
+type = "CharacterBody2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+position = [100.0, 100.0]
+
+[node.script]
+path = "res://scripts/player.py"
+class = "Player"
+
+[[node]]
+id = "pcollider"
+type = "CollisionShape2D"
+name = "Collider"
+parent = "player"
+
+[node.props]
+shape = "circle"
+radius = 20.0
+
+[[node]]
+id = "gem"
+type = "Area2D"
+name = "Gem"
+parent = "root"
+
+[node.props]
+position = [120.0, 100.0]
+
+[node.script]
+path = "res://scripts/gem.py"
+class = "Gem"
+
+[[node]]
+id = "gcollider"
+type = "CollisionShape2D"
+name = "Collider"
+parent = "gem"
+
+[node.props]
+shape = "circle"
+radius = 20.0
+"#;
+        std::fs::write(dir.join("scenes").join("main.ptscn"), scene).unwrap();
+
+        let player_script = r#"import pite
+
+class Player(pite.CharacterBody2D):
+    speed: float = 300.0
+
+    def _process(self, delta: float):
+        self.position.x += 1.0 * self.speed * delta
+"#;
+        std::fs::write(dir.join("scripts").join("player.py"), player_script).unwrap();
+
+        let gem_script = r#"import pite
+
+class Gem(pite.Area2D):
+    collected: bool = False
+
+    def _ready(self):
+        self.body_entered.connect(self.on_body)
+
+    def on_body(self, body_id):
+        if body_id == "player":
+            self.collected = True
+"#;
+        std::fs::write(dir.join("scripts").join("gem.py"), gem_script).unwrap();
+
+        let timer_script = r##"import pite
+
+class GameTimer(pite.Timer):
+    def _ready(self):
+        self.get_node(".").timeout.connect(self.on_tick)
+
+    def on_tick(self):
+        label = self.get_node("../TimeLabel")
+        label.text = "Time's Up!"
+        label.color = "#EF4444"
+        player = self.get_node("../Player")
+        player.speed = 0.0
+"##;
+        std::fs::write(dir.join("scripts").join("game_timer.py"), timer_script).unwrap();
+
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+        for _ in 0..10 {
+            session.update(0.016);
+        }
+
+        let label_props = session.host.with_tree(|t| {
+            let n = t.get(&NodeId::from("timelabel".to_string())).unwrap();
+            (n.props.get("text").cloned(), n.props.get("color").cloned())
+        });
+        assert_eq!(
+            label_props.0,
+            Some(PropValue::Str("Time's Up!".to_string()))
+        );
+        assert_eq!(label_props.1, Some(PropValue::Color(239, 68, 68, 255)));
+
+        use pite_script::pyo3::{self, types::PyAnyMethods};
+        pyo3::Python::attach(|py| {
+            let inst = session.host.lookup_instance(py, "player").unwrap();
+            let speed: f64 = inst.bind(py).getattr("speed").unwrap().extract().unwrap();
+            assert_eq!(speed, 0.0);
+        });
+
+        pyo3::Python::attach(|py| {
+            let inst = session.host.lookup_instance(py, "gem").unwrap();
+            let collected: bool = inst
+                .bind(py)
+                .getattr("collected")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(
+                collected,
+                "Gem collision should have fired for moving player"
+            );
+        });
 
         std::fs::remove_dir_all(&dir).ok();
     }

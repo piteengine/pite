@@ -223,7 +223,7 @@ macro_rules! pite_props {
         }
     };
 
-    // ---- Color (4-tuple of u8) ----
+    // ---- Color (4-tuple of u8 or hex string) ----
     (@one $cls:ident; $key:ident : Color) => {
         $crate::paste::paste! {
             #[::pyo3::pymethods]
@@ -236,13 +236,29 @@ macro_rules! pite_props {
                 #[setter]
                 fn [<set_ $key>](
                     slf: &::pyo3::Bound<'_, Self>,
-                    v: (u8, u8, u8, u8),
+                    val: &::pyo3::Bound<'_, ::pyo3::PyAny>,
                 ) -> ::pyo3::PyResult<()> {
                     let (host, node) = $crate::python::host_and_path(slf.as_any())?;
+                    let (r, g, b, a) = if let Ok(s) = val.extract::<String>() {
+                        let c = ::pite_scene::parse_hex_color(&s).ok_or_else(|| {
+                            ::pyo3::exceptions::PyValueError::new_err(format!(
+                                "invalid hex color: {s}"
+                            ))
+                        })?;
+                        (c.r, c.g, c.b, c.a)
+                    } else if let Ok(rgba) = val.extract::<(u8, u8, u8, u8)>() {
+                        rgba
+                    } else if let Ok(rgb) = val.extract::<(u8, u8, u8)>() {
+                        (rgb.0, rgb.1, rgb.2, 255)
+                    } else {
+                        return Err(::pyo3::exceptions::PyTypeError::new_err(
+                            "color must be a hex string (e.g. '#EF4444') or (r, g, b[, a]) tuple",
+                        ));
+                    };
                     host.set_prop(
                         &node,
                         stringify!($key),
-                        ::pite_core::PropValue::Color(v.0, v.1, v.2, v.3),
+                        ::pite_core::PropValue::Color(r, g, b, a),
                     );
                     Ok(())
                 }
