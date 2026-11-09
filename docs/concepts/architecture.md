@@ -71,7 +71,7 @@ The engine is structured as a modular Rust workspace consisting of 13 focused cr
 | `pite-runtime` | Window creation (`winit`), the main execution loop, event polling, input forwarding, and hot reload orchestration. |
 | `pite-core` | The hierarchical scene tree, `NodeId` handles, schema definitions, custom properties, and lifecycle signals. |
 | `pite-script` | Embedded Python 3.12 bindings (PyO3), native `Vec2` math class, property accessors, and input state. |
-| `pite-physics` | Pure-Rust 2D physics simulation powered by `rapier2d 0.23`, kinematic controller, and collision queries. |
+| `pite-physics` | Pure-Rust 2D physics simulation powered by `rapier2d 0.36`, kinematic controller, and collision queries. |
 | `pite-render` | 2D batch sprite and text renderer built directly on [wgpu](https://wgpu.rs/). |
 | `pite-audio` | Audio engine decoding WAV, OGG Vorbis, MP3, and FLAC via `symphonia` and `cpal`, with silent simulation fallback. |
 | `pite-scene` | Human-readable `.ptscn` TOML parsing, validation, byte-stable serialization, and binary disk cache. |
