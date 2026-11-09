@@ -1,31 +1,42 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Font loading and software rasterization into CPU/GPU pixel buffers.
+
 use ab_glyph::{Font, FontArc, PxScale};
 use anyhow::{Context, Result};
 
+/// Bundled default font bytes (Inter Regular).
 pub const FONT_BYTES: &[u8] = include_bytes!("../fonts/Inter-Regular.ttf");
 
+/// Rasterized text raster image buffer in RGBA8 format.
 pub struct BakedText {
+    /// Contiguous RGBA8 pixel bytes.
     pub rgba: Vec<u8>,
+    /// Pixel width.
     pub w: u32,
+    /// Pixel height.
     pub h: u32,
 }
 
+/// Font renderer and text rasterizer backed by `ab_glyph`.
 pub struct TextAtlas {
     font: FontArc,
 }
 
 impl TextAtlas {
+    /// Creates a text rasterizer initialized with the bundled Inter font.
     pub fn new() -> Result<Self> {
         let font =
             FontArc::try_from_vec(FONT_BYTES.to_vec()).context("cannot parse bundled font")?;
         Ok(Self { font })
     }
 
+    /// Checks if the loaded font contains a glyph for the given character.
     pub fn has_glyph(&self, ch: char) -> bool {
         let gid = self.font.glyph_id(ch);
         gid.0 != 0
     }
 
+    /// Bakes a string into an RGBA8 pixel bitmap at the specified point size and color.
     pub fn bake(&self, text: &str, px: f32, color: [u8; 4]) -> BakedText {
         let px = px.max(1.0);
         let scale = PxScale::from(px);

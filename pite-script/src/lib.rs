@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-script`: `ScriptBackend` trait. PyO3 is the only impl;
-//! future backends (or a mock for tests) plug in without touching runtime.
+//! Embedded Python 3.12 scripting bridge and gameplay API for the Pite game engine.
+//!
+//! Powered by PyO3, this crate implements the `ScriptBackend` trait to drive script
+//! lifecycle hooks (`_ready`, `_process`, `_physics_process`), provide the public `pite`
+//! Python module, and facilitate zero-overhead bidirectional communication between
+//! Rust engine nodes and Python gameplay scripts.
 
 mod audio;
 pub mod descriptor;

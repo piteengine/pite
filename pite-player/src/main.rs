@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Lean export player: runs one scene with no hot reload and no editor.
-//! Exported launchers invoke this, never `pite` itself.
+//! Lean standalone player binary for the Pite game engine.
+//!
+//! Executes exported scenes directly without editor tooling or development
+//! dependencies, minimizing binary footprint and startup overhead.
 
 use anyhow::Result;
 use clap::Parser;

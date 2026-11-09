@@ -1,17 +1,18 @@
 # pite-core
 
-Scene-graph primitives for the [Pite](https://github.com/piteengine/pite) game engine: node handles, the node tree, props, the node-type registry, signals, and lifecycle dispatch.
+Foundational scene-graph primitives for the [Pite](https://github.com/piteengine/pite) game engine: node handles, the hierarchical scene tree, properties, the node-type registry, signals, and lifecycle dispatch.
 
-Knows nothing about Python, rendering, or the scene file format — those plug in through the traits re-exported here, which is where the crate boundaries are drawn.
+This crate defines the core abstractions of the scene model without dependencies on Python scripting, rendering, or file serialization—those plug in through re-exported trait boundaries.
 
 ## Versioning
 
-Lockstep with the engine: `pite-core 0.x.y` is engine `0.x.y`.
+Published in lockstep with the engine: `pite-core 0.x.y` corresponds to engine version `0.x.y`.
 
-## Docs
+## Documentation
 
-- API docs: <https://docs.rs/pite-core>
-- Engine repo: <https://github.com/piteengine/pite>
+- Documentation & Guides: <https://piteengine.github.io/pite>
+- API Docs: <https://docs.rs/pite-core>
+- Engine Repository: <https://github.com/piteengine/pite>
 
 ## License
 

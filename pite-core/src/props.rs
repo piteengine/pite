@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::collections::HashMap;
 
-/// An sRGB color with 8-bit channels. Alpha is straight (unmultiplied).
-///
-/// Bare value struct — no serialization helpers. Hex parsing and formatting
-/// live in `pite-scene` (the format layer, alongside TOML encode/decode).
-/// Python gets a proxy type in `pite-script` with host-tied mutation, matching
-/// how `Vec2` is handled (`pite-core::Vec2` here, `pite-script::Vec2` there).
+/// An 8-bit per channel sRGB color with straight (unmultiplied) alpha.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
@@ -71,19 +66,25 @@ impl From<Color> for [u8; 4] {
     }
 }
 
-/// Typed prop values. New props don't change the tree struct (§12).
+/// Dynamically-typed property values supported by the engine's scene and node model.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropValue {
+    /// String text value.
     Str(String),
+    /// Floating-point number.
     Num(f64),
+    /// Signed integer value.
     Int(i64),
+    /// Boolean flag.
     Bool(bool),
+    /// 2D vector coordinate pair `(x, y)`.
     Vec2(f64, f64),
+    /// RGBA color represented as 8-bit channels `(r, g, b, a)`.
     Color(u8, u8, u8, u8),
 }
 
 impl PropValue {
-    /// Typed accessor; `None` unless this is a `Color` variant.
+    /// Returns the value as [`Color`] if this is a [`PropValue::Color`] variant.
     pub fn as_color(&self) -> Option<Color> {
         match self {
             PropValue::Color(r, g, b, a) => Some(Color::new(*r, *g, *b, *a)),
@@ -91,8 +92,7 @@ impl PropValue {
         }
     }
 
-    /// Canonical human-readable type name, used in custom-prop type
-    /// mismatch errors (`expected int, got string`).
+    /// Returns the canonical type name string (e.g. `"string"`, `"vec2"`), used in diagnostics.
     pub const fn type_name(&self) -> &'static str {
         match self {
             PropValue::Str(_) => "string",
@@ -105,21 +105,22 @@ impl PropValue {
     }
 }
 
-/// Canonical spellings of the types a `[props]` entry may declare.
-/// Aliases (`str`, `num`, `float`, `boolean`, ...) are accepted by
-/// [`crate::is_valid_custom_prop_type`]; this is the list surfaced in
-/// error messages and documentation.
+/// Supported type declarations permitted in manifest `[props]` tables.
 pub const CUSTOM_PROP_TYPES: &[&str] = &["string", "int", "number", "bool", "vec2", "color"];
 
-/// String→value prop map with typed accessors. Unknown props preserved.
+/// Key-value property map associated with a [`Node`](crate::Node).
+///
+/// Unrecognized property keys are safely preserved during deserialization and serialization.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Props(pub HashMap<String, PropValue>);
 
 impl Props {
+    /// Retrieves a reference to a property value by key.
     pub fn get(&self, key: &str) -> Option<&PropValue> {
         self.0.get(key)
     }
 
+    /// Inserts or updates a property value by key.
     pub fn insert(&mut self, key: impl Into<String>, value: PropValue) {
         self.0.insert(key.into(), value);
     }

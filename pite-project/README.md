@@ -1,18 +1,19 @@
 # pite-project
 
-Project manifest (`pite.toml`), `res://` paths, and project scaffolding for the [Pite](https://github.com/piteengine/pite) game engine.
+Project manifest (`pite.toml`), resource path resolution (`res://`), and project scaffolding for the [Pite](https://github.com/piteengine/pite) game engine.
 
-`create_project` generates a `minimal-2d` project from templates embedded in the crate — no extra files needed.
+The `create_project` function generates starter projects (such as `minimal-2d`) from embedded templates without requiring external network access.
 
 ## Versioning
 
-Lockstep with the engine: `pite-project 0.x.y` is engine `0.x.y`.
+Published in lockstep with the engine: `pite-project 0.x.y` corresponds to engine version `0.x.y`.
 
-## Docs
+## Documentation
 
-- API docs: <https://docs.rs/pite-project>
-- Manifest reference: <https://github.com/piteengine/pite/blob/main/docs/manifest.md>
-- Engine repo: <https://github.com/piteengine/pite>
+- Documentation & Guides: <https://piteengine.github.io/pite>
+- Manifest Reference: <https://piteengine.github.io/pite/reference/manifest>
+- API Docs: <https://docs.rs/pite-project>
+- Engine Repository: <https://github.com/piteengine/pite>
 
 ## License
 

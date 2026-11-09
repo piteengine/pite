@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! 2D mathematical vector type exposed to embedded Python scripts.
+
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+/// 2D mathematical vector with support for arithmetic operations, in-place mutations,
+/// and live synchronization with engine node properties.
 #[pyclass(name = "Vec2", subclass)]
 #[derive(Clone)]
 pub struct Vec2 {

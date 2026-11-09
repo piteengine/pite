@@ -4,70 +4,72 @@ icon: lucide/signpost
 
 # Contributing Guide
 
-Yes, we want your contributions - code, docs, examples, bug reports, ideas. Newcomers are welcome, and we help you get your first change merged.
+We welcome contributions across all areas of the project—code, documentation, examples, bug reports, and architectural discussions. Whether you are fixing a typo, improving docs, or proposing a new subsystem, we are excited to help you get your contribution merged.
 
-## How to help
+## How to Help
 
-- **Issues:** found a bug or have an idea? Open an issue. Include what you did, what you expected, and what happened. Logs and repro steps help a lot.
-- **Pull requests:** want to fix or build something? Open a PR. One focused change per PR, conventional commits (`feat:`, `fix:`, `docs:`, `chore:`). Small PRs merge faster than big ones.
-- **Discussions:** not sure where to start, or just want to talk design? Open a discussion. No question is too small.
-- **Stuck?** Ask in your issue, PR, or discussion. We answer and unblock.
+- **Reporting Issues:** If you find a bug or have an idea for improvement, open an issue. Please include details on your environment, reproducible steps, expected results, and actual behavior. Console logs and minimal test cases are especially helpful.
+- **Submitting Pull Requests:** When you are ready to implement a change, open a pull request. Keep each PR focused on a single change and follow the Conventional Commits specification (`feat:`, `fix:`, `docs:`, `chore:`). Smaller, focused PRs are reviewed and merged much faster.
+- **Joining Discussions:** If you are unsure where to begin or wish to discuss design ideas before writing code, open a GitHub Discussion. All questions and ideas are welcome.
+- **Getting Unblocked:** If you encounter roadblocks during development, reach out on your PR, issue, or discussion. The maintainers are happy to provide guidance.
 
-## Rhythm
+## Development Workflow
 
-- One focused change per commit; keep unrelated changes in separate commits.
-- Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
-- Never commit secrets, `target/`, or local-only paths.
+- Maintain focused changes: keep unrelated modifications in separate commits or pull requests.
+- Adhere to Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- Never commit credentials, local filesystem paths, or build artifacts (`target/`, `_cache/`).
 
-## CI (must be green)
+## Continuous Integration (CI)
+
+Every pull request must pass the full workspace verification suite:
 
 ```sh
 cargo fmt --all -- --check
 cargo build --workspace --locked
-cargo test --workspace
+cargo test --workspace --locked
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
 bash scripts/check-examples.sh
 ```
 
-## Release bump checklist
+## Release Checklist
 
-The `v*` tag flow automates almost nothing — bump these by hand, every release:
+The release process requires coordinated version bumps across internal crates and documentation before tagging:
 
-- `Cargo.toml`: `version` + all 13 internal `pite-*` path-dep pins (nothing enforces lockstep; `cargo publish` breaks otherwise).
-- `CHANGELOG.md`: move notes from `## Unreleased` to the release heading.
-- MSRV proof re-runs automatically (weekly + manual); if it goes red, fix code or raise `rust-version`.
-- Only when the toolchain changes: `python_bundle.rs` (`PINNED_PYTHON`, `PINNED_BUILD`, filenames, checksums).
-- Only when pyright changes: `pite-editor/src/lsp.rs`, `docs/lsp.md`, `ci.yml`, `AGENTS.md` (all pin the same version).
-- Only when the scene format changes: `FORMAT_VERSION`, `CACHE_VERSION`, the `format_version` template literal, `docs/scene-format.md`.
-- Tag rule: strict `v*.*.*` tags must equal the workspace version (the publish workflow fails otherwise); milestone tags (`v0.1-mN`) never touch the registry.
+- `Cargo.toml`: Bump `version` across all 13 internal `pite-*` path-dependency pins (workspace crates publish in lockstep).
+- `docs/changelog.md`: Move unreleased entries under the new version header with a release date.
+- MSRV proof: Ensure `msrv-proof.yml` passes on the pinned workspace `rust-version`.
+- Python bundle pins: When updating the embedded CPython distribution, update `python_bundle.rs` (`PINNED_PYTHON`, `PINNED_BUILD`, filenames, and SHA-256 checksums).
+- Pyright language server: When upgrading pyright, synchronize the version pin in `pite-editor/src/lsp.rs`, `ci.yml`, and `AGENTS.md`.
+- Scene format changes: If the `.ptscn` schema evolves, update `FORMAT_VERSION`, `CACHE_VERSION`, the template literals, and `docs/reference/scene-format.md`.
+- Release tagging: Strict `v*.*.*` tags must match the workspace version; milestone tags (`v0.1-mN`) are non-publishing tags.
 
-## Local environment notes
+## Local Environment Setup
 
-- Script builds need CPython 3.12 with dev headers, plus ALSA headers for the audio dependency (`libasound2-dev`, `pkg-config` on Debian/Ubuntu — without them the build fails). Point PyO3 at it and make the shared lib discoverable:
+- **Python & Audio Headers:** Building embedded scripting requires CPython 3.12 with development headers, and Linux audio requires ALSA development headers (`libasound2-dev` and `pkg-config` on Debian/Ubuntu). Set environment variables to point PyO3 at your Python installation:
 
 ```sh
 export PYO3_PYTHON=/path/to/python3.12
 export LD_LIBRARY_PATH=/path/to/python3.12/lib:$LD_LIBRARY_PATH
 ```
 
-- On WSL without Wayland, the editor needs the X11 backend:
+- **WSL (Windows Subsystem for Linux):** On WSL environments without Wayland support, run the editor using the X11 backend:
 
 ```sh
 WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit
 ```
 
-## License
+## Licensing
 
-All contributions are dual-licensed MIT + Apache-2.0. New Rust source files start with:
+All contributions are dual-licensed under MIT and Apache-2.0. New Rust source files must begin with the standard SPDX header:
 
 ```rs
 // SPDX-License-Identifier: MIT OR Apache-2.0
 ```
 
-New Python files shipped with the engine start with:
+New Python files shipped as part of the engine must begin with:
 
 ```py
 # SPDX-License-Identifier: MIT OR Apache-2.0
 ```
 
-Example game scripts (`examples/`) stay header-free so new projects scaffold clean.
+Example game scripts located under `examples/` omit license headers to keep starter projects clean and minimal.

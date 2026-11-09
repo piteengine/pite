@@ -11,20 +11,19 @@ use crate::character::CharacterMoveResult;
 use crate::query::RaycastHit;
 use crate::shape::ShapeConfig;
 
+/// Physics events dispatched when bodies enter or exit trigger areas.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PhysicsEvent {
-    BodyEntered {
-        area_id: NodeId,
-        body_id: NodeId,
-    },
-    BodyExited {
-        area_id: NodeId,
-        body_id: NodeId,
-    },
+    /// A physics body entered an Area2D trigger zone.
+    BodyEntered { area_id: NodeId, body_id: NodeId },
+    /// A physics body exited an Area2D trigger zone.
+    BodyExited { area_id: NodeId, body_id: NodeId },
+    /// An Area2D overlapped with another Area2D trigger zone.
     AreaEntered {
         area_id: NodeId,
         other_area_id: NodeId,
     },
+    /// An Area2D stopped overlapping with another Area2D trigger zone.
     AreaExited {
         area_id: NodeId,
         other_area_id: NodeId,
@@ -62,7 +61,9 @@ impl EventHandler for PhysicsEventCollector {
     fn handle_soft_body_tear_event(&self, _soft_bodies: &SoftBodySet, _event: &SoftBodyTearEvent) {}
 }
 
+/// 2D physics simulation world managing Rapier rigid bodies, colliders, and collision events.
 pub struct PhysicsWorld {
+    /// Global gravity vector applied to dynamic rigid bodies (pixels per second squared).
     pub gravity: Vector,
     integration_parameters: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
@@ -102,6 +103,7 @@ impl Default for PhysicsWorld {
 }
 
 impl PhysicsWorld {
+    /// Creates a new 2D physics world initialized with 60 Hz fixed timestep and downward gravity.
     pub fn new() -> Self {
         let mut character_controller = KinematicCharacterController::default();
         character_controller.up = Vector::new(0.0, -1.0); // Standard 2D coordinate system: -Y is up

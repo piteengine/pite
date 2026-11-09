@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-project`: `pite.toml` manifest, `res://` paths, templates.
+//! Project manifest management, `res://` resource resolution, and project templates for Pite.
+//!
+//! Provides:
+//! - [`PiteManifest`]: Strongly-typed parsing and serialization of `pite.toml` manifests.
+//! - Resource path resolution: converting between filesystem paths and `res://` project-relative URI strings.
+//! - Validation rules: schema checks, deprecation warnings, and unknown property diagnostics.
+//! - Project scaffolding: [`create_project`] for generating starter scenes, scripts, and configurations.
 
 #![forbid(unsafe_code)]
 
@@ -9,8 +15,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+/// Standard manifest filename located at the root of every Pite project.
 pub const MANIFEST_FILE: &str = "pite.toml";
 
+/// Complete configuration document represented by `pite.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PiteManifest {
     #[serde(default)]
@@ -34,6 +42,7 @@ pub struct PiteManifest {
     pub extra: HashMap<String, toml::Value>,
 }
 
+/// Metadata and windowing configuration in `[project]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMeta {
     #[serde(default = "default_name")]
@@ -125,6 +134,7 @@ pub struct VendorEntry {
     pub direct: bool,
 }
 
+/// Loads and parses a `pite.toml` manifest from the given directory.
 pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
     let path = dir.join(MANIFEST_FILE);
     let text = std::fs::read_to_string(&path)

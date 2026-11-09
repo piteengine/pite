@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Core scene-graph primitives: node handles, the node tree, props, the node type
-//! registry and lifecycle dispatch.
+//! Core scene-graph primitives for the Pite game engine: node handles, the
+//! hierarchical scene tree, properties, the node-type registry, signals, and
+//! lifecycle dispatch.
 //!
-//! Knows nothing about Python (`pite-script`), rendering (`pite-render`) or the
-//! scene file format (`pite-scene`). Those plug in through the traits re-exported
-//! here, which is where the crate boundaries are drawn.
+//! Defines foundational abstractions of the scene model with no direct dependencies
+//! on Python scripting (`pite-script`), rendering (`pite-render`), or scene file
+//! serialization (`pite-scene`). External subsystems plug in through the traits
+//! re-exported here to maintain modular architectural boundaries.
 
 #![forbid(unsafe_code)]
 

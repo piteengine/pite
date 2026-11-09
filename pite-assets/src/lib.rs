@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-assets`: asset scan, uid manifest, rename detection, reimport.
+//! Asset scanning, UID tracking, rename reconciliation, and reimporting for Pite.
 //!
-//! Single `assets.pite.toml` manifest at the project root maps
-//! `res://` paths to opaque uids. Scans are content-aware: identical
-//! bytes keep the uid across renames, changed bytes flag reimport.
+//! A single `assets.pite.toml` manifest file at the project root maps `res://` paths
+//! to persistent, opaque 64-bit hexadecimal identifiers (UIDs). Scans are content-aware:
+//! identical file hashes preserve their UID across filesystem renames and moves, while
+//! modified file bytes trigger reimporting.
 
 pub mod atlas;
 
@@ -18,20 +19,25 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Single manifest file at the project root.
+/// The asset registry manifest filename located at the project root.
 pub const MANIFEST_FILE: &str = "assets.pite.toml";
 
-/// 8-byte PNG signature every valid `.png` must start with.
+/// 8-byte PNG signature every valid `.png` file must start with.
 const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
-/// Opaque uid generator state (uniqueness within and across scans).
+/// Opaque UID generator state ensuring uniqueness within and across asset scans.
 static UID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Trait implemented by asset importers to validate and ingest specific file types.
 pub trait Importer: Send + Sync {
+    /// Returns true if this importer handles files with the given file extension (case-insensitive).
     fn match_ext(&self, ext: &str) -> bool;
+
+    /// Validates and imports the asset at the specified filesystem path.
     fn import(&self, path: &str) -> Result<()>;
 }
 
+/// Asset importer for PNG raster images.
 pub struct PngImporter;
 
 impl Importer for PngImporter {
@@ -48,6 +54,7 @@ impl Importer for PngImporter {
     }
 }
 
+/// Asset importer for WAV audio files.
 pub struct WavImporter;
 
 impl Importer for WavImporter {
@@ -64,6 +71,7 @@ impl Importer for WavImporter {
     }
 }
 
+/// Asset importer for Ogg Vorbis audio files.
 pub struct OggImporter;
 
 impl Importer for OggImporter {
@@ -80,6 +88,7 @@ impl Importer for OggImporter {
     }
 }
 
+/// Asset importer for MP3 audio files.
 pub struct Mp3Importer;
 
 impl Importer for Mp3Importer {
@@ -98,6 +107,7 @@ impl Importer for Mp3Importer {
     }
 }
 
+/// Asset importer for FLAC audio files.
 pub struct FlacImporter;
 
 impl Importer for FlacImporter {
@@ -114,12 +124,16 @@ impl Importer for FlacImporter {
     }
 }
 
-/// One manifest row: stable uid plus the content it was last scanned with.
+/// A recorded asset entry in the project manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetEntry {
+    /// Project-relative resource path (e.g., `"res://sprites/player.png"`).
     pub path: String,
+    /// Stable opaque 16-character hexadecimal identifier.
     pub uid: String,
+    /// Hexadecimal FNV-1a content hash computed during the last scan.
     pub hash: String,
+    /// File size in bytes.
     pub size: u64,
 }
 
@@ -130,12 +144,14 @@ struct ManifestDoc {
     asset: Vec<AssetEntry>,
 }
 
+/// In-memory asset UID registry mapping resource paths to [`AssetEntry`] records.
 #[derive(Debug, Default, Clone)]
 pub struct UidRegistry {
     by_path: HashMap<String, AssetEntry>,
 }
 
 impl UidRegistry {
+    /// Registers or updates the UID assigned to a given resource path.
     pub fn register(&mut self, path: impl Into<String>, uid: impl Into<String>) {
         let path = path.into();
         let uid = uid.into();
@@ -155,10 +171,12 @@ impl UidRegistry {
         }
     }
 
+    /// Retrieves the UID corresponding to a given `res://` path, if registered.
     pub fn get(&self, path: &str) -> Option<&str> {
         self.by_path.get(path).map(|e| e.uid.as_str())
     }
 
+    /// Finds the `res://` path assigned to a given UID, if present in the registry.
     pub fn path_for_uid(&self, uid: &str) -> Option<&str> {
         self.by_path
             .values()
@@ -166,19 +184,23 @@ impl UidRegistry {
             .map(|e| e.path.as_str())
     }
 
+    /// Iterates over all registered asset entries.
     pub fn iter(&self) -> impl Iterator<Item = &AssetEntry> {
         self.by_path.values()
     }
 
+    /// Returns the total number of registered assets.
     pub fn len(&self) -> usize {
         self.by_path.len()
     }
 
+    /// Returns true if the registry contains no assets.
     pub fn is_empty(&self) -> bool {
         self.by_path.is_empty()
     }
 }
 
+/// Returns the default list of built-in file importers (PNG, WAV, OGG, MP3, FLAC).
 pub fn default_importers() -> Vec<Box<dyn Importer>> {
     vec![
         Box::new(PngImporter),

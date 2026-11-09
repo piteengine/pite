@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Command-line interface and development entrypoint for Pite.
+//!
+//! Provides the `pite` executable for project scaffolding (`pite new`), visual editing
+//! (`pite edit`), standalone gameplay (`pite run`), project verification (`pite check`),
+//! cross-platform desktop exports (`pite export`), dependency vendoring (`pite vendor`),
+//! and toolchain management (`pite toolchain`).
+
 mod cmd_check;
 mod cmd_edit;
 mod cmd_export;

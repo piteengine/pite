@@ -1,17 +1,18 @@
 # pite-audio
 
-Audio decode and output subsystem for the [Pite](https://github.com/piteengine/pite) game engine.
+Audio decoding, multi-voice mixing, and hardware output subsystem for the [Pite](https://github.com/piteengine/pite) game engine.
 
-Pure-Rust audio decoding powered by `symphonia` for WAV, Ogg Vorbis (`.ogg`), MP3 (`.mp3`), and FLAC (`.flac`), with multi-voice mixing and hardware output via `cpal` (and automatic silent-simulation fallback when no hardware device is available).
+Provides pure-Rust audio decoding via `symphonia` for WAV, Ogg Vorbis (`.ogg`), MP3 (`.mp3`), and FLAC (`.flac`), with multi-voice mixing and hardware output via `cpal` (and automatic silent-simulation fallback when no hardware audio device is available).
 
 ## Versioning
 
-Lockstep with the engine: `pite-audio 0.x.y` is engine `0.x.y`.
+Published in lockstep with the engine: `pite-audio 0.x.y` corresponds to engine version `0.x.y`.
 
-## Docs
+## Documentation
 
-- API docs: <https://docs.rs/pite-audio>
-- Engine repo: <https://github.com/piteengine/pite>
+- Documentation & Guides: <https://piteengine.github.io/pite>
+- API Docs: <https://docs.rs/pite-audio>
+- Engine Repository: <https://github.com/piteengine/pite>
 
 ## License
 

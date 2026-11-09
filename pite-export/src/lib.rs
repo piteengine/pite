@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-export`: desktop export. Copies the engine binary plus only the
-//! referenced game content into a runnable directory, together with a pinned
-//! CPython unless `--no-bundle-python` keeps the system-Python requirement.
+//! Export pipeline and standalone packaging tooling for the Pite game engine.
+//!
+//! Bundles standalone desktop game distributions for Linux, Windows, and macOS,
+//! packaging the lean `pite-player` runner, referenced assets, and a portable
+//! CPython 3.12 environment requiring no system dependencies on players' machines.
 
 pub mod player;
 pub mod python_bundle;

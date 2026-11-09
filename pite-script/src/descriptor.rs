@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Declarative node descriptors for Python scripts (`pite.child` and `pite.node`).
+
 use pyo3::prelude::*;
 
+/// Python property descriptor resolving a direct child node by name on first access with caching.
 #[pyclass(name = "ChildDescriptor")]
 pub struct PyChildDescriptor {
     name: String,
@@ -56,6 +59,7 @@ impl PyChildDescriptor {
     }
 }
 
+/// Python property descriptor resolving a scene node by relative or absolute path on first access.
 #[pyclass(name = "NodeDescriptor")]
 pub struct PyNodeDescriptor {
     path: String,
@@ -111,11 +115,13 @@ impl PyNodeDescriptor {
     }
 }
 
+/// Creates a declarative descriptor that resolves a child node by name on first attribute access.
 #[pyfunction]
 pub fn child(name: String) -> PyChildDescriptor {
     PyChildDescriptor::new(name)
 }
 
+/// Creates a declarative descriptor that resolves a node by path on first attribute access.
 #[pyfunction]
 pub fn node(path: String) -> PyNodeDescriptor {
     PyNodeDescriptor::new(path)

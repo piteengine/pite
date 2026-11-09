@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Schema definitions for engine node types, properties, inheritance, and validation.
+
 use std::collections::HashSet;
 
 use crate::props::PropValue;
 
+/// Static representation of a property's default value defined in a node schema.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DefaultPropVal {
     Num(f64),
@@ -14,6 +17,7 @@ pub enum DefaultPropVal {
 }
 
 impl DefaultPropVal {
+    /// Converts this schema default into a runtime [`PropValue`].
     pub fn to_prop_value(&self) -> PropValue {
         match self {
             Self::Num(f) => PropValue::Num(*f),
@@ -25,6 +29,7 @@ impl DefaultPropVal {
         }
     }
 
+    /// Checks if a given runtime [`PropValue`] matches this default value.
     pub fn matches(&self, val: &PropValue) -> bool {
         match (self, val) {
             (Self::Num(a), PropValue::Num(b)) => (a - b).abs() < f64::EPSILON,
@@ -42,6 +47,7 @@ impl DefaultPropVal {
     }
 }
 
+/// UI presentation and editing hint for inspector property widgets.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PropHint {
     Vec2 { speed: f64 },
@@ -55,6 +61,7 @@ pub enum PropHint {
     Asset { filter: &'static [&'static str] },
 }
 
+/// Schema metadata defining an individual node property.
 #[derive(Clone, Copy, Debug)]
 pub struct PropSchema {
     pub key: &'static str,
@@ -69,6 +76,7 @@ pub struct PropSchema {
     pub read_only: bool, // To Python
 }
 
+/// Schema metadata defining a node type and its inheritance relationships.
 #[derive(Clone, Copy, Debug)]
 pub struct NodeTypeSchema {
     pub type_name: &'static str,
@@ -87,6 +95,7 @@ pub struct NodeTypeSchema {
 /// `type_name`, so lookups are O(n) over 16 entries — fine.
 pub use crate::nodes::ALL_NODES as NODE_SCHEMAS;
 
+/// Retrieves the schema definition for a given node type by name.
 pub fn node_type_schema(type_name: &str) -> Option<&'static NodeTypeSchema> {
     NODE_SCHEMAS
         .iter()
@@ -94,6 +103,7 @@ pub fn node_type_schema(type_name: &str) -> Option<&'static NodeTypeSchema> {
         .find(|s| s.type_name == type_name)
 }
 
+/// Computes the inheritance chain for a node type from leaf to root (e.g. `["Sprite2D", "Node2D", "Node"]`).
 pub fn inheritance_chain<'a>(type_name: &'a str) -> Vec<&'a str> {
     let mut chain = Vec::new();
     let mut current = Some(type_name);
@@ -113,6 +123,7 @@ pub fn inheritance_chain<'a>(type_name: &'a str) -> Vec<&'a str> {
     chain
 }
 
+/// Returns the direct properties declared specifically on `type_name`.
 pub fn type_props(type_name: &str) -> &'static [PropSchema] {
     node_type_schema(type_name).map(|s| s.props).unwrap_or(&[])
 }

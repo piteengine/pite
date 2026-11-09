@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Editor visual theme, color palette, and typography configurations.
+
 use eframe::egui;
 
 pub(crate) const ACCENT: egui::Color32 = egui::Color32::from_rgb(11, 147, 135);
@@ -11,6 +13,7 @@ const INACTIVE: egui::Color32 = egui::Color32::from_rgb(23, 28, 34);
 const HOVERED: egui::Color32 = egui::Color32::from_rgb(31, 38, 46);
 const ACTIVE: egui::Color32 = egui::Color32::from_rgb(30, 58, 53);
 
+/// Applies the canonical Pite dark theme, custom fonts, and styling rules to an `egui` context.
 pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
     ctx.set_visuals(visuals());

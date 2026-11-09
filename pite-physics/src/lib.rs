@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-physics`: 2D physics simulation, kinematic character controller,
-//! collision shapes, and queries powered by pure-Rust `rapier2d`.
+//! 2D physics simulation, kinematic character controller, and collision queries for Pite.
+//!
+//! Powered by pure-Rust [`rapier2d`], `pite-physics` provides:
+//! - [`PhysicsWorld`]: The central physics simulation container managing bodies, colliders, and collision events.
+//! - Kinematic character controller with slide mechanics, slope handling, and snap-to-ground behavior.
+//! - Collision shapes ([`ShapeConfig`]: rectangles, circles, capsules, convex polygons, and tile collision grids).
+//! - Raycasting and spatial queries ([`RaycastHit`]).
+//! - Tilemap collider merging ([`merge_tile_cells`]) to produce minimal, non-snagging collision geometry.
 
 pub mod body;
 pub mod character;

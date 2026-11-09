@@ -1,16 +1,22 @@
 # pite-render
 
-2D rendering subsystem for the [Pite](https://github.com/piteengine/pite) game engine: `Renderer2D` seam, texture loading, texture atlas batching, font rasterization, and pure-Rust `wgpu` hardware rendering pipeline.
+2D hardware rendering subsystem for the [Pite](https://piteengine.github.io/pite) game engine.
+
+Provides the `Renderer2D` seam, texture management, texture atlas batching, font glyph rasterization, and a high-performance pure-Rust `wgpu` rendering pipeline.
 
 ## Versioning
 
-Lockstep with the engine: `pite-render 0.x.y` is engine `0.x.y`.
+Lockstep with the engine: `pite-render 0.x.y` matches engine `0.x.y`.
 
-## Docs
+## Documentation
 
-- API docs: <https://docs.rs/pite-render>
-- Engine repo: <https://github.com/piteengine/pite>
+Full engine documentation and architecture references:
+<https://piteengine.github.io/pite>
+
+- Architecture Guide: <https://piteengine.github.io/pite/developer/architecture/>
+- API reference: <https://docs.rs/pite-render>
 
 ## License
 
 Dual-licensed MIT + Apache-2.0 ([LICENSE-MIT](https://github.com/piteengine/pite/blob/main/LICENSE-MIT), [LICENSE-APACHE](https://github.com/piteengine/pite/blob/main/LICENSE-APACHE)).
+

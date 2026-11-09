@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-editor`: `Panel` trait plus panel registry.
-//! New panels register without editing dock layout code.
-//! The eframe shell provides viewport, tree, inspector, assets, console
-//! and code pane — all on the same `NodeTree` the game runs.
+//! Visual desktop editor for the Pite game engine.
+//!
+//! Built on `egui` and `eframe`, providing an interactive 2D scene viewport,
+//! hierarchical scene tree, property inspector, asset manager, and integrated
+//! code editor with Pyright language server support.
 
 mod app;
 mod highlight;

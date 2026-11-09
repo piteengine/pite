@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `tilemap`: TileMap document schema, TOML serialization, coordinate math,
-//! and layer management.
+//! TileMap document schema, TOML serialization, coordinate math, and layer management.
 //!
-//! Stores sparse tile layers referencing atlas frames. TOML is canonical
+//! Stores sparse tile layers referencing atlas frames. TOML (`.ptmap`) is canonical
 //! and human-readable, consistent with `.ptscn`.
 
 use std::collections::HashSet;
@@ -19,42 +18,53 @@ fn default_one() -> u32 {
     1
 }
 
-/// One tile cell in a sparse layer: `[col, row, "frame_name"]`.
+/// An individual placed tile entry in a sparse layer: `(column, row, frame_name)`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TileCell(pub i32, pub i32, pub String);
 
 impl TileCell {
+    /// Creates a new tile cell placement.
     pub fn new(col: i32, row: i32, frame: impl Into<String>) -> Self {
         Self(col, row, frame.into())
     }
 
+    /// Column index (X grid coordinate).
     pub fn col(&self) -> i32 {
         self.0
     }
 
+    /// Row index (Y grid coordinate).
     pub fn row(&self) -> i32 {
         self.1
     }
 
+    /// Atlas frame name for this tile.
     pub fn frame(&self) -> &str {
         &self.2
     }
 }
 
-/// One layer in a tilemap.
+/// A named layer of placed tiles within a [`TileMapDoc`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TileMapLayer {
+    /// Layer display name.
     pub name: String,
+    /// Visibility flag for rendering.
     #[serde(default = "default_true")]
     pub visible: bool,
+    /// Whether this layer generates physics collision bodies.
     #[serde(default)]
     pub collision_enabled: bool,
+    /// Physics collision layer bitmask.
     #[serde(default = "default_one")]
     pub collision_layer: u32,
+    /// Physics collision mask bitmask.
     #[serde(default = "default_one")]
     pub collision_mask: u32,
+    /// Optional whitelist of atlas frame names treated as solid for collisions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solid_frames: Option<Vec<String>>,
+    /// Sparse array of placed tiles in this layer.
     #[serde(default)]
     pub tiles: Vec<TileCell>,
 }
@@ -204,16 +214,19 @@ pub fn map_to_world(cell: (i32, i32), origin: (f64, f64), tile_size: (f64, f64))
     )
 }
 
+/// Parses a tilemap document from a TOML string.
 pub fn parse_tilemap_str(text: &str) -> Result<TileMapDoc> {
     toml::from_str(text).context("invalid tilemap TOML")
 }
 
+/// Loads and validates a `.ptmap` file from disk.
 pub fn load_tilemap(path: &Path) -> Result<TileMapDoc> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read tilemap {}", path.display()))?;
     parse_tilemap_str(&text).with_context(|| format!("cannot parse tilemap {}", path.display()))
 }
 
+/// Serializes and writes a [`TileMapDoc`] to disk at the specified path.
 pub fn save_tilemap(path: &Path, doc: &TileMapDoc) -> Result<()> {
     let text = toml::to_string(doc).context("cannot serialize tilemap")?;
     std::fs::write(path, text).with_context(|| format!("cannot write tilemap {}", path.display()))

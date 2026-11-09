@@ -1,207 +1,134 @@
----
-icon: lucide/history
----
-
 # Changelog
+
+All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
-- 2D tilemap subsystem (`TileMap2D`):
-  - Canonical `.ptmap` TOML sidecars: multi-layer tilemaps stored in human-readable TOML referencing atlas frames using sparse `[col, row, "frame"]` coordinates.
-  - Greedy 2D physics collider merging: adjacent solid tiles coalesce into maximal rectangular static box colliders in `rapier2d`, eliminating internal edge catching for character controllers and minimizing collider count.
-  - Frustum-culled batch rendering: camera viewport frustum culling automatically culls invisible tiles, batching visible tiles sharing an atlas into GPU draw calls.
-  - Python scripting API: `pite.TileMap2D` exposes `get_cell`, `set_cell`, `erase_cell`, `clear`, coordinate conversions `world_to_map` / `map_to_world`, layer introspection (`layers`, `get_used_cells`), and `tile_size`.
-  - Interactive editor tools: inspector tile palette with layer switcher and brush/eraser toggles; viewport interactive painting with snapped grid preview, left-click paint, and right-click erase with auto-saving.
-  - Project verification: `pite check` validates `.ptmap` files, confirming atlas references and tile frame usage.
-- Save open scene and open code together on `Ctrl+S`:
-  - `Ctrl+S` / `Cmd+S` saves both the active `.ptscn` scene and any open Python script in the Code tab simultaneously, hot-reloading scripts without extra clicks.
-- Assets panel file management:
-  - Full-featured file browser: folders sorted first, empty folders preserved, single-click row selection, and double-click file opening or folder expanding.
-  - Creation modals: header `+ File` and `+ Folder` buttons plus context menu `New…` open modal dialogs with starter templates for scripts (`.py`), scenes (`.ptscn`), and empty files/folders.
-  - Context menu and shortcuts: Cut (`Ctrl+X`), Copy (`Ctrl+C`), Paste (`Ctrl+V`), Duplicate (`Ctrl+D`), Rename (`F2`) with automatic reference rewriting across scenes and scripts via `pite_assets::apply_renames`, and Delete (`Del`) with confirmation.
-  - Operating system file drop: dragging files or folders from the OS into the Assets panel copies them into the target directory with automatic collision suffixing (`file (1).ext`) and asset manifest reimport.
-  - Internal drag-and-drop moving: moving files or folders into other directories on disk with cycle protection and project reference rewriting.
-  - Cross-panel drag-and-drop: dragging a `.py` script onto a Scene Tree node attaches it, and dragging an image or atlas onto Inspector fields assigns the property.
-  - Path helpers: context menu options for `Copy Relative Path (res://…)`, `Copy Absolute Path`, and `Show in File Manager`.
-- Widened `Control` to inherit from `Node2D` and `PyLabel` to extend `PyNode2D`:
+- **2D Tilemaps (`TileMap2D`)**:
+  - Added multi-layer grid tilemaps via `.ptmap` TOML sidecars referencing atlas frames.
+  - Greedy collider merging: adjacent solid tiles coalesce into maximal static box colliders in Rapier2D, preventing internal edge snagging.
+  - Frustum-culled batch rendering: offscreen tiles are culled, batching visible tiles into GPU draw calls.
+  - Scripting API: `pite.TileMap2D` exposes `get_cell`, `set_cell`, `erase_cell`, `clear`, coordinate helpers `world_to_map` / `map_to_world`, layer introspection, and `tile_size`.
+  - Editor tools: inspector tile palette with layer switcher and brush/eraser toggles; viewport interactive painting with grid snapping.
+  - Project verification: `pite check` validates `.ptmap` files, atlas references, and frame usage.
+- **Simultaneous Scene & Code Save**: `Ctrl+S` / `Cmd+S` saves both the active `.ptscn` scene and open Python script simultaneously, triggering an immediate hot reload.
+- **Assets Panel File Management**:
+  - Folder-first sorting, empty folder preservation, and double-click file opening.
+  - Creation dialogs for scripts, scenes, and folders via `+ File` and `+ Folder`.
+  - Context menu and keyboard shortcuts: Cut, Copy, Paste, Duplicate, Delete, and Rename (`F2`) with automatic reference rewriting across scenes and scripts.
+  - Drag-and-drop support: import files from the OS, move items between directories, drop scripts onto Scene Tree nodes, and drag textures into Inspector fields.
+- **UI Hierarchy Refactoring**:
   - `Control` now inherits from `Node2D` (`Node → Node2D → Control → Label & Button`).
-  - `Label` and `Button` inherit `position` and `rotation` transforms directly from `Node2D` alongside UI styling (`color`, `font_size`). Overridden properties in ancestor tables are shadowed in generated documentation, eliminating duplicate property rows.
-- Project-level custom properties (`[props]`):
+  - `Label` and `Button` inherit `position` and `rotation` transforms directly from `Node2D` alongside UI styling (`color`, `font_size`).
+- **Custom Project Properties (`[props]`)**:
   - Declared under `[props]` in `pite.toml` (`string`, `int`, `number`, `bool`, `vec2`, `color`).
-  - Python scripts read, write, and remove custom properties via `get_custom_property`, `set_custom_property`, and `remove_custom_property`.
-- Schema-driven docs and tooltips:
-  - `NodeTypeSchema` gains `description: &'static str`; `PropSchema` gains `doc: &'static str`. Both are required, so a new prop or node type without docs fails to compile.
-  - Editor tree rows show the node's schema description above `Type:` / `Script:` lines. Inspector prop rows show the prop doc on hover. The add-node dialog's description card reads the same string.
-  - `pite-editor/build.rs` now writes `docs/reference/nodes/*.md` (one file per concrete node type plus an `index.md`) directly into the workspace `docs/` tree on every schema change. Files are only rewritten when their content differs, so `git status` stays quiet unless the schema actually moved.
-  - Removed `description_for()` from `pite-editor/src/app/tree.rs` — that was the last hand-written string table duplicating schema data. The tree builder now reads `schema.description` via `pite_core::node_type_schema`.
-  - Test `generated_node_docs_cover_all_types` in `pite-editor/src/lib.rs` fails if a concrete type has no generated `.md`.
-  - After this, `pite-core/src/nodes/*.rs` is the single source of truth for node metadata — description, props, defaults, hints, docs, and inheritance all live there. Adding a node type touches one file and everything else (`.pyi`, add-node tree, icons, colors, tooltips, docs) derives from it.
-- `pite.pyi` and `pite.py` are generated at build time:
-  - `pite-editor/build.rs` emits both to `$OUT_DIR` from `pite_core::NODE_SCHEMAS`; `lsp.rs` embeds them via `include_str!`, so the shipped stubs can never drift from the schema. A new node type in the schema auto-adds its stub class.
-  - Removed the four committed stub files (`pite-editor/python/pite.{pyi,py}` and `python/pite/pite.{pyi,py}`). The single source of truth is `pite-editor/build.rs`; the editor materializes the generated stubs to a versioned scratch dir on first use, exactly as it did for installed bundles before.
-  - `pite-editor`'s `generated_stub_covers_pyclass_surface` test fails if a concrete schema type is missing from the generated stub, or if an abstract base leaks in.
-- Python accessors and renderer rotation:
-  - `is_on_floor` / `is_on_wall` / `is_on_ceiling` on `CharacterBody2D` are now **attribute accessors**, not methods: `if self.is_on_floor:`. Calling them as methods raises `TypeError`. **Breaking** for any script still using the old `self.is_on_floor()` form — update those call sites.
-  - `Node2D.rotation` is now Python-accessible and synced through the tree; the renderer honors it — sprites rotate about their center. Rotation is stored in radians (the inspector edits degrees via the `AngleDeg` hint).
-  - `CharacterBody2D.friction` / `.restitution` are now script-accessible (both were already schema props via `PhysicsBody2D`, but had no Python accessor).
-  - `rebuild_physics` falls back to schema defaults instead of literal numbers, so a schema-default change propagates without a runtime edit. Behavior-preserving (fallbacks already matched schema).
-- Editor and runtime helpers derive from schema (no more hand-written per-type maps that could drift from `pite_core::NODE_SCHEMAS`):
-  - `pite-editor`: add-node dialog tree built at runtime from `NODE_SCHEMAS` + `inherits` (abstract bases flatten out so `Label`/`Button`/physics bodies hang under their nearest concrete ancestor). A new node type needs zero editor changes.
-  - `pite-editor`: `icons::node_type_color` groups by inheritance chain (physics participants teal, `Control` descendants UI green, other `Node2D` descendants 2D blue); abstract types (`CollisionObject2D`, `PhysicsBody2D`) get their family's glyph in tree rows and inspector section headers instead of falling through to plain `Node`/silver — visible improvement, no data change.
-  - `pite-runtime`: `rebuild_physics` dispatches through `physics_role`; `CollisionShape2D`'s parent-body walker consults the same helper instead of repeating the type match.
-  - `pite-runtime`: engine-owned signal declarations come from one `ENGINE_SIGNALS` table iterated once, replacing three hardcoded Button/Timer/Area2D loops.
-  - `pite-runtime`: `draw_into` dispatches through `render_role` / `NodeDraw` in one tree walk, replacing three per-type filter loops.
-  - **Visible behavior change:** `draw_into` now draws in tree order rather than bucketing by type (sprites → labels → buttons). This matches Godot's scene-tree z-order — reorder the tree to reorder draws. No existing scene or test depends on the old bucketed order (the dogfood scene has no overlaps between the two buckets).
-- Engine-owned `Timer` / `Button` behavior moved into their pyclasses' `_process`:
-  - `PyTimer::_process` advances `current_elapsed` (new prop) and fires `timeout`; `PyButton::_process` polls mouse state and fires `pressed`. Both are inherited by subclasses via Python MRO. The runtime no longer dispatches either — `tick_timers`, `poll_buttons`, `fire_pressed`, `fire_timeout`, and the private `timers` / `armed` HashMaps are gone.
-  - `Timer.current_elapsed: float` is a normal read-write prop (inspectable in the editor, resettable from scripts). `wait_time <= 0` still disables the timer entirely.
-  - `pite.screen_to_world(screen: tuple) -> tuple` (Rust side: `pite_script::screen_to_world`) converts screen pixels to world coordinates using the camera pose the runtime installs each frame. This is what `PyButton._process` uses to hit-test clicks against a world-space button position.
-  - **Behavior change (footgun)**: a `Timer` or `Button` subclass that overrides `_process` **must** call `super()._process(delta)` — otherwise the engine-owned tick (Timer) or click polling (Button) stops. This matches Godot's footgun class for `CharacterBody2D._physics_process` (override without moving, movement stops). The dogfood scripts don't override `_process` so they continue to work unchanged.
-  - **Timing change**: button clicks fire during the `_process` loop rather than before physics. In the same frame a click's `pressed` handler and any reaction are still on that frame; the ordering shift only matters if a node's `_process` reads button state and appears *before* the button in the tree — one frame of latency. Documented as such; no existing test or dogfood script depends on the previous ordering.
-- Tree-backed Python accessors:
-  - Every pyclass now generates its prop surface from `pite_props! { PyX { key: Kind, ... } }` — no per-pyclass Rust fields mirroring tree state, no `ScriptBackend::position`/`text`/`size`/`velocity`/`wait_time`, no per-frame polling in the runtime.
-  - Writing `self.texture`, `self.atlas`, `self.frame` from Python now reaches the tree, so the renderer picks up the change next frame (previously wrote a dead Rust field — visible fix).
-  - `self.mass`, `self.friction`, `self.restitution`, `self.collision_layer`, `self.collision_mask` on `RigidBody2D`/`StaticBody2D`/`CharacterBody2D`/`Area2D` persist through save/reload (previously Python-only field, discarded on reload).
-  - `self.font_size`, `self.color`, `self.disabled` become writable on `Label` and `Button` (previously no accessor).
-  - `self.friction`, `self.restitution` become writable on `StaticBody2D` (previously only on `RigidBody2D`).
-  - `Camera2D.zoom` is now `float` and script-accessible; the schema was always a `Vec2` but the runtime read `Num` — a pre-existing dead default, fixed to `Num(1.0)`.
-  - `CollisionShape2D.size` returns a `Vec2` instead of a Python tuple (matches `position`; unpacking `x, y = cs.size` still works).
-  - `self.velocity.x = 5` and `self.velocity = (5, 6)` both work — the `pite_props!` Vec2 accessor installs the host target lazily on first touch, so per-field setup in `exec()` is no longer needed.
-  - Hot reload preserves tree-backed props without a save-restore pass: the tree is untouched by reload, and the new Python instance reads through the same tree targets. Only user attributes (`self._hit`, `self.score`) survive via the existing `__dict__` swap.
-- Node schemas moved to per-node files (`pite-core/src/nodes/*.rs`), one file per type:
-  - Three abstract base classes now exist so subclasses inherit shared props without redeclaring them:
-    - `Control` (abstract) — `size`, `color`, `font_size`. `Label` and `Button` inherit these; both keep their own `text`.
-    - `CollisionObject2D` (abstract) — `collision_layer`, `collision_mask`. `Area2D` inherits directly; `StaticBody2D`, `RigidBody2D`, `CharacterBody2D` inherit via `PhysicsBody2D`.
-    - `PhysicsBody2D` (abstract) — `friction`, `restitution`. Extends `CollisionObject2D`; `Area2D` skips it (sensors have no friction).
-  - Effective props per concrete type are unchanged (verified by existing `pite check` runs and `examples/minimal-2d`); the shape users edit in the inspector gains grouping under `Control` / `PhysicsBody2D` / `CollisionObject2D` section headers. Abstract classes are registered in `pite-core::NodeTypeRegistry` (so pre-existing scenes with `type = "Control"` still parse) but are filtered from the editor's add-node menu (`pite_editor::ops::registered_types`).
-  - No scene format change. No new `pite check` failures for well-formed scenes. Editor inspector now shadows inherited props behind the descendant that overrides them (fixes a pre-existing `Button.size` duplicate).
-- Colors are now a `Color` prop variant (parsed from `#RGB`/`#RRGGBB`/`#RRGGBBAA` strings). Existing scenes reformat to canonical `#rrggbbaa` on first save; one-time diff, same class as the existing `[1, 2]` → `[1.0, 2.0]` reformat. Editor color picker gains an alpha channel.
+  - Accessible in scripts via `get_custom_property`, `set_custom_property`, and `remove_custom_property`.
+- **Schema-Driven Documentation and Stubs**:
+  - `NodeTypeSchema` and `PropSchema` drive editor tree descriptions, inspector hover tooltips, and node reference docs.
+  - `pite.pyi` and `pite.py` type stubs are generated at build time directly from `NODE_SCHEMAS`, guaranteeing synchronization with the engine.
+- **Python Accessor Updates**:
+  - `CharacterBody2D.is_on_floor`, `is_on_wall`, and `is_on_ceiling` are now attribute accessors (e.g. `self.is_on_floor`), not methods.
+  - `Node2D.rotation` is exposed to Python and reflected by the renderer.
+  - Direct tree-backed prop accessors ensure property modifications (`position`, `velocity`, `color`, etc.) persist cleanly across hot reloads.
+- **Scene Tree Panel Overhaul**:
+  - Modal node creation dialog (`Ctrl+A` / `+ Node`) with search filtering, category descriptions, and inheritance hierarchy.
+  - Sibling and child drag-and-drop reordering with 3-2 drop zones (child vs before/after sibling), horizontal insertion lines, and floating drag preview cards.
+  - Subtree duplication (`Ctrl+D`), inline renaming (`F2`), and child scene instantiation (`Ctrl+Shift+A`).
+  - Phosphor icons and color-coded node categories (2D, physics, UI, timer).
+- **Inspector Panel Overhaul**:
+  - Properties organized into collapsible inheritance-grouped sections (`Node` → `Node2D` → derived class).
+  - Revert-to-default buttons for properties deviating from schema defaults.
+  - Interactive Color editor with hex inputs and live preview swatches.
+- **Crates.io & `cargo install pite` Packaging**:
+  - Configured all 13 workspace crates for crates.io publication; engine CLI and editor installable via `cargo install pite`.
+- **Scripting & Physics Synchronization**:
+  - Pre-step synchronization of node tree positions into Rapier2D for kinematic and static bodies and areas manipulated in Python.
+  - Signal error reporting prints full Python tracebacks to stderr and logs when handlers raise exceptions.
+  - Color property setters accept hex color strings (e.g. `"#38bdf8"`) in addition to numeric tuples.
+  - `Sprite2D` treats empty `atlas` and `frame` strings as unset rather than throwing invalid reference errors.
+- **Dependencies & MSRV**:
+  - Upgraded Rapier2D to 0.36.1 and Zip archive handling to 9.4.1.
+  - Bumped workspace MSRV to Rust 1.95.
+- **Color Property Type**: Added native `Color` property variant with `#rgb`, `#rrggbb`, and `#rrggbbaa` hex parsing and alpha support in the editor.
 
 ## v0.3.0
 
-- Hot reload reliability and asset watching:
-  - Editor hot reload: `poll_watch` now runs continuously while editing (when `playing == false`) so external script or scene modifications reload without starting gameplay.
-  - Scene filter: hot reload only rebuilds the active scene when the touched `.ptscn` matches the main scene or its transitively instantiated sub-scenes, ignoring unrelated scene files.
-  - Python state preservation: script reload preserves custom instance attributes and body velocity across reloads while clearing stale module dictionaries in `sys.modules`.
-  - Asset cache invalidation: modifying `.png` textures or `.atlas.json` files invalidates cached renderer textures and triggers offscreen viewport redraws.
-- Python API redesign with direct handles and vector math:
-  - `Vec2` class: native 2D math type supporting vector operations (`+`, `-`, `*`, `/`), in-place mutation (`+=`, `-=`, `*=`, `/=`), indexing (`[0]`, `[1]`), tuple sequence unpacking (`x, y = self.position`), and `.length()` / `.normalized()`.
-  - Direct engine transform mutations: mutating `self.position.x` or assigning `self.position = (x, y)` directly updates `ScriptHost`, deleting the redundant end-of-frame Python `getattr` and string-allocation sync pass.
-  - Attribute-based input API: `pite.held.<key>`, `pite.pressed.<key>`, and `pite.released.<key>` (e.g. `pite.held.right`, `pite.pressed.space`), with `TypeError` raised on string calls like `pite.held("Space")`.
-  - Declarative node descriptors: `pite.child("Name")` and `pite.node("../Path")` descriptors with automatic first-access proxy caching.
-  - Node proxy caching: repeated `get_node()` lookups are cached in `ScriptHost` to eliminate tree walks.
-  - Hybrid signal callbacks: `signal.connect()` accepts arbitrary Python callables (lambdas, standalone functions, bound methods) alongside engine-dispatched signals.
-  - Editor pause-on-error: script exceptions during gameplay automatically pause the editor, log formatted Python tracebacks, and open the failing script.
-- Download fallback for export: `pite export` automatically downloads the target platform's `pite-player` release archive when absent beside the engine binary, caching it under `~/.cache/pite/toolchains/players/` (or `PITE_PLAYER_DIR`).
-- Standalone and all-platform player release assets: release workflow publishes standalone player bundles for each platform (`pite-player-vx.y.z-linux.tar.gz`, `windows.zip`, `macos.tar.gz`) alongside all-platforms player archives (`pite-player-vx.y.z-allplatforms.tar.gz` and `.zip`).
-- Expanded audio formats and containers: pure-Rust decoding via `symphonia` brings support for Ogg Vorbis (`.ogg`), MP3 (`.mp3`), FLAC (`.flac`), and extended WAV (8/16/24/32-bit int and 32-bit float) to `pite.play` and `pite-audio`. `pite-assets` adds `OggImporter`, `Mp3Importer`, and `FlacImporter` for project scanning and manifest tracking, and `pite check` validates decodability across all supported audio formats.
-- Scene file extension is now `.ptscn` (was `.pitescene`): editor dialogs and detection, asset-rewrite scans, docs, examples, and scaffolds all follow. File content and `format_version` are unchanged — existing projects just rename their scene files; `.pitescene` is no longer recognized.
-- Editor code pane opens config text files (`toml`/`cfg`/`ini`/`json`/`yaml`/`yml`) for plain editing; LSP completion, hover, and diagnostics stay Python-only.
-- Editor code pane highlights Python and config text (keywords, strings, numbers, comments, `[...]` headers) in palette colors.
-- Editor menus reorganized: `Scene` (new/open/recent/save/save-as/quit, native dialogs, `Ctrl+N/O/Shift+S/Q` shortcuts), `Project`, and `Help` (repo/issues links, about, clipboard debug info); the `Run` menu is gone, transport buttons remain.
-- MacOS support (both for editor and games) with cross-compile added.
-- 2D physics subsystem with Rapier2D: pure-Rust 2D physics powered by `rapier2d 0.23` in a new workspace crate `pite-physics`, running in a fixed 60 Hz simulation loop (`dt = 1/60`) and driving `_physics_process(delta)` in Python scripts.
-  - New node types: `StaticBody2D` (immobile bodies), `CharacterBody2D` (kinematic controller with `move_and_slide()`), `RigidBody2D` (dynamic forces and gravity), `Area2D` (trigger zones), and `CollisionShape2D` (`box`, `circle`, and `capsule` geometric colliders).
-  - Kinematic character controller: `move_and_slide()` computes sliding obstacle collision response against solid geometry while ignoring trigger sensors, automatically updating velocity and contact flags (`is_on_floor`, `is_on_wall`, `is_on_ceiling`) relative to `up_direction`.
-  - Dynamic rigid bodies: `apply_impulse((x, y))` and `apply_force((x, y))` for simulation, with configurable `mass`, `gravity_scale`, and `lock_rotation`.
-  - Area trigger signals: `Area2D` emits engine-owned `body_entered`, `body_exited`, `area_entered`, and `area_exited` signals with node ID arguments.
-  - Spatial raycasts: `pite.raycast(from, to, mask=1)` performs line intersection queries against solid obstacles, returning intersection point, surface normal, distance, collider node, and body node.
-  - Editor visualization and inspection: `pite-editor` paints semi-transparent collision shape wireframe overlays (`box`, `circle`, `capsule`) directly in the viewport in design mode, with shape dropdowns and physics property controls in the Inspector.
+- **2D Physics Subsystem (Rapier2D)**:
+  - Integrated 2D physics simulation running on a fixed 60 Hz tick (`_physics_process(delta)`).
+  - Node types: `StaticBody2D` (static geometry), `CharacterBody2D` (kinematic controller with `move_and_slide()`), `RigidBody2D` (forces and impulses), `Area2D` (trigger zones), and `CollisionShape2D` (`box`, `circle`, `capsule`).
+  - Kinematic character controller: `move_and_slide()` resolves sliding collisions against solid geometry while ignoring sensors, updating `velocity` and contact flags (`is_on_floor`, `is_on_wall`, `is_on_ceiling`).
+  - Spatial queries: `pite.raycast(from, to, mask)` queries solid obstacles and returns intersection points, normals, distances, and hit bodies.
+  - Editor visualization: viewport wireframe overlays for collision shapes with Inspector configuration controls.
+- **Editor Menu Bar & Recent Projects**:
+  - Native menu bar (`Scene`, `Project`, `Help`) with file dialogs, project settings, documentation links, and recent project history.
+  - Open and edit text configuration files (`pite.toml`, `.gitignore`) directly in the embedded code editor.
+- **CLI Toolchain Management**:
+  - Added toolchain manager (`pite toolchain`) and streamlined cross-platform installer scripts (`install.sh`, `install.ps1`).
+- **Python API Redesign**:
+  - Native `Vec2` math class with arithmetic operator overloading, in-place mutation, and tuple sequence unpacking.
+  - Direct engine transform mutations without end-of-frame reflection overhead.
+  - Attribute-based input API: `pite.held.<key>`, `pite.pressed.<key>`, and `pite.released.<key>`.
+  - Declarative node descriptors: `pite.child("Name")` and `pite.node("../Path")` with first-access caching.
+  - Flexible signal callbacks: `signal.connect()` accepts arbitrary Python callables (methods, lambdas, free functions).
+- **Hot Reload Reliability**:
+  - Continuous editor idle watching reloads external script and scene edits without starting gameplay.
+  - Hot reload selectively updates scenes matching the active hierarchy, preserving Python instance state and physics velocities.
+  - Texture and atlas modifications automatically invalidate cached renderer textures.
+- **Expanded Audio Support**: Added pure-Rust decoding via Symphonia for Ogg Vorbis (`.ogg`), MP3 (`.mp3`), FLAC (`.flac`), and extended WAV formats.
+- **Scene File Extension Standardized to `.ptscn`**: Migrated scene file naming to `.ptscn` across editor, tooling, templates, and documentation.
+- **Standalone Player Releases & Cross-Platform Export**:
+  - `pite export` automatically downloads platform-specific `pite-player` release archives when missing locally.
+  - Release pipeline publishes standalone and multi-platform player archives.
+  - Added macOS export and cross-compilation support.
 
 ## v0.2.0
 
-- Third-party Python packages vendor into the project: `pite vendor add pkg==ver` downloads wheels (+ transitive deps) into `vendor/`, pins versions + hashes in `[vendor]` (`list`/`verify`/`remove` manage the lock). Zipped by default, unpacked for native modules. The runtime puts `vendor/` on `sys.path` in dev and export alike; the export stages it whole; `pite check` stays silent for vendored imports.
-- `pite check` warns on third-party imports in game scripts (stdlib + `pite` + siblings are fine; exports drop `site-packages`).
-- `pite run` with no `--scene` starts the enclosing project's `main_scene` (same rule `pite edit` already used); outside a project it fails loudly.
-- Default window size is now 1280×720 (was 800×600): new scaffolds are stamped with it, and sizeless manifests inherit it. The size is the design resolution — the game opens maximized and scales content to fit keeping aspect, with clicks mapped through the same transform; the editor preview frames the same resolution.
-- Editor completion is integrated: it triggers as you type with a cursor-anchored popup, narrows on what you typed, follows the arrow-key selection, and accepts with `Enter` (`Esc` dismisses, click works too).
-- Editor gutter numbers tile the laid-out galley rows exactly, so long files no longer drift out of alignment.
-- Editor code pane is a real gutter: line numbers with yellow error rows (hover for the message), click to jump with cursor + focus + scroll. The editor never wraps and scrolls with the gutter in one shared area.
-- `import pite` resolves everywhere: the `pite.pyi` stubs are baked into the editor binary and materialized to a versioned scratch dir when no checkout copy is found (installed bundles never shipped the file), `pite.py` ships beside `pite.pyi` as the source sibling the checker needs, and the `workspace/configuration` answer carries the requested section value (an extra `python` wrapper made the server silently drop the stubs).
-- `get_node` results type-check cleanly: they are typed as plain `Node`, and anything beyond the declared surface (custom signals, script methods) is dynamically typed instead of warning.
-- Project Settings window (`Project` > `Project Settings…`): edits every known manifest field (`[project]` + `[export]`, `pite_version` read-only) with shared-validator checks and byte-stable saves; first-ever `pite.toml` writer (`pite_project::save_manifest`, unknown keys preserved).
+- **Python Dependency Vendoring (`pite vendor`)**:
+  - Added `pite vendor add/remove/list/verify` to vendor third-party wheels into `vendor/` with cryptographic SHA-256 locking in `[vendor]`.
+  - The runtime configures `vendor/` on `sys.path` across development and exported builds.
+  - `pite check` audits game scripts and warns on non-vendored third-party imports.
+- **Integrated Code Completion**:
+  - Embedded Pyright language server provides autocomplete popups, hover information, and diagnostics directly in the code editor.
+  - Baked-in `pite.pyi` stubs ensure full engine API autocompletion out of the box.
+- **Design Resolution & Window Scaling**:
+  - Default project resolution updated to 1280×720 with uniform aspect-ratio scaling, letterboxing, and mouse coordinate mapping.
+- **Project Settings Window**:
+  - Added interactive settings dialog (`Project > Project Settings…`) for editing manifest fields with validation and byte-stable saving.
+- **Code Editor Enhancements**:
+  - Added line-number gutter with error row indicators and click-to-jump error navigation.
+  - Syntax highlighting for Python and configuration file formats (`toml`, `json`, `yaml`, `ini`).
 
 ## v0.1.1
 
-- `Timer` fires: engine-owned `timeout` signal ticks every elapsed `wait_time` (looping; non-positive waits never fire), with `wait_time` synced both ways like `position`/`text`. `Button.size` is script-readable/writable through the same channel (proxy, instance, seed, per-frame sync) and typed in `pite.pyi`.
-- `export.platforms` removed (export never read it); old manifests still parse with a deprecation warning.
-- `pite export` fails loudly outside a project instead of silently exporting the working directory.
-- Dropped the dead string-signal detector from `pite check` (it could never match attribute-style emits); signal safety now comes from pyright stub visibility (`timeout`/`pressed` declared in `pite.pyi`).
-- Template scenes derive `format_version` from the `pite-scene` const; manifest `pite_version` tracks the engine version (`0.1.1`).
+- **Timer Subsystem (`Timer.timeout`)**: Engine-owned `timeout` signal automatically fires every `wait_time` seconds and loops, with bidirectional property synchronization between Rust and Python.
+- **Button Sizing**: `Button.size` property exposed as a script-accessible, type-hinted `Vec2` property for hit-testing and rendering.
+- **Manifest Cleanup**: Deprecated unused `export.platforms` manifest key; `pite export` validates execution from within a project root.
+- **Signal Type Safety**: Enhanced signal emission validation via Pyright type stubs in `pite.pyi`.
 
 ## v0.1.0
 
-- Registry debut: `pite-core`, `pite-project`, and `pite-scene` 0.1.0 are live on crates.io, versioned lockstep with the engine. First release published manually; later `v*` tags publish automatically via trusted publishing (`publish-crates.yml`, idempotent — already-live versions skip).
+Initial public release series establishing Pite's foundational architecture:
 
-## v0.1-m5
-
-Export slimming and Godot-style player templates: release exports drop from 247 MB to 52 MB on Linux and 75 MB to 20 MB on Windows (measured on `minimal-2d`), and export now ships a lean `pite-player` instead of the full editor binary, with per-platform templates published by CI so any machine can export for the other.
-
-- Stripped debug symbols from the staged `libpython` (`1fa9fc9`): upstream ships the Linux `.so` unstripped (205 MB → 37 MB), best-effort at stage time, Windows DLL untouched.
-- Windows interpreter ships once (`7696103`): the DLL lived in both `bin/` and `python/lib/`; only the `bin/` copy is loaded, so the staged copy is dropped.
-- Deflated stdlib zip (`8954359`): `Stored` → `Deflated` (9.7 MB → 2.5 MB); `zipimport` reads it, proven by boot checks.
-- Stripped engine binary at export (`d668775`): the release binary carries its symbol table (34 MB → 25 MB), stripped on the staged copy only.
-- `pite-player` crate (`36bbb18`): bare `--scene` CLI, always no-reload, no editor; `res://` resolution shared with `pite run` via `pite_runtime::resolve_scene_arg`.
-- Template resolution (`1e9125e`): export ships `--binary`, else a `pite-player` sibling named for the target platform; the full-`pite` fallback and its cross-compile bail are gone, launchers invoke the player directly. No downloads: every engine bundle ships both players.
-- Release workflow (`27aec15`): tags build the engine and both players natively per platform and publish two bundles plus `SHA256SUMS` to the GitHub Release. `install.sh` / `install.ps1` fetch and verify them.
-
-## v0.1-m4
-
-Playable-loop hardening: real input edges and physical mouse coords, engine-owned `Button.pressed`, audible audio through the default device, orphan-asset warnings, editor transport with Play-mode viewport input, and a file-tree Assets panel — plus split CI, major dependency bumps, the teal brand, and a logging/docs cleanup (`tracing` everywhere, stale claims fixed). 150 green.
-
-- Input edges (`pite-runtime`): `GameSession::frame()` retires edge input after scripts consume it — `pite.pressed()`/`released()` and button clicks now work in the real loop, not just in tests. Mouse coordinates are physical pixels (no scale-factor division), fixing clicks on scaled displays.
-- `Button.pressed` is declared by the engine for every `Button` node — scripts just connect, no `pressed = pite.signal()` needed.
-- Audio device sink (`pite-audio/device.rs`): real output through the default device with silent-simulation fallback where none exists. Proven on Windows: compiles, 9/9 tests green incl. real device open, hit sound audible in `pite run`.
-- `pite check` warns about orphan assets: scanned png/wav files no reachable scene references (`asset "res://…" is never referenced by a reachable scene`). Reachable-only by design — uninstantiated scenes and loose scripts stay silent. Atlas sheets count as referenced through their sidecar.
-- Editor: play/pause/stop icon buttons beside the menus (mirroring the `Run` menu), a scene path bar under the tabs; Play mode forwards viewport keyboard/mouse into the running scene's scripts.
-- Editor Assets is a real file tree: collapsible folders with a static folder glyph, per-type file icons (script, scene, gear, image, speaker, `?` for unknown) in the hand-drawn vector style, plain-text rows, full-panel scroll. `dist/`, `target/`, `.git/`, dotfiles, and the scene binary cache stay hidden.
-- CI is split into named jobs (format, build, unit tests, LSP smoke, bundling smoke, `pite check`) with a shared cargo cache and branch concurrency; the export tests share one serialization lock so the offline-probe test can no longer redirect the bundling download mid-flight, and the downloader retries transient network errors.
-- Editor repair batch: the viewport is contained and centered in its panel instead of overflowing it, the dogfood HIT button sits fully inside the game window, panels are size-bounded with a scrolling inspector, and the node-count caption is gone. Line endings renormalized to LF, workspace `cargo fmt` clean.
-- Brand: `palette.json` is canonical — logo, tray icons, and the editor accent follow the new teal palette, with a solid-dark selection fill after teal-on-teal measured 3.6–4.1 contrast.
-- Dependencies: wgpu 23→30, eframe 0.32→0.36, pyo3 0.26→0.29, toml 0.8→1.1, cpal 0.17→0.18, pollster 0.3→1.0; hand-rolled SHA-256 in export replaced with sha2/crc32fast/zip. New source files carry SPDX headers.
-
-## v0.1-m3
-
-Correctness pass over rendering and export, plus scene-tree script markers. 135 green.
-
-- Windows bundle fix (`a6fa4e8`): the bundled interpreter never produced a working Windows export. The pinned spec named the stdlib at `lib/python3.12`, but the Windows `install_only` archive keeps it in `Lib/`, so `stage()` bailed *after* copying the library — leaving 136 MB of unpacked CPython in the output directory, which the exists-guard then refused to overwrite. The staged library was also `python3.dll`, a 56 KB forwarder onto `python312.dll` rather than the interpreter. Windows does not bootstrap a stdlib zip from `PYTHONPATH` the way Linux does: it reads `python312._pth` from beside the DLL and ignores `PYTHONPATH` once that file exists, so the export now writes one. A failed export no longer leaves its directory behind. Verified by running `run.bat` on Windows — it previously died with "Could not find platform independent libraries" and now boots with no system Python installed. The layout tests read the real cached archives instead of a fixture that assumed the Linux layout, which is why this shipped; the opt-in bundle smoke test also asserted a path `stage()` never wrote to, so it had never passed.
-- Staged-stdlib slimming (`9154343`): drop `venv` (8 MB of the Windows stdlib), `lib2to3`, `pydoc_data`, `turtledemo`, `msilib`. Windows stdlib zip 19 MB → 9.0 MB (export 47 MB → 37 MB), Linux → 9.3 MB. Nothing Pite ships imports any of them; both zips keep every startup-critical module.
-- Export atlas dependency (`6948895`): export shipped `sheet.atlas.json` without the `sheet.png` it names, so the runtime fell back to a 1x1 magenta placeholder and both atlased sprites drew as magenta blocks. A referenced sidecar now also pulls in its sheet, resolved through the same helper the runtime uses; unreferenced files stay out.
-- Colour-space parity (`7f003d9`): the editor viewport and the game window cleared to the same value but presented it differently — the sRGB surface encoded it, the non-sRGB offscreen target stored it raw and the UI read it as already-encoded. Sprites took the same double conversion. The offscreen target is now sRGB, matching the surface and the texture format.
-- Sprite quad geometry (`8b7dd3f`): the pipeline is `TriangleList`, which needs six vertices per quad, but four were emitted — so half of each sprite drew and a spurious triangle bridged one quad to the next, visible as a diagonal smear between sprites. Extents were also halved, rendering a 32x32 frame as 16x16. Three tests encoded the wrong values and now check pixel spans.
-- Editor viewport size (`ecc02ac`): the viewport rendered at a hardcoded 640x400 while the game window used the project's configured size, so authoring framing never matched the exported game. It now reads `window_width`/`window_height` from the manifest. The per-node caption overlay is gone.
-- Scene-tree script markers (`50bba0b`): nodes with an attached script are marked with a page glyph; hovering names the class and clicking opens the file in the code pane and notifies the language server. The add icon is redrawn as two filled bars.
-- Documentation (`e7f90ad`, `6820e36`): removed references to external planning documents and internal milestone labels from sources, docs and this file; corrected two stale claims about the signal API.
-
-## v0.1-m2
-
-Playable 2D run: real rendering, signals, text, audio, export, assets, editor, plus scene cache, manifest schema, and an LSP bridge. Counts are workspace `cargo test` greens at each commit.
-
-- Playable 2D (`a027137`): textured sprites through Camera2D (pixel-proven), key-driven input, parent-carried transforms, 26 green.
-- Typed signals (`068aa52`): typed `pite.signal(T)` descriptors + Rust `SignalRegistry`, drop-disconnect, Space→recoil dogfood, 28 green.
-- Editor theme (`739c828`): single `theme.rs`, dark + green accent, OFL fonts; brand assets + `DESIGN.md` alongside. Behavior untouched, 29 green.
-- Text nodes (`e608871`): `Label` via `ab_glyph` on the sprite pipeline (no wgpu upgrade), two-way script text sync, HP label on the hit signal, 38 green.
-- Button (`e85743b`): rect on the sprite pipeline, armed press-inside/release-inside clicks, `pressed` signal, HitButton dogfood, 43 green.
-- Audio (`7838a4f`): `pite-audio` + `WavBackend` state machine, `pite.play/stop` API, `check` literal scan, hit-sound dogfood, 47 green. Follow-up: real device sink (`cpal`/`rodio`) on hardware.
-- Export (`76380b4`): runnable dir with referenced-files-only + Python gate at export and launch, manifest round-trip, 52 green. Follow-up: Python bundling (ship without dev Python).
-- Asset pipeline (`e0d00a9`): scan + uid manifest + `check` dangling/moved errors + `pite reimport`, png+wav importers, 62 green. Follow-ups: atlases, runtime hot-reimport, orphan warnings.
-- Editor level-up (`9795117` + `9ad233d` + `437f348`): save scene, tree add/remove/drag-reparent, generic inspector, error gutter, `docs/editor.md`; textured viewport through the shared draw path; Godot-like layout, vector icons, context menu, sibling-order ops.
-- Binary scene cache (`5e8600b`): TOML stays source of truth, `_cache/` content-hash binaries, version stamps, loud fallback, `check` hit/miss/rebuilt (`--json` schema v2), 77 green.
-- Manifest schema (`f5fc2bf`): locked `pite.toml` field set (author/icon placeholders, 800×600 window), all defaulted, unknown keys preserved + reported, `docs/manifest.md`, 81 green.
-- LSP bridge (`1bce5b7`): external pyright over stdio (pinned `1.1.411`), background handshake, `pite.pyi` on `extraPaths`, completion/hover/signature/diagnostics in the code pane, `docs/lsp.md`, 92 green. No DAP, no bundled binary. Follow-up: the handshake now sends `workspaceFolders` (plus the `workspace/configuration` capability), so the server adopts the project root instead of analyzing nothing, and document/root URIs are built as proper `file:///D:/…` paths so Windows stops reporting the project directory as nonexistent.
-- Release pass: CI installs the pinned pyright and runs a live LSP smoke (spawn → open → completion → change) against the dogfood script, exports the embedded-Python env explicitly, README/docs index describe the shipped engine.
-- Instance-save fix (`92f5fc9`): editor save no longer flattens `[[instance]]` entries into plain nodes (data-loss fix) — the on-disk scene stays authoritative, instance entries are re-attached, prop edits inside a subtree are stored as `overrides`, and structurally inexpressible edits inside an instance (rename, retype, reparent, add/delete, removing an inherited prop) fail loudly instead of silently. Saves are deterministic now: prop keys are written sorted and empty `props`/`instance` tables are omitted, so save → load → save is byte-identical. 100 green.
-- Atlas slice: sprite-sheet atlases (one PNG + `<sheet>.atlas.json`) with named frames and UV rects; `Sprite2D` gains `atlas` + `frame` (mutually exclusive with `texture`, loud error otherwise), all frames of a sheet draw in one batched call, `pite check` validates frame names and flags unreferenced frames, `pite.frames()` lists them. Dogfood packs player + enemy into `assets/sheet.png`. 116 green.
-- Python bundling: export fetches a pinned, checksum-verified CPython 3.12 into a toolchain cache and ships the interpreter library + stdlib zip (no `site-packages`) so exports run with no system Python; `--no-bundle-python` keeps the old gate. Loader story proved on Linux (`LD_LIBRARY_PATH` from the launcher, and `RUNPATH $ORIGIN` when built with it); offline and checksum-mismatch paths fail loudly. 127 green.
-- Upgrade note (`92f5fc9`): prop keys are written in sorted order, so the first save after upgrading reorders the existing `[node.props]` keys of a scene once. No values change, and every save after that is a no-op.
-- Parked (not hidden): DAP, camera follow/smoothing/deadzone + bounds, multi-class Python files, 3D, real physics and networking.
-
-## v0.1-m1
-
-First bootable release: 2D scaffold with scripting and a minimal editor.
-
-- Workspace skeleton (`5a6cd67`): nine-crate workspace, `pite new/run/check` skeleton, winit window, empty scene, `examples/minimal-2d` dogfood, Python stubs, CI.
-- Tree and instantiation (`319fbc5`): tree remove/reparent with root protection, real scene instantiation with overrides, strict `check`.
-- Embedded scripting (`d1f6489`): embedded Python via PyO3 — `class X(pite.Node2D)`, `_ready`/`_process`, Vec2 crossing, error isolation, real `pite.pyi`.
-- Hot reload and editor shell (`71fc871`): notify hot reload for scripts and scenes, eframe editor (viewport, tree, inspector, assets, console, code pane), working `get_node`, `pite edit`.
-- Docs (`19ff1fc`): `docs/scene-format.md`, `docs/scripting-api.md` one-pagers.
+- **Scene Tree Architecture**:
+  - Hierarchical node tree (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`) with parent-child coordinate inheritance and lifecycle dispatch (`_ready`, `_process`).
+  - Modular scene instantiation: nest sub-scenes within scenes with namespaced IDs and property overrides.
+- **Embedded Python Scripting**:
+  - High-performance embedded CPython 3.12 runtime powered by PyO3.
+  - Public `pite` module with transform bindings, vector math, input polling, typed signals (`pite.signal`), and `pite.pyi` type stubs.
+  - Live script hot reload on save without restarting the engine.
+- **Visual Desktop Editor**:
+  - Desktop editor built with `egui`/`eframe`: real-time 2D viewport, visual scene tree, property inspector, asset file tree, and code editor.
+  - Design system with canonical Pite Teal palette, dark UI theming, and embedded typography.
+- **TOML Scene Format & Binary Caching**:
+  - Human-readable TOML scenes (`.ptscn`) as the canonical source of truth for version control.
+  - Automatic content-hashed binary scene caches (`_cache/*.bin`) for fast loading with transparent fallback.
+- **Asset Pipeline & Verification Tooling**:
+  - Project-relative resource paths (`res://…`) and content-addressed UID manifest (`assets.pite.toml`).
+  - `pite check` CLI tool for validating asset references, script imports, and scene schemas, with automatic path rewriting on asset moves (`--reimport-assets`).
+  - Texture atlas batching (`.atlas.json`) for efficient sprite sheet rendering.
+- **Audio Output**:
+  - Multi-voice audio playback via CPAL with graceful silent simulation when no hardware output device is detected.
+- **Standalone Desktop Export**:
+  - Self-contained export pipeline producing lean, runnable bundles for Linux and Windows with bundled CPython and minimal `pite-player` runner.
+- **Crates.io Release**:
+  - Modular workspace crates (`pite-core`, `pite-scene`, `pite-project`, `pite-runtime`, `pite-render`, `pite-script`, `pite-audio`, `pite-assets`, `pite-export`, `pite-player`, `pite-editor`, `pite-cli`) published to crates.io.

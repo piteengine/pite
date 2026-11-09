@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-/// 2D vector shared by value (composition, not inheritance).
+/// A 2D floating-point vector with `x` and `y` components.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec2 {
     pub x: f64,
     pub y: f64,
 }
 
-/// A node's global position is its local
-/// `position` plus every ancestor's, up to the root. Nodes without a
-/// `position` prop contribute nothing. Moving a parent carries children.
+/// Calculates the global world-space position of a node within a [`NodeTree`](crate::NodeTree).
+///
+/// Computes global position by accumulating local `position` vectors along the ancestor
+/// chain from the target node up to the root. Nodes lacking a `position` property are
+/// treated as having an offset of `(0.0, 0.0)`. Moving a parent node automatically carries
+/// all of its descendants.
 pub fn global_position(tree: &crate::NodeTree, id: &crate::NodeId) -> (f64, f64) {
     let mut x = 0.0;
     let mut y = 0.0;

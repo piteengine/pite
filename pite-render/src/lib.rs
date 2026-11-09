@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-render`: `Renderer2D` trait. wgpu is the only impl;
-//! the viewport talks to the trait so batching/3D later doesn't touch
-//! tree or editor code.
+//! 2D hardware-accelerated rendering subsystem for the Pite game engine.
+//!
+//! Defines the `Renderer2D` trait and provides a pure-Rust `wgpu` implementation
+//! supporting batched sprite quad rendering, texture atlas sampling, font
+//! rasterization, and viewport projections.
 
 use anyhow::{Context, Result};
 use wgpu::util::DeviceExt;

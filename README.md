@@ -72,57 +72,55 @@ Python is bundled: export fetches a pinned CPython 3.12 (checksum-verified, cach
 
 ## Why it's built this way
 
-Breakdown of each architectural decision behind Pite and its reasons:
+Pite is designed around deliberate architectural choices that prioritize developer ergonomics, reliability, and fast iteration:
 
 ### Python for scripting
 
-Scripting game logic is decision-making, not computation. So you must be able to use a high-level (scripting) language and Python is the very dynamic and ecosystem-rich choice.
+Gameplay scripting is primarily about decision-making, game flow, and rapid iteration rather than raw numeric compute. Python provides an expressive, approachable syntax with an immense ecosystem, making gameplay logic intuitive to write and delightful to read.
 
 ### Rust at the core
 
-Games need to be fast and efficient, so a low-level language is needed to use native performance. Pite uses Rust to run anything fast, in parallel, and safe, Python scripts are the glue code orchestrating the game flow.
+Games demand predictable frame times, memory safety, and native execution speed. Pite builds its engine core in Rust: 2D rendering, physics simulation, scene graph traversal, and asset decoding all execute with native performance and concurrency safety, leaving Python free to orchestrate gameplay without performance bottlenecks.
 
-### Scene Tree for game model + Visual Editor
+### Scene Tree model and visual editor
 
-That Python smooth flow doesn't complete without a real way to edit anything and seeing results real time. Pite editor brings code, scene, asset, and result preview all together.
+A smooth development workflow requires immediate visual feedback. The Pite editor integrates scene hierarchy, property inspection, asset management, and live gameplay preview into a single focused workspace. The Scene Tree model (scenes and nodes) represents game worlds naturally: parent transforms cascade cleanly down the tree, and scenes compose modularly as reusable branches.
 
-Half of Pite is about being handy, Scene Tree (Scenes & Nodes) is a proven way to model game systems in an understandable way and also is as flexible as needed to implement any type of game systems efficiently in target scale of Pite. Consequently you need a visual representation of these scenes.
+### `pite check` static verification
 
-### `pite check` tooling
+As games grow to hundreds of assets and scripts, broken references and missing files can easily slip in. `pite check` verifies project integrity in milliseconds: it detects orphan assets, resolves file moves via content-addressed UIDs, validates texture and audio decoding, checks script node references, and warns on third-party imports that standalone exports would drop.
 
-A lot of games grow to tons of images and scenes, `pite check` keeps it clean and robust: detects orphans, resolves file moves, validates decoding, scans code references, warns on third-party imports that exports would drop. Thanks to Rust, it reports what is outside its place instantly.
+### Human-readable TOML scenes
 
-### TOML scenes
-
-TOML for scenes provides inspectable changes, real Git history, editable meaningful files, and sure a way to cache scene binary by its text.
+Storing scenes in human-readable TOML (`.ptscn`) makes version control natural and git diffs clean and reviewable. Merge conflicts are straightforward to resolve, scenes can be edited in any text editor, and runtime loading remains instantaneous thanks to automatic, content-hashed binary caching.
 
 ### Why Pite instead of other game engines?
 
-- **Godot:** Pite isn't trying to replace Godot. If Godot fits your game, use Godot. Pite exists for the cases where it doesn't — and for the people who want a smaller, Python-native alternative. If you make indie games for windows, you can use Pite to reach 20MB (*) exports (usually under 30MB with a real game) without any additional config.
+- **Godot:** Pite is not trying to replace Godot. If Godot fits your workflow, use Godot. Pite exists for developers who prefer standard Python over GDScript, value lean standalone exports (~20–30 MB rather than 70+ MB), and desire a lightweight, focused 2D toolset without unnecessary complexity.
+- **Bevy:** Bevy provides an outstanding Entity Component System (ECS) architecture for developers writing games purely in Rust without an editor. Pite is designed for developers who want to write games in Python with a hierarchical Scene Tree and an integrated visual editor.
+- **Pygame and LÖVE:** Pygame and LÖVE are excellent, mature frameworks with passionate communities. They provide a window, input loop, and drawing primitives. Pite complements code with an integrated visual editor, a declarative scene tree, built-in 2D physics and audio mixing, resilient asset tracking, and zero-configuration standalone desktop export.
 
-(*) Measured on the `minimal-2d` template, release build, x86_64: 20 MB on Windows 11, 52 MB on Linux. Same hello-world in Godot exports to ~70MB.
+Pite is built to be handy to use, to change, and to own. It unites Python scripting and Rust performance to deliver a focused, thoughtful developer experience.
 
-- **Bevy:** Its ECS is main thing it gives to you and this is full abstraction, there is no scripting, no editor, etc. Bevy is for people who want to write their game in Rust, ECS-first, without an editor. Pite is for people who want to write their game in Python, scene-first, with an editor.
+### Thoughtful defaults
 
-- **Love2D/PyGame/etc:** Love2D and Pygame are excellent, mature frameworks with loyal communities. They give you a window, an input loop, and a draw call. What they don't give you is an editor, a scene model, an asset system, or a one-command export. Pite does.
+- **Missing audio hardware?** Automatic silent simulation keeps the game running without crashing.
+- **Script modified?** Live hot reload preserves node state and physics velocities.
+- **Typing code?** Built-in pyright provides instant autocomplete, hover docs, and diagnostics.
+- **Asset moved or renamed?** Content-addressed UIDs keep references intact across scenes and scripts.
+- **Sharing your game?** One-command export produces a self-contained bundle with no Python installation required on the player's machine.
 
-Pite stands on being handy to use, to change, to own. It provides Python scripting and Rust performance together and focuses on your development experience. Pite is a growing, thought-out toolbox for game developers.
+## Scope and focus
 
-### What you get for free
-
-No audio device? Silent simulation. Change a script? Hot reload. Type a method name? Pyright autocompletes. Move a sprite? Nothing breaks — assets are uid-addressed. Ship to a friend? No Python install needed. Each of these is a small decision. Together they're why Pite feels different.
-
-## What Pite is not
-
-- Pite is **not** for 3D, mobile, or web games. Not now, maybe never.
-- Pite is **not** finished. It's 0.x, expect rough edges.
+- **Focused on 2D desktop:** Pite is dedicated strictly to 2D games on Linux, Windows, and macOS. 3D, mobile, and web targets are outside its current scope.
+- **Active development:** Pite is in the 0.x release series. Core APIs and file formats are stable and tested, with continuous refinements to features and tooling.
 
 ## Who Pite is for
 
-- Python developers who don't want to learn GDScript.
-- Solo devs who want a real editor, not a framework.
-- Teachers who want to teach game dev with a language students already know.
-- Anyone who's ever wanted to read their game's source and understand all of it.
+- Python developers who want a dedicated 2D game engine using standard Python.
+- Solo developers and indie teams looking for an integrated visual editor rather than a code-only framework.
+- Educators seeking to teach game development with an accessible, industry-standard language.
+- Anyone who wants to understand and inspect their engine's complete architecture from top to bottom.
 
 ## Status
 
@@ -136,7 +134,7 @@ No audio device? Silent simulation. Change a script? Hot reload. Type a method n
 - Automatic player download fallback for `pite export` with standalone and multi-platform release archives
 - MacOS cross-compilation and export support
 
-**Previous:** v0.2.0 (vendor dependencies, window scaling, editor gutter and completion), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`CHANGELOG.md`](CHANGELOG.md).
+**Previous:** v0.2.0 (vendor dependencies, window scaling, editor gutter and completion), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`docs/changelog.md`](docs/changelog.md).
 
 ## Workspace
 

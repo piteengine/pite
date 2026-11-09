@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Python scripting host managing node instances, property reflection, signal dispatch, and proxies.
+
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 
@@ -12,6 +14,7 @@ static CURRENT_HOST: RwLock<Option<std::sync::Arc<ScriptHost>>> = RwLock::new(No
 #[cfg(test)]
 pub(crate) static HOST_SERIAL: Mutex<()> = Mutex::new(());
 
+/// Installs the active scripting host handle for the current runtime thread.
 pub fn set_current_host(host: std::sync::Arc<ScriptHost>) {
     *CURRENT_HOST.write().unwrap() = Some(host);
 }
@@ -35,6 +38,7 @@ pub(crate) fn bound_target(callable: &Bound<'_, PyAny>) -> anyhow::Result<(Strin
     Ok((node_path, name))
 }
 
+/// Central host managing embedded Python script execution, node proxies, and signal routing.
 pub struct ScriptHost {
     tree: Mutex<NodeTree>,
     instances: Mutex<HashMap<String, Py<PyAny>>>,
@@ -49,8 +53,10 @@ pub struct ScriptHost {
     tilemaps: Mutex<HashMap<String, pite_scene::TileMapDoc>>,
 }
 
+/// Permitted primitive types for signal argument payloads.
 pub const SIGNAL_TYPES: &[&str] = &["int", "float", "str", "bool"];
 
+/// Strongly-typed payload value passed during signal emissions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PayloadValue {
     Int(i64),

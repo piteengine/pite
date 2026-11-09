@@ -4,12 +4,14 @@ Asset import subsystem and UID manifest registry for the [Pite](https://github.c
 
 ## Versioning
 
-Lockstep with the engine: `pite-assets 0.x.y` is engine `0.x.y`.
+Published in lockstep with the engine: `pite-assets 0.x.y` corresponds to engine version `0.x.y`.
 
-## Docs
+## Documentation
 
-- API docs: <https://docs.rs/pite-assets>
-- Engine repo: <https://github.com/piteengine/pite>
+- Documentation & Guides: <https://piteengine.github.io/pite>
+- Assets Guide: <https://piteengine.github.io/pite/guides/assets>
+- API Docs: <https://docs.rs/pite-assets>
+- Engine Repository: <https://github.com/piteengine/pite>
 
 ## License
 

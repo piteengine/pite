@@ -3,22 +3,26 @@ use std::fmt;
 
 use crate::Props;
 
-/// Handle to a node inside a [`NodeTree`](crate::NodeTree).
+/// Unique identifier for a node within a [`NodeTree`](crate::NodeTree).
 ///
-/// Ids are human-readable strings: they survive edits, read well
-/// in diffs, and can be crossed to Python without an integer translation table.
+/// Node identifiers are human-readable strings (e.g. `root`, `player`, `hud`).
+/// They remain stable across scene edits, read cleanly in version-control diffs,
+/// and map directly to scripting runtimes without requiring integer translation tables.
 #[derive(Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(String);
 
 impl NodeId {
+    /// Creates a new `NodeId` from a string or string slice.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 
+    /// Returns a string slice of the node identifier.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Returns `true` if the node identifier is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -54,34 +58,45 @@ impl AsRef<str> for NodeId {
     }
 }
 
-/// Script attachment: project-relative path plus the exported class name.
+/// Script attachment referencing a project-relative Python file and target class.
 ///
-/// One file exports one class, which keeps the `path + class` attach
-/// mapping trivial.
+/// Each script file exports a single class, providing a direct 1-to-1 mapping
+/// between the scene node and its scripting logic.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ScriptRef {
+    /// Project-relative path to the script file (e.g. `res://scripts/player.py`).
     pub path: String,
+    /// Name of the Python class inheriting from an engine node type.
     pub class_name: String,
 }
 
-/// A node record. Data only: behaviour lives in [`crate::NodeTypeRegistry`] and
-/// [`crate::LifecycleSink`], so the tree stays free of subsystem types.
+/// A node instance within a [`NodeTree`](crate::NodeTree).
 ///
-/// The tree owns the structural invariants (`parent`/`children` agreement); treat
-/// these fields as owned by [`crate::NodeTree`].
+/// Contains pure state data (identifiers, properties, and tree links). Dynamic behaviors
+/// are handled externally by [`crate::NodeTypeRegistry`] and [`crate::LifecycleSink`].
+///
+/// The enclosing [`NodeTree`](crate::NodeTree) maintains structural invariants (such as
+/// parent-child consistency).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Node {
+    /// Unique identifier of this node.
     pub id: NodeId,
+    /// Registered node type name (e.g. `Node2D`, `Sprite2D`).
     pub type_name: String,
+    /// Display name shown in editor and diagnostics.
     pub name: String,
+    /// Optional identifier of the parent node.
     pub parent: Option<NodeId>,
+    /// Ordered list of child node identifiers.
     pub children: Vec<NodeId>,
+    /// Property map containing scalar, vector, and color attributes.
     pub props: Props,
+    /// Optional attached Python script reference.
     pub script: Option<ScriptRef>,
 }
 
 impl Node {
-    /// Minimal node record; the tree fills in `name`, `parent` and `children`.
+    /// Constructs a minimal node record. Parent and child links are populated by the tree.
     pub fn new(id: NodeId, type_name: impl Into<String>) -> Self {
         Self {
             id,
@@ -92,18 +107,25 @@ impl Node {
     }
 }
 
-/// Input used to build a [`Node`], e.g. from a scene file entry.
+/// Descriptor used to construct a [`Node`], typically parsed from a `.ptscn` scene file.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NodeDesc {
+    /// Unique identifier for the node.
     pub id: NodeId,
+    /// Concrete node type name.
     pub type_name: String,
+    /// Human-friendly display name.
     pub name: String,
+    /// Identifier of the parent node, if any.
     pub parent: Option<NodeId>,
+    /// Node properties table.
     pub props: Props,
+    /// Attached script reference, if any.
     pub script: Option<ScriptRef>,
 }
 
 impl NodeDesc {
+    /// Constructs a new node descriptor with default properties.
     pub fn new(id: impl Into<NodeId>, type_name: impl Into<String>) -> Self {
         Self {
             id: id.into(),

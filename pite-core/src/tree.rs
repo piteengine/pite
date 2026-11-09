@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use crate::error::{CoreError, Result};
 use crate::node::{Node, NodeDesc, NodeId};
 
-/// The scene tree. Owns all nodes; dropping a subtree drops its scripts.
+/// Hierarchical node tree managing node lifecycles and parent-child relationships.
+///
+/// Nodes are stored with ownership in the tree; removing or dropping a node subtree
+/// automatically cleans up associated child nodes and script attachments.
 #[derive(Debug, Default)]
 pub struct NodeTree {
     nodes: HashMap<String, Node>,
@@ -13,12 +16,15 @@ pub struct NodeTree {
 }
 
 impl NodeTree {
+    /// Creates an empty `NodeTree`.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Insert a node record. Parent linkage is best-effort: unknown parents
-    /// are reported by `pite-scene::validate`, never a load failure.
+    /// Inserts a node into the tree from a [`NodeDesc`].
+    ///
+    /// Validates node ID uniqueness and updates parent-child links. If no root has been
+    /// established and the node has no parent, it is designated as the root.
     pub fn insert(&mut self, desc: NodeDesc) -> Result<()> {
         if desc.id.is_empty() {
             return Err(CoreError::EmptyNodeId);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-runtime`: thin orchestrator wiring scene + render + script.
-//! Opens a window, loads the scene file into a node tree, runs the loop.
+//! Runtime host and main game loop orchestrator for the Pite game engine.
+//!
+//! Manages window creation (`winit`), fixed 60 Hz physics stepping, variable
+//! rendering updates, live scene and script hot reloading, and input dispatch.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -74,9 +76,12 @@ fn key_name(code: KeyCode) -> Option<&'static str> {
     })
 }
 
+/// Configuration options for launching a game session runtime.
 #[derive(Debug, Clone)]
 pub struct RunOptions {
+    /// Path to the root scene file to load and execute.
     pub scene: PathBuf,
+    /// Disables background filesystem watching and live hot reload.
     pub no_reload: bool,
 }
 
@@ -315,6 +320,8 @@ const ENGINE_SIGNALS: &[(&str, &[(&str, &[&str])])] = &[
     ),
 ];
 
+/// Active game execution session managing scene nodes, script instances, physics simulation,
+/// and live hot reload.
 pub struct GameSession {
     host: Arc<ScriptHost>,
     instances: Vec<InstanceSlot>,

@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+//! Audio decoding and playback subsystem for Pite.
+//!
+//! Provides multi-format audio decoding (WAV, Ogg Vorbis, MP3, and FLAC) via [`symphonia`]
+//! and hardware playback through [`cpal`]. In headless, containerized, or CI environments
+//! where no physical audio output device is present, `pite-audio` automatically falls back
+//! to silent simulation ([`WavBackend`]) so game loops and test suites execute without errors.
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -16,36 +23,50 @@ use symphonia::core::meta::MetadataOptions;
 pub mod device;
 pub use device::CpalBackend;
 
+/// Number of samples advanced per poll step in simulation mode.
 pub const POLL_CHUNK: usize = 4096;
 
+/// In-memory decoded PCM audio buffer with metadata.
 #[derive(Debug, Clone)]
 pub struct DecodedAudio {
+    /// Interleaved 32-bit floating-point audio samples normalized to `[-1.0, 1.0]`.
     pub samples: Vec<f32>,
+    /// Sample rate in Hertz (e.g. 44,100 or 48,000).
     pub sample_rate: u32,
+    /// Number of audio channels (e.g. 1 for mono, 2 for stereo).
     pub channels: u16,
 }
 
 impl DecodedAudio {
+    /// Returns the total number of audio samples across all channels.
     pub fn len(&self) -> usize {
         self.samples.len()
     }
 
+    /// Returns true if there are no decoded samples.
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
     }
 }
 
+/// Built-in test sound fixtures.
 pub mod fixtures {
     pub const FIXTURE_OGG: &[u8] = include_bytes!("../fixtures/sine.ogg");
     pub const FIXTURE_MP3: &[u8] = include_bytes!("../fixtures/sine.mp3");
     pub const FIXTURE_FLAC: &[u8] = include_bytes!("../fixtures/sine.flac");
 }
 
+/// Trait defining the audio playback interface.
 pub trait AudioBackend: Send {
+    /// Starts playback of the given audio buffer at the specified volume and returns a unique voice ID.
     fn play(&mut self, audio: &DecodedAudio, volume: f32) -> u64;
+    /// Stops playback for the specified voice ID.
     fn stop(&mut self, id: u64);
+    /// Updates the playback volume for the specified voice ID.
     fn set_volume(&mut self, id: u64, volume: f32);
+    /// Returns true if the voice is currently active and playing.
     fn is_playing(&self, id: u64) -> bool;
+    /// Advances playback simulation state for active voices.
     fn poll(&mut self);
 }
 
@@ -56,6 +77,7 @@ struct Voice {
     volume: f32,
 }
 
+/// Simulated audio backend used when no physical output device is available.
 #[derive(Debug, Default)]
 pub struct WavBackend {
     next_id: u64,
@@ -63,6 +85,7 @@ pub struct WavBackend {
 }
 
 impl WavBackend {
+    /// Creates a new silent simulation audio backend.
     pub fn new() -> Self {
         Self::default()
     }
@@ -120,6 +143,7 @@ impl AudioBackend for WavBackend {
     }
 }
 
+/// Checks if the given file extension is a supported audio format (`wav`, `ogg`, `mp3`, `flac`).
 pub fn is_supported_audio_ext(ext: &str) -> bool {
     matches!(
         ext.to_ascii_lowercase().as_str(),
@@ -127,6 +151,7 @@ pub fn is_supported_audio_ext(ext: &str) -> bool {
     )
 }
 
+/// Decodes an audio file at the specified filesystem path into 32-bit float PCM samples.
 pub fn decode_audio(path: &Path) -> Result<DecodedAudio> {
     let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -232,10 +257,12 @@ pub fn decode_audio(path: &Path) -> Result<DecodedAudio> {
     })
 }
 
+/// Decodes a WAV audio file into 32-bit float PCM samples (alias of [`decode_audio`]).
 pub fn decode_wav(path: &Path) -> Result<DecodedAudio> {
     decode_audio(path)
 }
 
+/// Global audio subsystem state managing the active backend and project root directory.
 pub struct AudioEngine {
     backend: Box<dyn AudioBackend>,
     project_dir: Option<PathBuf>,
@@ -261,6 +288,7 @@ impl AudioEngine {
         }
     }
 
+    /// Resolves a `res://` resource path or filesystem path to an absolute path.
     pub fn resolve(&self, asset_ref: &str) -> Option<PathBuf> {
         if let Some(rel) = asset_ref.strip_prefix("res://") {
             let root = match &self.project_dir {
@@ -281,14 +309,17 @@ impl AudioEngine {
 
 static ENGINE: LazyLock<Mutex<AudioEngine>> = LazyLock::new(|| Mutex::new(AudioEngine::new()));
 
+/// Overrides the global audio playback backend (e.g. for testing or headless execution).
 pub fn set_backend(backend: Box<dyn AudioBackend>) {
     ENGINE.lock().unwrap().backend = backend;
 }
 
+/// Sets the project directory used to resolve `res://` audio paths.
 pub fn set_project_dir(dir: Option<PathBuf>) {
     ENGINE.lock().unwrap().project_dir = dir;
 }
 
+/// Decodes an audio asset identified by a `res://` reference or filesystem path.
 pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
     let engine = ENGINE.lock().unwrap();
     let path = engine
@@ -309,23 +340,28 @@ pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
     Ok((path, audio))
 }
 
+/// Plays an audio asset and returns a numeric voice handle.
 pub fn play_file(asset_ref: &str, volume: f32) -> Result<u64> {
     let (_, audio) = decode_asset(asset_ref)?;
     Ok(ENGINE.lock().unwrap().backend.play(&audio, volume))
 }
 
+/// Stops playback for a given active voice handle.
 pub fn stop_voice(id: u64) {
     ENGINE.lock().unwrap().backend.stop(id);
 }
 
+/// Adjusts the volume for an active voice handle.
 pub fn set_voice_volume(id: u64, volume: f32) {
     ENGINE.lock().unwrap().backend.set_volume(id, volume);
 }
 
+/// Checks whether the specified voice handle is currently playing.
 pub fn voice_playing(id: u64) -> bool {
     ENGINE.lock().unwrap().backend.is_playing(id)
 }
 
+/// Polls active voices and advances playback simulation.
 pub fn poll_audio() {
     ENGINE.lock().unwrap().backend.poll();
 }

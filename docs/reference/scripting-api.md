@@ -2,9 +2,9 @@
 icon: lucide/file-code-corner
 ---
 
-# Scripting API
+# Scripting API (Python)
 
-Gameplay scripts are Python classes inheriting the `pite` module, executed embedded in the engine process (CPython 3.12).
+Gameplay logic in Pite is authored in Python scripts that inherit from engine node classes in the embedded `pite` module. Scripts execute directly within the engine process via embedded CPython 3.12, providing high performance with full access to standard Python features.
 
 ```python
 import pite
@@ -20,29 +20,76 @@ class Player(pite.Node2D):
             self.position.x += self.speed * delta
 ```
 
-## Rules
+---
 
-- One file exports one class; attach with `path` + `class` in the scene file. `snake_case` everywhere.
-- `_ready()` runs once when the node attaches; `_process(delta)` runs every frame (`delta` in seconds, capped at 0.1). **Missing methods are no-ops, never errors.**
-- `position` is a mutable `Vec2` proxy backed directly by the engine's node transform. You can mutate `.x` and `.y` in-place (`self.position.x += 10`), reassign with a tuple or vector (`self.position = (100, 200)`), or unpack as a tuple (`x, y = self.position`). `rotation` is a float in radians. `Sprite2D` adds `texture: str`, `atlas: str`, and `frame: str`. `Camera2D` adds `zoom: float`. `Timer` adds `wait_time: float`, `current_elapsed: float`, and an engine-owned `timeout` signal: every elapsed `wait_time` seconds the engine fires `timeout` and restarts the clock (looping; non-positive `wait_time` never fires). Subclasses of `Timer` or `Button` that override `_process` **must** call `super()._process(delta)` so engine timer accumulation and click polling continue running. `Label` and `Button` inherit `Node2D` transform (`position`, `rotation`) and UI styling (`color`, `font_size`). `Label` adds `text: str`. `Button` adds `text: str`, `size: Vec2`, `disabled: bool`, and an engine-owned `pressed` signal.
-- Declarative node descriptors: declare child or node references as class attributes:
+## Script Architecture and Lifecycle
 
-  ```python
-  sprite = pite.child("Sprite2D")
-  target = pite.node("../Target")
-  ```
+- **Class Mapping**: Each Python script file defines a single node class. Scripts are attached to scene nodes via the scene's `[node.script]` definition (`path` and `class`). Class and module names follow standard Python conventions (`snake_case` filenames and `PascalCase` classes).
+- **`_ready(self)`**: Invoked once when the node enters the active scene tree. Use this for one-time initialization, finding child nodes, and connecting signals.
+- **`_process(self, delta: float)`**: Invoked every frame during variable-rate rendering updates. The `delta` parameter provides the elapsed frame duration in seconds (clamped to a maximum of `0.1` to avoid physics tunneling during stalls).
+- **`_physics_process(self, delta: float)`**: Invoked at a fixed 60 Hz rate (`delta = 1/60`) for deterministic physics simulation and character movement.
+- **Graceful Lifecycle**: Missing lifecycle methods (`_ready`, `_process`, `_physics_process`) are safe no-ops and never produce errors.
 
-  Descriptors resolve once on first access and cache the proxy. A missing node raises `KeyError`.
-- The `get_node` proxy also exposes `text`, so any node can drive a label: `self.get_node("../HpLabel").text = f"HP: {self.hp}"`. Repeated `get_node` calls are automatically cached.
-- Talk across nodes with direct calls through `get_node`, which returns a proxy to the live node:
+---
+
+## Core Node Properties
+
+### Node2D
+
+All 2D spatial objects inherit from `pite.Node2D`:
+
+- **`position: Vec2`**: Mutable 2D position vector relative to the parent. Supports in-place component mutation (`self.position.x += 10`), assignment via tuples or vectors (`self.position = (100, 200)`), and tuple unpacking (`x, y = self.position`).
+- **`rotation: float`**: Orientation in radians. Rotates descendants around the node's local origin.
+
+### Visual Elements
+
+- **`Sprite2D`**: Inherits `Node2D`. Adds `texture: str` (`res://` path to image), `atlas: str` (`res://` path to `.atlas.json`), and `frame: str` (active frame name within the atlas).
+- **`Camera2D`**: Inherits `Node2D`. Adds `zoom: float` (default `1.0`). Centers the game viewport around the camera's global position.
+
+### User Interface Elements
+
+- **`Control`**: Base UI class inheriting `Node2D`. Provides `font_size: float` (text size in world units, default `16.0`) and `color: str` (hex string e.g. `"#ffffff"`).
+- **`Label`**: Inherits `Control`. Adds `text: str` for rendering text centered on the node position.
+- **`Button`**: Inherits `Control`. Adds `text: str`, `size: Vec2` (interactive bounding box), `disabled: bool`, and a built-in `pressed` signal.
+
+!!! Important "Calling Superclass `_process`"
+    If your script overrides `_process` on a `Timer` or `Button` subclass, you **must** invoke `super()._process(delta)` to allow the engine to process internal timer accumulation and click polling.
+
+### Timers
+
+- **`Timer`**: Standalone timing node providing `wait_time: float` and `current_elapsed: float`. Fires the engine-owned `timeout` signal each time `wait_time` seconds elapse (looping automatically). Non-positive `wait_time` values pause the timer.
+
+---
+
+## Node References and Navigation
+
+### Declarative Descriptors
+
+Declare node references cleanly as class attributes using descriptors:
+
+```python
+class GameController(pite.Node2D):
+    player = pite.node("../Player")
+    hud = pite.child("HUD")
+```
+
+Descriptors resolve on first access and cache the resulting node proxy. If the target node is missing, access raises a `KeyError`.
+
+### Dynamic Traversal via `get_node`
+
+Traverse the scene hierarchy dynamically using relative or absolute path strings:
 
 ```python
 self.get_node("../Player").take_damage(1)
 ```
 
-Paths resolve against node names: `..` (parent), `.` (self), `Child` (named child), `/root/…` (absolute). A miss raises `KeyError`.
-
-For the type checker `get_node` returns a plain `Node`: anything beyond the declared surface (custom signals, script methods, per-type members) is dynamically typed instead of warning, and a miss still raises at runtime.
+- Paths are relative to the calling node: `.` (self), `..` (parent), `ChildName` (direct child), or `/root/…` (absolute path from root).
+- If a target node path does not exist, `get_node` raises a `KeyError`.
+- Repeated lookups through `get_node` are automatically cached by the engine runtime.
+- For dynamic label updates, any node proxy exposes a convenient `text` property:
+  ```python
+  self.get_node("../ScoreLabel").text = f"Score: {self.score}"
+  ```
 
 ## Custom Properties
 
@@ -230,14 +277,16 @@ Returns `None` if no solid obstacle intersects, or a dict containing:
 - `collider`: `str` node ID of `CollisionShape2D`.
 - `body`: `str` node ID of parent physics body.
 
-## Errors and reload
+## Error Handling and Live Reload
 
-- A script exception is reported with node path, file, and line; the node keeps its last good state and the game keeps running. Repeat offenders are parked after the first error (see the console).
-- Saving a `.py` file hot-reloads it: the module re-executes, the class rebinds to existing nodes, `position` is preserved, and `_ready` is *not* called again. A failed reload keeps the old code running.
+- **Fault Tolerance**: When an unhandled exception occurs in a script callback, Pite logs the complete traceback including node path, source file, and line number. The node preserves its last valid state and the game session continues running without crashing. Repeated failures on the same callback are throttled to keep the console clean and readable.
+- **Hot Reloading**: Modifying and saving a `.py` file triggers an immediate hot reload: the module re-executes, class definitions rebind to existing node instances in memory, transforms and physics velocities are preserved, and `_ready()` is not re-run. If a reloaded script contains syntax or import errors, the previous working version continues executing safely.
 
-## Imports
+---
 
-- `import pite` plus the stdlib always work. Each script's own directory is prepended to `sys.path`, so sibling modules (`import utils`) import in dev.
-- Third-party packages live in project-root `vendor/` (`pite vendor add pkg==ver` pins them into `[vendor]` with hashes; `list`/`verify`/`remove` manage the lock). Trees and wheels both import: the runtime puts `vendor/` on `sys.path` in dev and export alike, so resolution is identical everywhere. Zipped is the default; wheels with native modules unpack (they can't load from a zip).
-- Exports drop `site-packages` entirely: anything outside stdlib + `pite` + siblings + `vendor/` dies in the export. `pite check` warns per offending import.
-- Sibling modules outside `vendor/` still need `[export] include` to be staged. Safe rule: `pite` + stdlib + siblings + vendor.
+## Module Imports and Dependency Vendoring
+
+- **Standard Library & Engine API**: `import pite` and all CPython 3.12 standard library modules are always available. Each script's parent directory is prepended to `sys.path`, allowing sibling modules (e.g. `import utils`) to resolve directly.
+- **Third-Party Dependencies**: Third-party packages must be vendored into the project's `vendor/` directory using `pite vendor add package==version`. The CLI pins the package and records its SHA-256 hash in `[vendor]`. Both pure-Python wheels and source trees are supported, and `vendor/` is automatically added to `sys.path` in both editor and exported builds.
+- **Export Isolation**: Standalone game exports deliberately exclude host `site-packages` to guarantee portable, self-contained builds. Any dependency outside the standard library, `pite`, project scripts, and `vendor/` will not be bundled. Use `pite check` to audit imports and verify that all external dependencies are properly vendored.
+- **Auxiliary Code Files**: Sibling Python modules located outside standard script directories should be declared under `[export] include` in `pite.toml` to ensure they are packaged during export.

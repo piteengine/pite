@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `pite-scene`: TOML schema, instantiation, validation, migration.
+//! Scene serialization, node tree instantiation, validation, and binary caching
+//! for the Pite game engine.
 //!
-//! Depends on `pite-core` only. TOML is canonical; binary is a later
-//! export cache, not a source format.
+//! Human-readable TOML files (`.ptscn`) serve as the canonical source of truth
+//! for scene layouts, while derived binary snapshots (`_cache/*.bin`) accelerate
+//! runtime loading. Depends solely on `pite-core`.
 
 #![forbid(unsafe_code)]
 

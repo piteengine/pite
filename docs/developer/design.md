@@ -101,23 +101,15 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
 - Spacing: item 8×6, button padding 10×5, indent 20, scrollbar width 10,
   corner radii 8 (window) / 6 (widgets, menu).
 
-## 6. Open branding work
+## 6. Platform Integration and Visual Roadmap
 
-1. **Window icons.** Editor: wired — `pite-editor/src/app.rs` sets
-   `ViewportBuilder::with_icon` from `assets/icon.png` (256 px render of
-   `logo.svg`) via `eframe::icon_data::from_png_bytes`. This replaces the
-   default egui "e" fallback icon in taskbar / alt-tab / tray.
-   Game window: wired — `pite-runtime/src/lib.rs` sets
-   `.with_window_icon(...)` from the same `assets/icon.png`, decoded at startup
-   via the workspace `image` crate (`window_icon()` helper; icon is optional —
-   a corrupt PNG logs nothing and the window still opens).
-   System tray: no tray integration exists yet — `assets/tray-icon.svg` +
-   `tray-icon-{16,22,24,32}.png` are ready for whenever a tray crate is wired.
-2. **Editor header wordmark.** `Panel::top("menu")` in `app.rs` has no
-   logo — render `logo-white.svg` (as PNG texture via `egui::Image`) next to the
-   transport controls.
-3. **Renderer clear color.** `pite-render` clears to `(0.07, 0.07, 0.10)`; align the
-   launch/splash backdrop with `#042F2E` → `(0.016, 0.184, 0.180)`.
-4. **Light-theme editor.** Only the dark theme is implemented. Light surfaces:
-   background `#FFFFFF`, mark `logo.svg` (`#0b9387`), accent fills `#2bd3bf`,
-   primary text `#111827`.
+1. **Window and Desktop Icons**:
+   - **Editor Application**: Configured in `pite-editor/src/app.rs` via `ViewportBuilder::with_icon` loaded from `assets/icon.png` (256 px render of `logo.svg`) using `eframe::icon_data::from_png_bytes`. Replaces default egui icons across desktop taskbars, alt-tab switchers, and window borders.
+   - **Game Runtime Window**: Configured in `pite-runtime/src/lib.rs` via `.with_window_icon(...)` from `assets/icon.png`, decoded during startup via the workspace `image` crate. The icon is gracefully optional: if absent or unreadable, the window initializes with system defaults.
+   - **System Tray**: Dedicated assets (`assets/tray-icon.svg` and pre-rendered RGBA PNGs `tray-icon-{16,22,24,32}.png`) are staged for future system tray integrations.
+2. **Editor Header Branding**:
+   - The top menu bar (`Panel::top("menu")` in `app.rs`) is slated to display the white monochrome monogram (`logo-white.svg` rendered as an egui texture) adjacent to the playback transport controls.
+3. **Renderer Default Clear Color**:
+   - Align the default initial clear color in `pite-render` with the canonical dark background token `#042F2E` (`[0.016, 0.184, 0.180]`).
+4. **Light Theme Specifications**:
+   - The editor is currently dark-theme only. A future light mode will map tokens as follows: surface background `#FFFFFF`, brand mark `logo.svg` (`#0b9387`), accent highlights `#2bd3bf`, and primary text `#111827`.
