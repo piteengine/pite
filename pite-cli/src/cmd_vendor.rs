@@ -58,7 +58,7 @@ pub fn wheel_has_native(wheel: &Path) -> Result<bool> {
         let entry = zip
             .by_index(i)
             .with_context(|| format!("cannot list entry {i} in {}", wheel.display()))?;
-        let name = entry.name();
+        let name = entry.name()?;
         if name.ends_with(".so")
             || name.ends_with(".pyd")
             || name.ends_with(".dll")
@@ -83,7 +83,7 @@ pub fn wheel_top_levels(wheel: &Path) -> Result<Vec<String>> {
         let entry = zip
             .by_index(i)
             .with_context(|| format!("cannot list entry {i} in {}", wheel.display()))?;
-        let name = entry.name().to_string();
+        let name = entry.name()?.to_string();
         let top = name.split('/').next().unwrap_or("").to_string();
         if top.is_empty() || top.ends_with(".dist-info") {
             continue;
@@ -379,9 +379,10 @@ pub fn vendor_provides(vendor_dir: &Path, module: &str) -> bool {
         };
         for i in 0..zip.len() {
             if let Ok(item) = zip.by_index(i) {
-                let name = item.name();
-                if name == format!("{module}.py") || name.starts_with(&format!("{module}/")) {
-                    return true;
+                if let Ok(name) = item.name() {
+                    if name == format!("{module}.py") || name.starts_with(&format!("{module}/")) {
+                        return true;
+                    }
                 }
             }
         }

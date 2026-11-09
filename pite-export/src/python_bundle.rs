@@ -501,7 +501,7 @@ mod tests {
         zip_dir(&stdlib, &zip).unwrap();
         let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
         let names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
             .collect();
         assert_eq!(names, ["b.py", "sub/a.py"]);
         for i in 0..archive.len() {
@@ -532,7 +532,7 @@ mod tests {
         // — which is `python.exe` on Windows, not `python3`.
         let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
         let names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
             .collect();
         assert!(
             names.iter().any(|n| n == "os.py"),
