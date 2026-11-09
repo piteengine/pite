@@ -345,3 +345,21 @@ fn toggle_play_activates_viewport_tab() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn clear_console_clears_log_buffer() {
+    let dir = std::env::temp_dir().join(format!("pite-clear-console-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene_path = dir.join("main.ptscn");
+    std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+
+    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    app.log("Test log entry 1");
+    app.log("Test log entry 2");
+    assert!(!app.console.is_empty());
+
+    app.clear_console();
+    assert!(app.console.is_empty());
+
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -238,6 +238,10 @@ impl EditorApp {
         }
     }
 
+    pub(super) fn clear_console(&mut self) {
+        self.console.clear();
+    }
+
     pub(super) fn drain_script_errors(&mut self) {
         if let Some(err) = self.session.take_last_error() {
             self.playing = false;
@@ -792,7 +796,14 @@ impl eframe::App for EditorApp {
             .max_size(240.0)
             .resizable(true)
             .show(ui, |ui| {
-                ui.heading("Console");
+                ui.horizontal(|ui| {
+                    ui.heading("Console");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if icons::icon_button(ui, Icon::Trash, "Clear console output").clicked() {
+                            self.clear_console();
+                        }
+                    });
+                });
                 egui::ScrollArea::vertical()
                     .id_salt("console")
                     .auto_shrink([false, false])
