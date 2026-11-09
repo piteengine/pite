@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Groups minor and patch bumps but creates multiple PRs for majors
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
@@ -12,6 +13,7 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
+  # Group all actions (usually stable) to one PR
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

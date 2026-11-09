@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent single-crate publish for the crates.io workflow.
-# Usage: publish-crate.sh <crate> [--wait-for <dep-crate>]...
+# Usage: publish-crate.sh <crate> [--wait-for <dep1,dep2,...>]
 # Skips when this workspace version is already live; optionally waits for
 # dependency crates to reach the index first.
 set -euo pipefail
@@ -23,14 +23,17 @@ fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --wait-for)
-      dep="$2"
+      deps_csv="$2"
       shift 2
-      for i in $(seq 1 30); do
-        live "$dep" && break
-        echo "$dep $ver not in index yet (attempt $i/30) — waiting 60s"
-        sleep 60
+      IFS=',' read -ra deps <<< "$deps_csv"
+      for dep in "${deps[@]}"; do
+        for i in $(seq 1 30); do
+          live "$dep" && break
+          echo "$dep $ver not in index yet (attempt $i/30) — waiting 60s"
+          sleep 60
+        done
+        live "$dep" || { echo "$dep $ver never appeared in the index"; exit 1; }
       done
-      live "$dep" || { echo "$dep $ver never appeared in the index"; exit 1; }
       ;;
     *)
       echo "unknown argument: $1"

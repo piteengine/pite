@@ -1,13 +1,9 @@
-# MSRV proof for pite's publish crates — reads the claimed `rust-version`
-# straight from the workspace manifest (self-syncing — no hardcoded
-# toolchain to rot), and proves pite-core / pite-project / pite-scene
-# build + test on it.
-name: msrv-proof
+name: MSRV Proof
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 1" # weekly: catches dependency MSRV creep
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
@@ -17,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out pite
+      - name: Check out the repo
         uses: actions/checkout@v7
 
-      - name: Read claimed MSRV from workspace manifest
+      - name: Read MSRV from workspace manifest
         id: msrv
         run: |
           v=$(grep -m1 '^rust-version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
@@ -28,15 +24,15 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Claimed MSRV: $v"
 
-      - name: "Install exactly that toolchain (no cargo cache: a proof must be cold)"
+      - name: Install toolchain (no cargo cache)
         uses: ./.github/actions/rust-python-env
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
           python: "false"
           alsa: "false"
 
-      - name: Check publish crates (locked deps, as packaged)
         run: cargo check -p pite-core -p pite-project -p pite-scene --locked --all-targets
+      - name: Cargo check (locked)
 
-      - name: Test publish crates
         run: cargo test -p pite-core -p pite-project -p pite-scene --locked
+      - name: Test (locked)

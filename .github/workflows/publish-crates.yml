@@ -1,17 +1,13 @@
-# Publish all 13 workspace crates to crates.io — separate from release.yml
-# so engine bundles and registry publishes re-run independently.
+name: Publish Crates
+
+# Publish all crates to registry. Checks version to match everywhere.
 #
-# Auth: `CARGO_REGISTRY_TOKEN` repo secret (classic crates.io API token).
-# OIDC trusted publishing was dropped: GitHub issues no OIDC variables to
-# this workflow's jobs, so there is nothing for cargo to exchange.
-# First release was manual (`cargo login`); tags publish via this workflow.
-# The tag MUST equal the workspace version (v0.3.0 ↔ 0.3.0) — lockstep (§0.4).
-# The version check below fails the run loudly otherwise.
-name: Publish crates to crates.io
+# Depends on `CARGO_REGISTRY_TOKEN` secret.
+#
+# Note: Already-waited crates are ignored, so some of internal dependencies
+# are not listed here.
 
 on:
-  # Strict x.y.z only — milestone tags like v0.1-m5 must NOT fire this:
-  # the tag≡version check would fail them loudly every time.
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
@@ -21,115 +17,100 @@ permissions:
 
 jobs:
   publish:
-    name: Publish pite crates (all 13 crates)
+    name: Publish
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
 
-      - name: Set up build environment (with Python 3.12 and ALSA)
+      - name: Set up build environment
         uses: ./.github/actions/rust-python-env
         with:
-          python: "true"
-          alsa: "true"
           cache-key: publish
 
-      - name: Tag must equal workspace version (lockstep)
-        # Tag pushes only — manual dispatches have no tag to compare.
+      - name: Lockstep check
+        # Tag pushes only, manual dispatches have no tag to compare.
         if: github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME#v}"
           ver=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
           echo "tag: $tag / workspace: $ver"
-          test "$tag" = "$ver" || { echo "tag v$tag != workspace $ver — bump Cargo.toml first"; exit 1; }
+          test "$tag" = "$ver" || { echo "FATAL: v$tag (tag ref) != $ver (workspace), bump Cargo.toml"; exit 1; }
 
-      - name: Auth preflight (registry token set?)
+      - name: Token check
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           [ -n "${CARGO_REGISTRY_TOKEN:-}" ] || {
-            echo "no CARGO_REGISTRY_TOKEN secret — add one (classic crates.io API token) and re-run"
+            echo "FATAL: No CARGO_REGISTRY_TOKEN secret"
             exit 1
           }
           echo "registry token present"
 
-      - name: Publish pite-core
-        shell: bash
+      - name: Core
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-core
 
-      - name: Publish pite-physics (waits for core)
-        shell: bash
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-physics --wait-for pite-core
-
-      - name: Publish pite-audio
-        shell: bash
+      - name: Audio
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-audio
 
-      - name: Publish pite-scene (waits for live core)
-        shell: bash
+      - name: Physics (waits for Core)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-scene --wait-for pite-core
+        run: bash scripts/publish-crate.sh pite-physics --wait-for pite-core
 
-      - name: Publish pite-render (waits for live core)
-        shell: bash
+      - name: Scene
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-render --wait-for pite-core
+        run: bash scripts/publish-crate.sh pite-scene
 
-      - name: Publish pite-project (waits for live scene)
-        shell: bash
+      - name: Render
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crate.sh pite-render
+
+      - name: Project (waits for Scene)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-project --wait-for pite-scene
 
-      - name: Publish pite-assets (waits for live render)
-        shell: bash
+      - name: Assets (waits for Render)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crate.sh pite-assets --wait-for pite-render
 
-      - name: Publish pite-script (waits for live assets, audio, and physics)
-        shell: bash
+      - name: Script (waits for Assets, Audio, Physics)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-script --wait-for pite-assets --wait-for pite-audio --wait-for pite-physics
+        run: bash scripts/publish-crate.sh pite-script --wait-for pite-assets,pite-audio,pite-physics
 
-      - name: Publish pite-runtime (waits for live script)
-        shell: bash
+      - name: Runtime (waits for Script, Project)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-runtime --wait-for pite-script
+        run: bash scripts/publish-crate.sh pite-runtime --wait-for pite-script,pite-project
 
-      - name: Publish pite-export (waits for live runtime, project, and render)
-        shell: bash
+      - name: Export (waits for Runtime)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-export --wait-for pite-runtime --wait-for pite-project --wait-for pite-render
+        run: bash scripts/publish-crate.sh pite-export --wait-for pite-runtime
 
-      - name: Publish pite-editor (waits for live runtime and export)
-        shell: bash
+      - name: Editor
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-editor --wait-for pite-runtime --wait-for pite-export
+        run: bash scripts/publish-crate.sh pite-editor
 
-      - name: Publish pite-player (waits for live runtime)
-        shell: bash
+      - name: Player
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite-player --wait-for pite-runtime
+        run: bash scripts/publish-crate.sh pite-player
 
-      - name: Publish pite CLI (waits for live editor and player)
-        shell: bash
+      - name: Pite (CLI) (waits for Editor, Export)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash scripts/publish-crate.sh pite --wait-for pite-editor --wait-for pite-player
+        run: bash scripts/publish-crate.sh pite --wait-for pite-editor,pite-export

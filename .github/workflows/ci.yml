@@ -1,5 +1,12 @@
 name: CI
 
+# Pite Continues Integration:
+# - Formatting
+# - Build
+# - Tests
+# - Smoke Tests (LSP, Export)
+# - `pite check` on examples
+
 on:
   push:
     branches: [main]

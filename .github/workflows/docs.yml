@@ -1,5 +1,10 @@
 name: Documentation
 
+# Documentation build and deployment:
+# - Generate node references
+# - Build docs
+# - Deploy to GitHub pages
+
 on:
   push:
     branches:
