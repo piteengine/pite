@@ -87,9 +87,9 @@ self.get_node("../Player").take_damage(1)
 - If a target node path does not exist, `get_node` raises a `KeyError`.
 - Repeated lookups through `get_node` are automatically cached by the engine runtime.
 - For dynamic label updates, any node proxy exposes a convenient `text` property:
-  ```python
-  self.get_node("../ScoreLabel").text = f"Score: {self.score}"
-  ```
+    ```python
+    self.get_node("../ScoreLabel").text = f"Score: {self.score}"
+    ```
 
 ## Custom Properties
 

@@ -60,16 +60,16 @@ Press the `▶` play button in top-right corner of editor to test the template g
 <div class="grid cards" markdown>
 
 - :material-language-python: **Python-first**
-  Script in a high-level language you already know.
+    Script in a high-level language you already know.
 
 - :material-cube-outline: **Scene tree, not ECS**
-  Readable, editable, source-controlled scenes.
+    Readable, editable, source-controlled scenes.
 
 - :material-package-variant-closed: **~20 MB exports**
-  Hello-world on Windows[^1]. No Python install needed.
+    Hello-world on Windows[^1]. No Python install needed.
 
 - :material-hammer-wrench: **Real editor**
-  Viewport, inspector, code completion, error gutter.
+    Viewport, inspector, code completion, error gutter.
 
 </div>
 

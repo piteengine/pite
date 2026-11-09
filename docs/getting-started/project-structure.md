@@ -140,9 +140,9 @@ When your game needs an external Python package:
 
 1. Add it through the CLI:
 
-   ```sh title="Terminal"
-   pite vendor add requests
-   ```
+    ```sh title="Terminal"
+    pite vendor add requests
+    ```
 
 2. The package wheels are downloaded into `vendor/` and recorded under `[vendor]` in `pite.toml`.
 3. Pite bundles the `vendor/` directory into game exports automatically.

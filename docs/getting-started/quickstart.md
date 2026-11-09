@@ -146,15 +146,15 @@ Now that you have seen how Pite projects work, dive deeper into the engine:
 <div class="grid cards" markdown>
 
 - :lucide-folder-tree: **[Project Structure](project-structure)**
-  Explore the files, folders, and conventions in a Pite project.
+    Explore the files, folders, and conventions in a Pite project.
 
 - :material-rocket-launch: **[Your First Game](../tutorials/first-game)**
-  Build a complete 2D Gem Collector game from scratch step-by-step.
+    Build a complete 2D Gem Collector game from scratch step-by-step.
 
 - :material-hammer-wrench: **[Editor Guide](../guides/editor)**
-  Master the visual scene editor, tree manipulation, and shortcuts.
+    Master the visual scene editor, tree manipulation, and shortcuts.
 
 - :material-share-variant: **[Export Guide](../guides/export)**
-  Learn how cross-platform exports and standalone player bundling work.
+    Learn how cross-platform exports and standalone player bundling work.
 
 </div>

@@ -26,12 +26,12 @@ Main mark is a hexagonal icon on a 512×512 grid, scaled to fill the viewport ed
 ### Usage rules
 
 - **Do not** stretch, outline, rotate, add shadows, or place on low-contrast
-  backgrounds. Minimum legible size: 16 px.
+    backgrounds. Minimum legible size: 16 px.
 - **Light background →** `logo.svg` (`#0b9387`).
-  **Dark background →** `logo-white.svg` (`#f7f7f9`). Never use `#0b9387` on
-  `#042F2E` — contrast is too low; that pairing is reserved for fills/borders.
+    **Dark background →** `logo-white.svg` (`#f7f7f9`). Never use `#0b9387` on
+    `#042F2E` — contrast is too low;that pairing is reserved for fills/borders.
 - egui cannot render SVG natively. In-app surfaces (window icon, editor header)
-  need PNG renditions — export from the SVG at 16 / 32 / 64 / 128 / 256 px.
+    need PNG renditions — export from the SVG at 16 / 32 / 64 / 128 / 256 px.
 
 ## 2. Core palette — Pite Teal
 
@@ -96,20 +96,20 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
 ## 5. Typography
 
 - **UI / proportional:** Inter (`fonts/Inter-Regular.ttf`), 15 px body/buttons,
-  20 px headings, 12 px small — embedded via `include_bytes!("../../fonts/…")`.
+    20 px headings, 12 px small — embedded via `include_bytes!("../../fonts/…")`.
 - **Code / monospace:** JetBrains Mono (`fonts/JetBrainsMono-Regular.ttf`), 14 px.
 - Spacing: item 8×6, button padding 10×5, indent 20, scrollbar width 10,
-  corner radii 8 (window) / 6 (widgets, menu).
+    corner radii 8 (window) / 6 (widgets, menu).
 
 ## 6. Platform Integration and Visual Roadmap
 
 1. **Window and Desktop Icons**:
-   - **Editor Application**: Configured in `pite-editor/src/app.rs` via `ViewportBuilder::with_icon` loaded from `assets/icon.png` (256 px render of `logo.svg`) using `eframe::icon_data::from_png_bytes`. Replaces default egui icons across desktop taskbars, alt-tab switchers, and window borders.
-   - **Game Runtime Window**: Configured in `pite-runtime/src/lib.rs` via `.with_window_icon(...)` from `assets/icon.png`, decoded during startup via the workspace `image` crate. The icon is gracefully optional: if absent or unreadable, the window initializes with system defaults.
-   - **System Tray**: Dedicated assets (`assets/tray-icon.svg` and pre-rendered RGBA PNGs `tray-icon-{16,22,24,32}.png`) are staged for future system tray integrations.
+    - **Editor Application**: Configured in `pite-editor/src/app.rs` via `ViewportBuilder::with_icon` loaded from `assets/icon.png` (256 px render of `logo.svg`) using `eframe::icon_data::from_png_bytes`. Replaces default egui icons across desktop taskbars, alt-tab switchers, and window borders.
+    - **Game Runtime Window**: Configured in `pite-runtime/src/lib.rs` via `.with_window_icon(...)` from `assets/icon.png`, decoded during startup via the workspace `image` crate. The icon is gracefully optional: if absent or unreadable, the window initializes with system defaults.
+    - **System Tray**: Dedicated assets (`assets/tray-icon.svg` and pre-rendered RGBA PNGs `tray-icon-{16,22,24,32}.png`) are staged for future system tray integrations.
 2. **Editor Header Branding**:
-   - The top menu bar (`Panel::top("menu")` in `app.rs`) is slated to display the white monochrome monogram (`logo-white.svg` rendered as an egui texture) adjacent to the playback transport controls.
+    - The top menu bar (`Panel::top("menu")` in `app.rs`) is slated to display the white monochrome monogram (`logo-white.svg` rendered as an egui texture) adjacent to the playback transport controls.
 3. **Renderer Default Clear Color**:
-   - Align the default initial clear color in `pite-render` with the canonical dark background token `#042F2E` (`[0.016, 0.184, 0.180]`).
+    - Align the default initial clear color in `pite-render` with the canonical dark background token `#042F2E` (`[0.016, 0.184, 0.180]`).
 4. **Light Theme Specifications**:
-   - The editor is currently dark-theme only. A future light mode will map tokens as follows: surface background `#FFFFFF`, brand mark `logo.svg` (`#0b9387`), accent highlights `#2bd3bf`, and primary text `#111827`.
+    - The editor is currently dark-theme only. A future light mode will map tokens as follows: surface background `#FFFFFF`, brand mark `logo.svg` (`#0b9387`), accent highlights `#2bd3bf`, and primary text `#111827`.

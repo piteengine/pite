@@ -80,12 +80,12 @@ A Pite sprite sheet consists of a PNG image paired with a sidecar JSON file name
 
 ```json title="assets/sheet.atlas.json"
 {
-  "texture": "sheet.png",
-  "size": [128, 64],
-  "frames": {
-    "player": { "x": 0, "y": 0, "w": 64, "h": 64 },
-    "enemy": { "x": 64, "y": 0, "w": 64, "h": 64 }
-  }
+    "texture": "sheet.png",
+    "size": [128, 64],
+    "frames": {
+        "player": { "x": 0, "y": 0, "w": 64, "h": 64 },
+        "enemy": { "x": 64, "y": 0, "w": 64, "h": 64 }
+    }
 }
 ```
 
