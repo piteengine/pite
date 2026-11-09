@@ -1,5 +1,8 @@
 name: MSRV Proof
 
+# Runs build + test on crates with the claimed `rust-version`
+# in the workspace manifest to verify its value is correct.
+
 on:
   workflow_dispatch:
   schedule:
@@ -31,8 +34,8 @@ jobs:
           python: "false"
           alsa: "false"
 
-        run: cargo check -p pite-core -p pite-project -p pite-scene --locked --all-targets
       - name: Cargo check (locked)
+        run: cargo check --locked --all-targets
 
-        run: cargo test -p pite-core -p pite-project -p pite-scene --locked
       - name: Test (locked)
+        run: cargo test --locked
