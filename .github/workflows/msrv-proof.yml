@@ -31,8 +31,6 @@ jobs:
         uses: ./.github/actions/rust-python-env
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
-          python: "false"
-          alsa: "false"
 
       - name: Cargo check (locked)
         run: cargo check --locked --all-targets
