@@ -26,7 +26,7 @@ use crate::ops;
 
 use settings::SettingsDraft;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Tab {
     Viewport,
     Code,
@@ -314,6 +314,11 @@ impl eframe::App for EditorApp {
         if cmd(egui::Key::Q) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::F5)) {
+            self.stop();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::F5)) || cmd(egui::Key::R) {
+            self.toggle_play();
+        }
 
         let root = self
             .project_dir
@@ -457,6 +462,20 @@ impl eframe::App for EditorApp {
                         ui.close();
                     }
                     ui.separator();
+                    let play_menu_label = if self.playing {
+                        "Pause  F5 / Ctrl+R"
+                    } else {
+                        "Play  F5 / Ctrl+R"
+                    };
+                    if ui.button(play_menu_label).clicked() {
+                        self.toggle_play();
+                        ui.close();
+                    }
+                    if ui.button("Stop  Shift+F5").clicked() {
+                        self.stop();
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button("Quit  Ctrl+Q").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -491,12 +510,14 @@ impl eframe::App for EditorApp {
                 // Right-to-left places the first widget rightmost, so Stop
                 // comes first to keep the Play, Stop order.
                 let (play_icon, play_tip) = if self.playing {
-                    (Icon::Pause, "Pause the scene")
+                    (Icon::Pause, "Pause the scene (F5 / Ctrl+R)")
                 } else {
-                    (Icon::Play, "Run the scene")
+                    (Icon::Play, "Run the scene (F5 / Ctrl+R)")
                 };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene").clicked() {
+                    if icons::icon_button(ui, Icon::Stop, "Stop and reset the scene (Shift+F5)")
+                        .clicked()
+                    {
                         self.stop();
                     }
                     if icons::icon_button(ui, play_icon, play_tip).clicked() {

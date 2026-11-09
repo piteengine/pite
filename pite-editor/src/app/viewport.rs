@@ -90,6 +90,9 @@ pub(crate) fn fit_view(avail: egui::Vec2, view: (u32, u32)) -> egui::Vec2 {
 impl EditorApp {
     pub(super) fn toggle_play(&mut self) {
         self.playing = !self.playing;
+        if self.playing {
+            self.tab = super::Tab::Viewport;
+        }
         self.last_frame = Instant::now();
         pite_script::input_clear();
     }
