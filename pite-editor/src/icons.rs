@@ -45,6 +45,7 @@ pub enum Icon {
     Label,
     Button,
     Timer,
+    TileMap2D,
 }
 
 impl Icon {
@@ -76,6 +77,7 @@ impl Icon {
             Self::Node => regular::CIRCLE,
             Self::Node2D => regular::CUBE,
             Self::Sprite2D => regular::IMAGE,
+            Self::TileMap2D => regular::GRID_FOUR,
             Self::Camera2D => regular::CAMERA,
             Self::CollisionShape2D => regular::SHIELD,
             Self::Area2D => regular::RADIO_BUTTON,
@@ -94,6 +96,7 @@ pub fn node_type_icon(type_name: &str) -> Icon {
     match type_name {
         "Node2D" => Icon::Node2D,
         "Sprite2D" => Icon::Sprite2D,
+        "TileMap2D" => Icon::TileMap2D,
         "Camera2D" => Icon::Camera2D,
         "CollisionShape2D" => Icon::CollisionShape2D,
         "Area2D" => Icon::Area2D,
@@ -196,7 +199,7 @@ mod tests {
             assert_eq!(rgb(node_type_color(ty)), (120, 210, 140), "{ty}");
         }
         // Remaining 2D types are blue.
-        for ty in ["Node2D", "Sprite2D", "Camera2D"] {
+        for ty in ["Node2D", "Sprite2D", "Camera2D", "TileMap2D"] {
             assert_eq!(rgb(node_type_color(ty)), (115, 175, 235), "{ty}");
         }
         // Timer is gold; `Node` and unknown types fall back to silver.
@@ -210,6 +213,7 @@ mod tests {
         assert!(node_type_icon("PhysicsBody2D") == Icon::RigidBody2D);
         assert!(node_type_icon("CollisionObject2D") == Icon::Area2D);
         assert!(node_type_icon("Control") == Icon::Control);
+        assert!(node_type_icon("TileMap2D") == Icon::TileMap2D);
         // Unknown types still fall back to the plain node glyph.
         assert!(node_type_icon("CustomThing") == Icon::Node);
     }
