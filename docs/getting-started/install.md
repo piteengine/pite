@@ -107,7 +107,7 @@ cargo install pite
 !!! Note
     Cargo installation method builds from source and has system requirements:
 
-    - **Rust 1.88+ toolchain** (`cargo`)
+    - **Rust 1.95+ toolchain** (`cargo`)
     - **Python 3.12** with development headers (e.g. `python3.12-dev` on Debian/Ubuntu, or Python 3.12 on macOS/Windows).
     - **ALSA headers** on Linux: `sudo apt-get install libasound2-dev pkg-config`.
 
