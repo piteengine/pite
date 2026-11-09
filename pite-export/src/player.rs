@@ -243,7 +243,7 @@ fn unpack_zip(archive: &Path, dest: &Path) -> Result<()> {
             Some(p) => dest.join(p),
             None => continue,
         };
-        if entry.name().ends_with('/') {
+        if entry.is_dir() {
             std::fs::create_dir_all(&path)?;
         } else {
             if let Some(parent) = path.parent() {

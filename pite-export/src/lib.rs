@@ -847,7 +847,7 @@ def _once():
         let mut archive =
             zip::ZipArchive::new(std::fs::File::open(&staged.stdlib_zip).unwrap()).unwrap();
         let names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
             .collect();
         assert!(
             names.iter().any(|n| n == "os.py"),
@@ -908,7 +908,7 @@ def _once():
         let mut archive =
             zip::ZipArchive::new(std::fs::File::open(&staged.stdlib_zip).unwrap()).unwrap();
         let names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
             .collect();
         assert!(
             names.iter().any(|n| n == "os.py"),
