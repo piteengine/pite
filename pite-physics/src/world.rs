@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use pite_core::NodeId;
 use rapier2d::control::{CharacterLength, KinematicCharacterController};
-use rapier2d::dynamics::CCDSolver;
+use rapier2d::dynamics::{CCDSolver, SoftBodyTearEvent};
 use rapier2d::prelude::*;
 
 use crate::character::CharacterMoveResult;
@@ -58,10 +58,12 @@ impl EventHandler for PhysicsEventCollector {
         _total_force_magnitude: Real,
     ) {
     }
+
+    fn handle_soft_body_tear_event(&self, _soft_bodies: &SoftBodySet, _event: &SoftBodyTearEvent) {}
 }
 
 pub struct PhysicsWorld {
-    pub gravity: Vector<Real>,
+    pub gravity: Vector,
     integration_parameters: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
     island_manager: IslandManager,
@@ -71,8 +73,8 @@ pub struct PhysicsWorld {
     collider_set: ColliderSet,
     impulse_joint_set: ImpulseJointSet,
     multibody_joint_set: MultibodyJointSet,
+    soft_body_set: SoftBodySet,
     ccd_solver: CCDSolver,
-    query_pipeline: QueryPipeline,
     character_controller: KinematicCharacterController,
     event_collector: PhysicsEventCollector,
 
@@ -84,7 +86,7 @@ pub struct PhysicsWorld {
     collider_to_body: HashMap<ColliderHandle, NodeId>,
 
     // Shape configs and offsets
-    shape_configs: HashMap<NodeId, (ShapeConfig, Vector<Real>)>,
+    shape_configs: HashMap<NodeId, (ShapeConfig, Vector)>,
 
     // Body kinds & tags
     area_nodes: HashSet<NodeId>,
@@ -102,7 +104,7 @@ impl Default for PhysicsWorld {
 impl PhysicsWorld {
     pub fn new() -> Self {
         let mut character_controller = KinematicCharacterController::default();
-        character_controller.up = -Vector::y_axis(); // Standard 2D coordinate system: -Y is up
+        character_controller.up = Vector::new(0.0, -1.0); // Standard 2D coordinate system: -Y is up
         character_controller.offset = CharacterLength::Absolute(0.01);
         character_controller.slide = true;
 
@@ -120,8 +122,8 @@ impl PhysicsWorld {
             collider_set: ColliderSet::new(),
             impulse_joint_set: ImpulseJointSet::new(),
             multibody_joint_set: MultibodyJointSet::new(),
+            soft_body_set: SoftBodySet::new(),
             ccd_solver: CCDSolver::new(),
-            query_pipeline: QueryPipeline::new(),
             character_controller,
             event_collector: PhysicsEventCollector::default(),
 
@@ -235,8 +237,11 @@ impl PhysicsWorld {
             // Set collision filter groups
             let memberships = Group::from_bits_truncate(collision_layer);
             let filter = Group::from_bits_truncate(collision_mask);
-            collider_builder =
-                collider_builder.collision_groups(InteractionGroups::new(memberships, filter));
+            collider_builder = collider_builder.collision_groups(InteractionGroups::new(
+                memberships,
+                filter,
+                InteractionTestMode::And,
+            ));
 
             let collider = collider_builder.build();
             let collider_handle = self.collider_set.insert_with_parent(
@@ -244,6 +249,13 @@ impl PhysicsWorld {
                 body_handle,
                 &mut self.rigid_body_set,
             );
+
+            if let Some(c) = self.collider_set.get(collider_handle) {
+                let aabb =
+                    c.compute_broad_phase_aabb(&self.integration_parameters, &self.rigid_body_set);
+                self.broad_phase
+                    .set_aabb(&self.integration_parameters, collider_handle, aabb);
+            }
 
             self.node_to_collider
                 .insert(shape_node_id.clone(), collider_handle);
@@ -314,6 +326,7 @@ impl PhysicsWorld {
                 &mut self.collider_set,
                 &mut self.impulse_joint_set,
                 &mut self.multibody_joint_set,
+                &mut self.soft_body_set,
                 true,
             );
         }
@@ -325,6 +338,7 @@ impl PhysicsWorld {
                 collider_handle,
                 &mut self.island_manager,
                 &mut self.rigid_body_set,
+                &mut self.soft_body_set,
                 true,
             );
         }
@@ -334,7 +348,7 @@ impl PhysicsWorld {
     pub fn step(&mut self) {
         let physics_hooks = ();
         self.physics_pipeline.step(
-            &self.gravity,
+            self.gravity,
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,
@@ -343,8 +357,8 @@ impl PhysicsWorld {
             &mut self.collider_set,
             &mut self.impulse_joint_set,
             &mut self.multibody_joint_set,
+            &mut self.soft_body_set,
             &mut self.ccd_solver,
-            Some(&mut self.query_pipeline),
             &physics_hooks,
             &self.event_collector,
         );
@@ -364,7 +378,7 @@ impl PhysicsWorld {
 
         let (rb_pos, first_collider) = match self.rigid_body_set.get(body_handle) {
             Some(b) => {
-                let t = *b.translation();
+                let t = b.translation();
                 let c = b.colliders().first().copied();
                 (t, c)
             }
@@ -399,14 +413,30 @@ impl PhysicsWorld {
         let desired_translation = Vector::new(desired_velocity.0 * dt, desired_velocity.1 * dt);
 
         let up_vec = Vector::new(up_direction.0, up_direction.1);
-        let up = UnitVector::try_new(up_vec, 0.0001).unwrap_or_else(|| -Vector::y_axis());
+        let up = if up_vec.length() > 0.0001 {
+            up_vec.normalize()
+        } else {
+            Vector::new(0.0, -1.0)
+        };
         self.character_controller.up = up;
-
-        self.query_pipeline.update(&self.collider_set);
 
         let filter = QueryFilter::default()
             .exclude_rigid_body(body_handle)
             .exclude_sensors();
+
+        for (handle, collider) in self.collider_set.iter() {
+            let aabb = collider
+                .compute_broad_phase_aabb(&self.integration_parameters, &self.rigid_body_set);
+            self.broad_phase
+                .set_aabb(&self.integration_parameters, handle, aabb);
+        }
+
+        let query_pipeline = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
 
         let mut is_on_floor = false;
         let mut is_on_wall = false;
@@ -414,16 +444,13 @@ impl PhysicsWorld {
 
         let movement = self.character_controller.move_shape(
             dt,
-            &self.rigid_body_set,
-            &self.collider_set,
-            &self.query_pipeline,
+            &query_pipeline,
             shape,
             current_pos,
             desired_translation,
-            filter,
             |collision| {
-                let normal = collision.hit.normal2;
-                let dot = normal.dot(up.as_ref());
+                let normal = collision.hit.normal1;
+                let dot = normal.dot(up);
                 if dot > 0.7 {
                     is_on_floor = true;
                 } else if dot < -0.7 {
@@ -511,26 +538,30 @@ impl PhysicsWorld {
 
     /// Perform a 2D raycast query.
     pub fn raycast(&self, from: (f32, f32), to: (f32, f32), mask: u32) -> Option<RaycastHit> {
-        let ray_origin = Point::new(from.0, from.1);
+        let ray_origin = Vector::new(from.0, from.1);
         let dir = Vector::new(to.0 - from.0, to.1 - from.1);
-        let max_toi = dir.norm();
+        let max_toi = dir.length();
         if max_toi <= 0.0001 {
             return None;
         }
         let ray_dir = dir / max_toi;
         let ray = Ray::new(ray_origin, ray_dir);
 
-        let groups = InteractionGroups::new(Group::all(), Group::from_bits_truncate(mask));
+        let groups = InteractionGroups::new(
+            Group::all(),
+            Group::from_bits_truncate(mask),
+            InteractionTestMode::And,
+        );
         let filter = QueryFilter::default().groups(groups);
 
-        let (handle, intersection) = self.query_pipeline.cast_ray_and_get_normal(
+        let query_pipeline = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
             &self.rigid_body_set,
             &self.collider_set,
-            &ray,
-            max_toi,
-            true,
             filter,
-        )?;
+        );
+
+        let (handle, intersection) = query_pipeline.cast_ray_and_get_normal(&ray, max_toi, true)?;
 
         let collider_node = self.collider_to_node.get(&handle)?.clone();
         let body_node = self.collider_to_body.get(&handle).cloned();
