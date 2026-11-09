@@ -818,7 +818,12 @@ impl eframe::App for EditorApp {
         egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Viewport, "Viewport");
-                ui.selectable_value(&mut self.tab, Tab::Code, "Code");
+                let code_tab = if self.code_is_dirty() {
+                    "Code*"
+                } else {
+                    "Code"
+                };
+                ui.selectable_value(&mut self.tab, Tab::Code, code_tab);
             });
             ui.separator();
             ui.horizontal(|ui| match self.tab {
@@ -830,7 +835,12 @@ impl eframe::App for EditorApp {
                 }
                 Tab::Code => {
                     if let Some(file) = self.code_file.clone() {
-                        ui.label(file.to_string_lossy().as_ref());
+                        let label = if self.code_is_dirty() {
+                            format!("{}*", file.to_string_lossy())
+                        } else {
+                            file.to_string_lossy().to_string()
+                        };
+                        ui.label(label);
                         if icons::icon_button(ui, Icon::Save, "Save (Ctrl+S)").clicked() {
                             self.save_all();
                         }

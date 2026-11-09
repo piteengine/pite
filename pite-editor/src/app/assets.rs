@@ -1707,6 +1707,13 @@ impl EditorApp {
 
     pub(super) fn open_asset(&mut self, file: &Path) {
         if Self::editor_text_file(file) {
+            if self.code_file.as_deref() == Some(file) {
+                self.tab = Tab::Code;
+                return;
+            }
+            if self.code_is_dirty() {
+                self.save_code();
+            }
             match std::fs::read_to_string(file) {
                 Ok(text) => {
                     self.code_file = Some(file.to_path_buf());

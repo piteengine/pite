@@ -363,3 +363,62 @@ fn clear_console_clears_log_buffer() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn code_is_dirty_tracks_edits_and_clears_on_save() {
+    let dir = std::env::temp_dir().join(format!("pite-code-dirty-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene_path = dir.join("main.ptscn");
+    let script_path = dir.join("player.py");
+    std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+    std::fs::write(&script_path, "x = 1\n").unwrap();
+
+    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    assert!(!app.code_is_dirty());
+
+    app.open_asset(&script_path);
+    assert_eq!(app.tab, Tab::Code);
+    assert!(!app.code_is_dirty());
+
+    app.code_text.push_str("y = 2\n");
+    assert!(app.code_is_dirty());
+
+    app.save_code();
+    assert!(!app.code_is_dirty());
+    assert_eq!(
+        std::fs::read_to_string(&script_path).unwrap(),
+        "x = 1\ny = 2\n"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn open_asset_auto_saves_dirty_code_before_switching() {
+    let dir = std::env::temp_dir().join(format!("pite-open-asset-dirty-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene_path = dir.join("main.ptscn");
+    let script1 = dir.join("first.py");
+    let script2 = dir.join("second.py");
+    std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+    std::fs::write(&script1, "val = 1\n").unwrap();
+    std::fs::write(&script2, "val = 2\n").unwrap();
+
+    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    app.open_asset(&script1);
+    app.code_text = "val = 99\n".to_string();
+    assert!(app.code_is_dirty());
+
+    // Re-opening the same asset must not overwrite unsaved edits
+    app.open_asset(&script1);
+    assert_eq!(app.code_text, "val = 99\n");
+
+    // Opening another asset must auto-save first.py and load second.py
+    app.open_asset(&script2);
+    assert_eq!(std::fs::read_to_string(&script1).unwrap(), "val = 99\n");
+    assert_eq!(app.code_file, Some(script2.clone()));
+    assert_eq!(app.code_text, "val = 2\n");
+    assert!(!app.code_is_dirty());
+
+    std::fs::remove_dir_all(&dir).ok();
+}

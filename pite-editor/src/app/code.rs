@@ -27,6 +27,16 @@ impl EditorApp {
             .collect()
     }
 
+    pub(super) fn code_is_dirty(&self) -> bool {
+        let Some(file) = &self.code_file else {
+            return false;
+        };
+        match std::fs::read_to_string(file) {
+            Ok(disk_text) => disk_text != self.code_text,
+            Err(_) => !self.code_text.is_empty(),
+        }
+    }
+
     pub(super) fn save_code(&mut self) {
         let Some(file) = self.code_file.clone() else {
             self.log("save: no script open.".to_string());
