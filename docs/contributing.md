@@ -26,7 +26,7 @@ cargo fmt --all -- --check
 cargo build --workspace --locked
 cargo test --workspace
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
-cargo run -p pite -- check
+bash scripts/check-examples.sh
 ```
 
 ## Release bump checklist

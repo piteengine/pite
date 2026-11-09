@@ -34,15 +34,7 @@ pub fn run(path: Option<&str>, reimport_assets: bool, strict: bool, json: bool) 
     let mut cache: Vec<String> = Vec::new();
     let mut atlas_uses: Vec<pite_assets::AtlasUse> = Vec::new();
 
-    let root = pite_project::find_project_root(&start).or_else(|| {
-        let dogfood = start.join("examples").join("minimal-2d");
-        if dogfood.join(pite_project::MANIFEST_FILE).is_file() {
-            Some(dogfood)
-        } else {
-            None
-        }
-    });
-    let root = match root {
+    let root = match pite_project::find_project_root(&start) {
         Some(root) => root,
         None => {
             errors.push(format!(

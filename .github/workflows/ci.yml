@@ -12,12 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Jobs share one cargo cache key and run in parallel (no needs: gates):
-# each job recompiles only what it needs from cache, so serializing them
-# bought latency without saving work.
 jobs:
   fmt:
-    name: Format check
+    name: Format
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -33,7 +30,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   build:
-    name: Build the workspace
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -43,11 +40,11 @@ jobs:
         uses: ./.github/actions/rust-python-env
         with:
           cache-key: workspace
-      - name: Build the workspace (locked deps)
+      - name: Build the workspace (locked)
         run: cargo build --workspace --locked
 
   test:
-    name: Unit tests
+    name: Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -57,11 +54,11 @@ jobs:
         uses: ./.github/actions/rust-python-env
         with:
           cache-key: workspace
-      - name: Run the workspace tests (locked deps, like the release)
+      - name: Run the workspace tests (locked)
         run: cargo test --workspace --locked
 
   lsp-smoke:
-    name: LSP smoke (real pyright over stdio)
+    name: LSP Smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -71,18 +68,18 @@ jobs:
         uses: ./.github/actions/rust-python-env
         with:
           cache-key: workspace
-      - name: Cache pip downloads (pinned pyright below)
+      - name: Cache pip
         uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/pip
           key: pip-pyright-1.1.411
-      - name: Install pinned pyright (editor LSP smoke)
+      - name: Install pinned pyright
         run: pip install "pyright==1.1.411"
-      - name: Run the live LSP smoke test
+      - name: Live LSP smoke test
         run: PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
 
-  bundle-smoke:
-    name: Python bundling smoke (pinned CPython download + export layout)
+  export-smoke:
+    name: Export Smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -92,20 +89,16 @@ jobs:
         uses: ./.github/actions/rust-python-env
         with:
           cache-key: workspace
-      - name: Cache the CPython toolchain archive (60 MB download)
-        # The archive lives under ~/.cache/pite/toolchains (see
-        # pite-export/src/python_bundle.rs) and is re-verified by checksum
-        # on every use, so a cached copy is never trusted blindly.
-        # Hashing the pin source busts the cache the moment the pin moves.
+      - name: Cache the CPython toolchain archive
         uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/pite/toolchains
           key: pite-toolchains-linux-${{ hashFiles('pite-export/src/python_bundle.rs') }}
-      - name: Run the export tests with a real CPython download
+      - name: Export smoke test
         run: PITE_BUNDLE_SMOKE=1 cargo test -p pite-export --lib
 
   check:
-    name: Project check (pite check)
+    name: Projects check
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -115,5 +108,5 @@ jobs:
         uses: ./.github/actions/rust-python-env
         with:
           cache-key: workspace
-      - name: Run pite check on the repo (locked deps, like the release)
-        run: cargo run --locked -p pite -- check
+      - name: Run pite check on examples
+        run: bash scripts/check-examples.sh

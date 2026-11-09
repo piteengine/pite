@@ -10,10 +10,10 @@ cargo build --workspace --locked
 cargo test --workspace --locked
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke   # needs pyright==1.1.411, gated off by default
 PITE_BUNDLE_SMOKE=1 cargo test -p pite-export --lib                   # real CPython download; CI-only, slow
-cargo run --locked -p pite -- check
+bash scripts/check-examples.sh
 ```
 
-- Single crate: `cargo test -p <crate>` (e.g. `-p pite-scene`). Focused check: `cargo run -p pite -- check --path <dir>`; `--strict` promotes warnings, `--json` gives machine report. With no `--path` outside a project it falls back to `examples/minimal-2d`.
+- Single crate: `cargo test -p <crate>` (e.g. `-p pite-scene`). Focused check: `cargo run -p pite -- check --path <dir>`; `--strict` promotes warnings, `--json` gives machine report.
 - Build needs CPython 3.12 dev headers + ALSA headers or it fails to link: `libasound2-dev pkg-config` on Debian/Ubuntu, plus `export PYO3_PYTHON=$(which python3.12)` and `LD_LIBRARY_PATH` pointing at its `LIBDIR`.
 - WSL without Wayland: `WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit`.
 - `pite` dogfood flow: `new` → `cd <project>` → `edit` → `check` → `run`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` (with automatic download fallback to toolchain cache if missing) — from a source checkout build both: `cargo build --release -p pite -p pite-player`.
