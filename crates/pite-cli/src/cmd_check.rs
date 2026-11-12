@@ -73,86 +73,121 @@ pub struct Diagnostic {
     pub what: String,
     pub why: String,
     pub fix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 impl Diagnostic {
     pub fn from_message(root: &Path, severity: DiagnosticSeverity, raw: &str) -> Self {
         let raw = raw.trim();
 
-        if let Some(scene_rest) = raw.strip_prefix("scene ") {
+        let mut diag = if let Some(scene_rest) = raw.strip_prefix("scene ") {
             if let Some((path_str, after_path)) = scene_rest.split_once(": ") {
                 let rel_file = format_path_rel(root, path_str);
                 if let Some(node_rest) = after_path.strip_prefix("node ") {
                     if let Some((node_id, rest)) = extract_quoted_or_word(node_rest) {
-                        let (what, why, fix) = parse_node_diagnostic(rest);
-                        return Self {
+                        let (what, why, fix, hint) = parse_node_diagnostic(rest);
+                        Self {
                             severity,
                             file: Some(rel_file),
                             node: Some(node_id),
                             what,
                             why,
                             fix,
-                        };
+                            hint,
+                        }
+                    } else {
+                        let (what, why, fix, hint) = parse_scene_diagnostic(after_path);
+                        Self {
+                            severity,
+                            file: Some(rel_file),
+                            node: None,
+                            what,
+                            why,
+                            fix,
+                            hint,
+                        }
+                    }
+                } else {
+                    let (what, why, fix, hint) = parse_scene_diagnostic(after_path);
+                    Self {
+                        severity,
+                        file: Some(rel_file),
+                        node: None,
+                        what,
+                        why,
+                        fix,
+                        hint,
                     }
                 }
-                let (what, why, fix) = parse_scene_diagnostic(after_path);
-                return Self {
+            } else {
+                Self {
                     severity,
-                    file: Some(rel_file),
+                    file: None,
                     node: None,
-                    what,
-                    why,
-                    fix,
-                };
+                    what: raw.to_string(),
+                    why: "The project verification check detected an issue.".to_string(),
+                    fix: "Inspect the referenced file and correct any syntax or configuration errors."
+                        .to_string(),
+                    hint: None,
+                }
             }
-        }
-
-        if let Some(manifest_rest) = raw.strip_prefix("manifest: ") {
-            let (what, why, fix) = parse_manifest_diagnostic(manifest_rest);
-            return Self {
+        } else if let Some(manifest_rest) = raw.strip_prefix("manifest: ") {
+            let (what, why, fix, hint) = parse_manifest_diagnostic(manifest_rest);
+            Self {
                 severity,
                 file: Some(pite_project::MANIFEST_FILE.to_string()),
                 node: None,
                 what,
                 why,
                 fix,
-            };
-        }
-
-        if let Some(atlas_rest) = raw.strip_prefix("atlas ") {
+                hint,
+            }
+        } else if let Some(atlas_rest) = raw.strip_prefix("atlas ") {
             if let Some((atlas_str, rest)) = atlas_rest.split_once(": ") {
                 let file = format_path_rel(root, atlas_str);
-                let (what, why, fix) = parse_atlas_diagnostic(rest);
-                return Self {
+                let (what, why, fix, hint) = parse_atlas_diagnostic(rest);
+                Self {
                     severity,
                     file: Some(file),
                     node: None,
                     what,
                     why,
                     fix,
-                };
+                    hint,
+                }
+            } else {
+                Self {
+                    severity,
+                    file: None,
+                    node: None,
+                    what: raw.to_string(),
+                    why: "The project verification check detected an issue.".to_string(),
+                    fix: "Inspect the referenced file and correct any syntax or configuration errors."
+                        .to_string(),
+                    hint: None,
+                }
             }
-        }
-
-        if raw.starts_with("asset ") && raw.ends_with(" is never referenced by a reachable scene") {
+        } else if raw.starts_with("asset ")
+            && raw.ends_with(" is never referenced by a reachable scene")
+        {
             let inner = raw
                 .strip_prefix("asset ")
                 .and_then(|s| s.strip_suffix(" is never referenced by a reachable scene"))
                 .unwrap_or(raw);
             let file = format_path_rel(root, inner);
-            return Self {
+            Self {
                 severity,
                 file: Some(file.clone()),
                 node: None,
                 what: format!("Asset \"{file}\" is never referenced by any reachable scene."),
                 why: "Unused assets inflate project size and export packages.".to_string(),
                 fix: "Reference the asset in a scene or delete it if no longer needed.".to_string(),
-            };
-        }
-
-        if let Some(file_str) = raw.strip_prefix("failed to reimport asset ") {
+                hint: None,
+            }
+        } else if let Some(file_str) = raw.strip_prefix("failed to reimport asset ") {
             let file = format_path_rel(root, file_str);
-            return Self {
+            Self {
                 severity,
                 file: Some(file.clone()),
                 node: None,
@@ -161,11 +196,10 @@ impl Diagnostic {
                     .to_string(),
                 fix: "Inspect the file format and ensure the file is readable and not corrupted."
                     .to_string(),
-            };
-        }
-
-        if raw.starts_with("no ") && raw.contains("found above") {
-            return Self {
+                hint: None,
+            }
+        } else if raw.starts_with("no ") && raw.contains("found above") {
+            Self {
                 severity,
                 file: Some(pite_project::MANIFEST_FILE.to_string()),
                 node: None,
@@ -173,18 +207,28 @@ impl Diagnostic {
                 why: "Pite commands require a project root containing a valid pite.toml manifest."
                     .to_string(),
                 fix: "Run inside a valid project directory or pass <PATH>.".to_string(),
-            };
+                hint: None,
+            }
+        } else {
+            Self {
+                severity,
+                file: None,
+                node: None,
+                what: raw.to_string(),
+                why: "The project verification check detected an issue.".to_string(),
+                fix: "Inspect the referenced file and correct any syntax or configuration errors."
+                    .to_string(),
+                hint: None,
+            }
+        };
+
+        if diag.hint.is_none() && raw.contains("--reimport-assets") {
+            diag.hint = Some(
+                "run 'pite check --reimport-assets' to update references automatically".to_string(),
+            );
         }
 
-        Self {
-            severity,
-            file: None,
-            node: None,
-            what: raw.to_string(),
-            why: "The project verification check detected an issue.".to_string(),
-            fix: "Inspect the referenced file and correct any syntax or configuration errors."
-                .to_string(),
-        }
+        diag
     }
 }
 
@@ -216,7 +260,7 @@ fn extract_quoted_word(s: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
+fn parse_node_diagnostic(rest: &str) -> (String, String, String, Option<String>) {
     if rest.starts_with("has unregistered type") {
         let ty = extract_quoted_word(rest).unwrap_or_else(|| "unknown".to_string());
         (
@@ -225,6 +269,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
                 .to_string(),
             "Change the type to a registered node class (e.g. Sprite2D, Node2D, CharacterBody2D)."
                 .to_string(),
+            None,
         )
     } else if rest.starts_with("has unknown parent") {
         let parent = extract_quoted_word(rest).unwrap_or_else(|| "unknown".to_string());
@@ -232,6 +277,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             format!("Parent node \"{parent}\" does not exist in the scene tree."),
             "Nodes must attach to an existing node in the scene hierarchy.".to_string(),
             "Set 'parent' to a valid node ID or the scene root.".to_string(),
+            None,
         )
     } else if rest.contains("script") && rest.contains("missing, using placeholder") {
         let script = extract_quoted_word(rest).unwrap_or_else(|| "script".to_string());
@@ -239,6 +285,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             format!("Referenced Python script \"{script}\" does not exist on disk."),
             "The engine will instantiate a fallback placeholder node without script behavior.".to_string(),
             "Create the Python script file at the referenced res:// path or remove the script binding.".to_string(),
+            None,
         )
     } else if rest.contains("is reserved for the signal system") {
         let class = extract_quoted_word(rest).unwrap_or_else(|| "class".to_string());
@@ -246,6 +293,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             format!("Script class name \"{class}\" is reserved by the engine."),
             "The class name conflicts with internal engine signal dispatchers.".to_string(),
             "Rename the class in the script and scene to a non-reserved identifier.".to_string(),
+            None,
         )
     } else if rest.contains("imports third-party") {
         let module = extract_quoted_word(rest).unwrap_or_else(|| "module".to_string());
@@ -253,6 +301,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             format!("Script imports third-party module \"{module}\" without vendoring."),
             "Packaged game exports drop host site-packages and will fail at runtime.".to_string(),
             format!("Run 'pite vendor add {module}' to vendor the package into vendor/."),
+            None,
         )
     } else if rest.contains("plays missing audio") {
         let audio = extract_quoted_word(rest).unwrap_or_else(|| "audio".to_string());
@@ -261,6 +310,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             "Audio playback will fail or produce silent errors at runtime.".to_string(),
             "Place the audio file at the referenced res:// path or update the play() call."
                 .to_string(),
+            None,
         )
     } else if rest.contains("undecodable:") {
         let audio = extract_quoted_word(rest).unwrap_or_else(|| "audio".to_string());
@@ -272,12 +322,30 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             format!("Audio file \"{audio}\" cannot be decoded: {err}."),
             "The audio format is corrupted, headerless, or unsupported (supported: WAV, OGG, MP3, FLAC).".to_string(),
             "Re-encode or replace the audio file with a valid supported format.".to_string(),
+            None,
         )
     } else if rest.contains("references moved asset") {
+        let mut quotes = Vec::new();
+        let mut cur = rest;
+        while let Some(start) = cur.find('"') {
+            let after_start = &cur[start + 1..];
+            if let Some(end) = after_start.find('"') {
+                quotes.push(&after_start[..end]);
+                cur = &after_start[end + 1..];
+            } else {
+                break;
+            }
+        }
+        let (old, new) = match quotes.as_slice() {
+            [old, new, ..] => (*old, *new),
+            [old] => (*old, "new location"),
+            _ => ("asset", "new location"),
+        };
         (
-            format!("Asset reference needs updating: {rest}."),
+            format!("Asset was moved from \"{old}\" to \"{new}\"."),
             "The referenced asset was renamed or moved outside the editor.".to_string(),
-            "Run 'pite check --reimport-assets' to update references automatically.".to_string(),
+            format!("Update the property in the scene to \"{new}\" or run 'pite check --reimport-assets'."),
+            Some("run 'pite check --reimport-assets' to update references automatically".to_string()),
         )
     } else if rest.contains("references missing asset") {
         let asset = extract_quoted_word(rest).unwrap_or_else(|| "asset".to_string());
@@ -286,12 +354,14 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             "The scene points to a resource file that cannot be found on disk.".to_string(),
             "Place the missing asset at the res:// path or update the property in the scene."
                 .to_string(),
+            None,
         )
     } else if rest.contains("custom prop") && rest.contains("expected") {
         (
             format!("Custom property type mismatch: {rest}."),
             "The property value in the scene does not match its declared type in pite.toml [props].".to_string(),
             "Update the property value to match the declared type or edit [props] in pite.toml.".to_string(),
+            None,
         )
     } else if rest.contains("has unknown prop") {
         (
@@ -300,6 +370,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
                 .to_string(),
             "Declare the property under [props] in pite.toml or remove it from the scene."
                 .to_string(),
+            None,
         )
     } else if rest.contains("texture and atlas are mutually exclusive") {
         (
@@ -307,6 +378,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             "A sprite can draw either a standalone image or an atlas frame, but not both."
                 .to_string(),
             "Remove either 'texture' or 'atlas' from the node properties.".to_string(),
+            None,
         )
     } else if rest.contains("frame requires an atlas and atlas requires a frame") {
         (
@@ -314,6 +386,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             "When using an atlas, both 'atlas' and 'frame' properties must be provided together."
                 .to_string(),
             "Set both 'atlas' and 'frame' together, or use 'texture' instead.".to_string(),
+            None,
         )
     } else if rest.contains("missing required 'atlas' property") {
         (
@@ -321,6 +394,7 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
             "AnimatedSprite2D requires an atlas sidecar containing animation definitions."
                 .to_string(),
             "Set atlas = \"res://...\" on the AnimatedSprite2D node.".to_string(),
+            None,
         )
     } else if rest.contains("not found in atlas") {
         (
@@ -329,34 +403,39 @@ fn parse_node_diagnostic(rest: &str) -> (String, String, String) {
                 .to_string(),
             "Define the frame or animation in the atlas sidecar or update the node property."
                 .to_string(),
+            None,
         )
     } else if rest.contains("invalid tilemap") {
         (
             format!("TileMap2D error: {rest}."),
             "The .ptmap sidecar file is malformed or could not be loaded.".to_string(),
             "Verify the tilemap file syntax and referenced atlas.".to_string(),
+            None,
         )
     } else {
         (
             rest.to_string(),
             "The node property or reference does not conform to engine requirements.".to_string(),
             "Inspect the node in the scene and correct the configuration.".to_string(),
+            None,
         )
     }
 }
 
-fn parse_scene_diagnostic(after_path: &str) -> (String, String, String) {
+fn parse_scene_diagnostic(after_path: &str) -> (String, String, String, Option<String>) {
     if after_path.contains("root") && after_path.contains("not found in node list") {
         (
             format!("Scene root error: {after_path}."),
             "The scene declares a root node ID that is missing from its node list.".to_string(),
             "Add the missing root node or change 'root' in the scene header.".to_string(),
+            None,
         )
     } else if after_path.contains("instance of") && after_path.contains("cannot load") {
         (
             format!("Child scene instance load failed: {after_path}."),
             "The referenced child scene file cannot be loaded or parsed.".to_string(),
             "Ensure the child scene file exists and is valid.".to_string(),
+            None,
         )
     } else if after_path.contains("instance of")
         && after_path.contains("attaches to unknown parent")
@@ -366,6 +445,7 @@ fn parse_scene_diagnostic(after_path: &str) -> (String, String, String) {
             "The instance attaches to a parent node ID that does not exist.".to_string(),
             "Attach the instance to an existing node ID or omit 'parent' to attach to root."
                 .to_string(),
+            None,
         )
     } else if after_path.contains("instance of") && after_path.contains("bad override target") {
         (
@@ -373,28 +453,55 @@ fn parse_scene_diagnostic(after_path: &str) -> (String, String, String) {
             "The override targets a node ID that is not present in the child scene.".to_string(),
             "Specify override keys in the format 'node_id.prop' matching nodes in the instance."
                 .to_string(),
+            None,
+        )
+    } else if after_path.contains("references moved asset") {
+        let mut quotes = Vec::new();
+        let mut cur = after_path;
+        while let Some(start) = cur.find('"') {
+            let after_start = &cur[start + 1..];
+            if let Some(end) = after_start.find('"') {
+                quotes.push(&after_start[..end]);
+                cur = &after_start[end + 1..];
+            } else {
+                break;
+            }
+        }
+        let (old, new) = match quotes.as_slice() {
+            [old, new, ..] => (*old, *new),
+            [old] => (*old, "new location"),
+            _ => ("asset", "new location"),
+        };
+        (
+            format!("Asset was moved from \"{old}\" to \"{new}\"."),
+            "The referenced asset was renamed or moved outside the editor.".to_string(),
+            format!("Update the reference in the scene to \"{new}\" or run 'pite check --reimport-assets'."),
+            Some("run 'pite check --reimport-assets' to update references automatically".to_string()),
         )
     } else {
         (
             format!("Scene error: {after_path}."),
             "The scene file could not be parsed or contains syntax violations.".to_string(),
             "Check the scene TOML formatting or delete _cache/ to force a rebuild.".to_string(),
+            None,
         )
     }
 }
 
-fn parse_manifest_diagnostic(msg: &str) -> (String, String, String) {
+fn parse_manifest_diagnostic(msg: &str) -> (String, String, String, Option<String>) {
     if msg.contains("project.python must not be empty") {
         (
             "Field project.python is empty in [project].".to_string(),
             "The engine requires a Python version to select the appropriate runtime.".to_string(),
             "Set python = \"3.12\" under [project] in pite.toml.".to_string(),
+            None,
         )
     } else if msg.contains("dimensions must be positive") {
         (
             format!("Invalid window dimensions: {msg}."),
             "The game window cannot initialize with zero or negative dimensions.".to_string(),
             "Set positive integers for window_width and window_height in pite.toml.".to_string(),
+            None,
         )
     } else if msg.contains("icon") && msg.contains("missing") {
         let icon = extract_quoted_word(msg).unwrap_or_else(|| "icon".to_string());
@@ -402,6 +509,7 @@ fn parse_manifest_diagnostic(msg: &str) -> (String, String, String) {
             format!("Project icon missing: \"{icon}\"."),
             "The icon file referenced in [project] does not exist on disk.".to_string(),
             "Provide the icon image at the path or update project.icon in pite.toml.".to_string(),
+            None,
         )
     } else if msg.contains("icon") && msg.contains("must be res:// or empty") {
         (
@@ -409,35 +517,40 @@ fn parse_manifest_diagnostic(msg: &str) -> (String, String, String) {
             "Absolute paths are prohibited; all asset references must use res:// URIs.".to_string(),
             "Change icon to a res:// URI (e.g. res://assets/icon.png) or leave it empty."
                 .to_string(),
+            None,
         )
     } else if msg.contains("[props]") && msg.contains("unknown type") {
         (
             format!("Invalid custom property type: {msg}."),
             "Custom properties must declare an engine-supported type.".to_string(),
             "Set type to one of: string, int, number, bool, vec2, color.".to_string(),
+            None,
         )
     } else if msg.contains("[props]") && msg.contains("collides with a schema prop") {
         (
             format!("Custom property name collision: {msg}."),
             "Schema property names are reserved by engine node types.".to_string(),
             "Choose a different name for the custom property in pite.toml [props].".to_string(),
+            None,
         )
     } else if msg.contains("unknown field") {
         (
             format!("Unknown manifest field: {msg}."),
             "The field is not recognized by the Pite project manifest schema.".to_string(),
             "Remove or correct the unrecognized field name in pite.toml.".to_string(),
+            None,
         )
     } else {
         (
             format!("Manifest error: {msg}."),
             "The manifest configuration does not conform to engine requirements.".to_string(),
             "Edit pite.toml to correct the invalid configuration.".to_string(),
+            None,
         )
     }
 }
 
-fn parse_atlas_diagnostic(msg: &str) -> (String, String, String) {
+fn parse_atlas_diagnostic(msg: &str) -> (String, String, String, Option<String>) {
     if msg.contains("frame") && msg.contains("is never referenced") {
         let frame = extract_quoted_word(msg).unwrap_or_else(|| "frame".to_string());
         (
@@ -446,6 +559,7 @@ fn parse_atlas_diagnostic(msg: &str) -> (String, String, String) {
                 .to_string(),
             "Reference the frame in a Sprite2D / TileMap2D or remove it from the atlas sidecar."
                 .to_string(),
+            None,
         )
     } else if msg.contains("animation") && msg.contains("is never referenced") {
         let anim = extract_quoted_word(msg).unwrap_or_else(|| "animation".to_string());
@@ -455,12 +569,14 @@ fn parse_atlas_diagnostic(msg: &str) -> (String, String, String) {
                 .to_string(),
             "Reference the animation in an AnimatedSprite2D or remove it from the atlas sidecar."
                 .to_string(),
+            None,
         )
     } else {
         (
             format!("Atlas error: {msg}."),
             "The atlas sidecar does not meet engine requirements.".to_string(),
             "Inspect the .atlas.json sidecar file and correct any inconsistencies.".to_string(),
+            None,
         )
     }
 }
@@ -478,7 +594,7 @@ pub fn format_diagnostic_card_to_string(diag: &Diagnostic, c: &Colors) -> String
         (None, None) => String::new(),
     };
 
-    format!(
+    let mut out = format!(
         "{badge_color}{badge}{reset}{loc_color}{loc}{reset}\n  {dim}What:{reset}  {what}\n  {dim}Why:{reset}   {why}\n  {dim}Fix:{reset}   {fix}",
         badge_color = badge_color,
         badge = badge,
@@ -489,7 +605,15 @@ pub fn format_diagnostic_card_to_string(diag: &Diagnostic, c: &Colors) -> String
         what = diag.what,
         why = diag.why,
         fix = diag.fix,
-    )
+    );
+    if let Some(hint) = &diag.hint {
+        out.push_str(&format!(
+            "\n  {dim}Hint:{reset}  {hint}",
+            dim = c.dim,
+            reset = c.reset
+        ));
+    }
+    out
 }
 
 pub fn print_diagnostic_card(diag: &Diagnostic, c: &Colors) {
@@ -768,6 +892,16 @@ pub fn run(
                 dim = c.dim,
                 elapsed_str = elapsed_str,
             );
+            let mut hints: Vec<&str> = report
+                .diagnostics
+                .iter()
+                .filter_map(|d| d.hint.as_deref())
+                .collect();
+            hints.sort_unstable();
+            hints.dedup();
+            for hint in hints {
+                eprintln!("  {dim}hint:{reset} {hint}", dim = c.dim, reset = c.reset);
+            }
         } else if report.summary.warnings > 0 {
             let warn_count = report.summary.warnings;
             eprintln!(
@@ -780,6 +914,16 @@ pub fn run(
                 dim = c.dim,
                 elapsed_str = elapsed_str,
             );
+            let mut hints: Vec<&str> = report
+                .diagnostics
+                .iter()
+                .filter_map(|d| d.hint.as_deref())
+                .collect();
+            hints.sort_unstable();
+            hints.dedup();
+            for hint in hints {
+                eprintln!("  {dim}hint:{reset} {hint}", dim = c.dim, reset = c.reset);
+            }
         } else {
             let sc = report.summary.scenes_checked;
             let ac = report.summary.assets_scanned;
@@ -1780,12 +1924,14 @@ animation = "idle"
                 .to_string(),
             fix: "Change the type to a registered node class (e.g. Sprite2D, Node2D, CharacterBody2D)."
                 .to_string(),
+            hint: None,
         };
         let formatted = format_diagnostic_card_to_string(&diag, &COLOR_DISABLED);
         assert!(formatted.starts_with("✖ ERROR  scenes/main.ptscn › node \"Player\"\n"));
         assert!(formatted.contains("  What:  Node type \"FooBar\""));
         assert!(formatted.contains("  Why:   The engine cannot instantiate"));
         assert!(formatted.contains("  Fix:   Change the type"));
+        assert!(!formatted.contains("Hint:"));
     }
 
     #[test]
@@ -1798,12 +1944,33 @@ animation = "idle"
                 .to_string(),
             why: "Unused assets inflate project size and export packages.".to_string(),
             fix: "Reference the asset in a scene or delete it if no longer needed.".to_string(),
+            hint: None,
         };
         let formatted = format_diagnostic_card_to_string(&diag, &COLOR_DISABLED);
         assert!(formatted.starts_with("▲ WARN   assets/apple.png\n"));
         assert!(formatted.contains("  What:  Asset \"assets/apple.png\""));
         assert!(formatted.contains("  Why:   Unused assets inflate"));
         assert!(formatted.contains("  Fix:   Reference the asset"));
+        assert!(!formatted.contains("Hint:"));
+    }
+
+    #[test]
+    fn diagnostic_card_formatting_with_hint() {
+        let diag = Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            file: Some("scenes/main.ptscn".to_string()),
+            node: Some("Player".to_string()),
+            what: "Asset was moved from \"res://assets/old.png\" to \"res://assets/new.png\".".to_string(),
+            why: "The referenced asset was renamed or moved outside the editor.".to_string(),
+            fix: "Update the property in the scene to \"res://assets/new.png\" or run 'pite check --reimport-assets'.".to_string(),
+            hint: Some("run 'pite check --reimport-assets' to update references automatically".to_string()),
+        };
+        let formatted = format_diagnostic_card_to_string(&diag, &COLOR_DISABLED);
+        assert!(formatted.starts_with("✖ ERROR  scenes/main.ptscn › node \"Player\"\n"));
+        assert!(formatted.contains("  What:  Asset was moved from"));
+        assert!(formatted.contains("  Why:   The referenced asset was renamed"));
+        assert!(formatted.contains("  Fix:   Update the property"));
+        assert!(formatted.contains("  Hint:  run 'pite check --reimport-assets'"));
     }
 
     #[test]
@@ -1820,6 +1987,7 @@ animation = "idle"
         assert_eq!(d1.file.as_deref(), Some("scenes/main.ptscn"));
         assert_eq!(d1.node.as_deref(), Some("Player"));
         assert!(d1.what.contains("Alien"));
+        assert!(d1.hint.is_none());
 
         // 2. Missing script
         let d2 = Diagnostic::from_message(
@@ -1830,6 +1998,7 @@ animation = "idle"
         assert_eq!(d2.severity, DiagnosticSeverity::Warning);
         assert_eq!(d2.node.as_deref(), Some("Boss"));
         assert!(d2.what.contains("res://scripts/boss.py"));
+        assert!(d2.hint.is_none());
 
         // 3. Third-party import
         let d3 = Diagnostic::from_message(
@@ -1839,6 +2008,7 @@ animation = "idle"
         );
         assert!(d3.what.contains("scipy"));
         assert!(d3.fix.contains("pite vendor add scipy"));
+        assert!(d3.hint.is_none());
 
         // 4. Orphan asset
         let d4 = Diagnostic::from_message(
@@ -1848,6 +2018,7 @@ animation = "idle"
         );
         assert_eq!(d4.file.as_deref(), Some("assets/ghost.png"));
         assert!(d4.what.contains("assets/ghost.png"));
+        assert!(d4.hint.is_none());
 
         // 5. Manifest error
         let d5 = Diagnostic::from_message(
@@ -1857,6 +2028,25 @@ animation = "idle"
         );
         assert_eq!(d5.file.as_deref(), Some("pite.toml"));
         assert!(d5.fix.contains("python = \"3.12\""));
+        assert!(d5.hint.is_none());
+
+        // 6. Moved asset preserves hint
+        let d6 = Diagnostic::from_message(
+            root,
+            DiagnosticSeverity::Error,
+            "scene /workspace/game/scenes/main.ptscn: node \"Sprite\" references moved asset \"res://assets/old.png\" (now at \"res://assets/new.png\"); run 'pite check --reimport-assets'",
+        );
+        assert_eq!(d6.severity, DiagnosticSeverity::Error);
+        assert_eq!(d6.file.as_deref(), Some("scenes/main.ptscn"));
+        assert_eq!(d6.node.as_deref(), Some("Sprite"));
+        assert!(d6
+            .what
+            .contains("Asset was moved from \"res://assets/old.png\" to \"res://assets/new.png\""));
+        assert!(d6.fix.contains("pite check --reimport-assets"));
+        assert_eq!(
+            d6.hint.as_deref(),
+            Some("run 'pite check --reimport-assets' to update references automatically")
+        );
     }
 
     #[test]
@@ -1878,6 +2068,7 @@ animation = "idle"
                 what: "Test error".to_string(),
                 why: "Test why".to_string(),
                 fix: "Test fix".to_string(),
+                hint: Some("run 'pite check --reimport-assets'".to_string()),
             }],
             cache: vec!["hit scenes/main.ptscn".to_string()],
         };
@@ -1892,6 +2083,10 @@ animation = "idle"
         assert_eq!(val["diagnostics"][0]["file"], "scenes/main.ptscn");
         assert_eq!(val["diagnostics"][0]["node"], "Hero");
         assert_eq!(val["diagnostics"][0]["what"], "Test error");
+        assert_eq!(
+            val["diagnostics"][0]["hint"],
+            "run 'pite check --reimport-assets'"
+        );
     }
 
     #[test]
@@ -1901,5 +2096,93 @@ animation = "idle"
         assert!(!ColorChoice::Never.is_enabled(false));
         assert!(!ColorChoice::Never.is_enabled(true));
         assert!(!ColorChoice::Auto.is_enabled(false));
+    }
+
+    #[test]
+    fn moved_asset_produces_diagnostic_with_reimport_hint() {
+        let root = fixture_root(77);
+        std::fs::write(
+            root.join("scenes").join("main.ptscn"),
+            r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "sprite"
+type = "Sprite2D"
+name = "PlayerSprite"
+parent = "root"
+
+[node.props]
+texture = "res://assets/old_player.png"
+"#,
+        )
+        .expect("write scene");
+
+        std::fs::write(
+            root.join("assets.pite.toml"),
+            r#"[[asset]]
+path = "res://assets/old_player.png"
+uid = "uid-player"
+hash = "abc123hash"
+size = 100
+"#,
+        )
+        .expect("write registry");
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut cache = Vec::new();
+        let mut atlas_uses = Vec::new();
+        let mut anim_uses = Vec::new();
+        let mut visited = HashSet::new();
+        let mut referenced = HashSet::new();
+
+        let registry = pite_assets::load_registry(&root).expect("load registry");
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
+        let mut by_hash: HashMap<&str, &str> = HashMap::new();
+        by_hash.insert("abc123hash", "res://assets/new_player.png");
+
+        check_scene_ref(
+            &root,
+            "res://scenes/main.ptscn",
+            &HashMap::new(),
+            &mut errors,
+            &mut warnings,
+            &mut cache,
+            &mut atlas_uses,
+            &mut anim_uses,
+            &registry,
+            &by_path,
+            &by_hash,
+            &mut visited,
+            &mut referenced,
+        );
+
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("references moved asset"));
+        assert!(errors[0].contains("run 'pite check --reimport-assets'"));
+
+        let diag = Diagnostic::from_message(&root, DiagnosticSeverity::Error, &errors[0]);
+        assert_eq!(diag.severity, DiagnosticSeverity::Error);
+        assert_eq!(diag.file.as_deref(), Some("scenes/main.ptscn"));
+        assert_eq!(diag.node.as_deref(), Some("sprite"));
+        assert!(diag.what.contains("Asset was moved from \"res://assets/old_player.png\" to \"res://assets/new_player.png\""));
+        assert!(diag.fix.contains("pite check --reimport-assets"));
+        assert_eq!(
+            diag.hint.as_deref(),
+            Some("run 'pite check --reimport-assets' to update references automatically")
+        );
+
+        let card = format_diagnostic_card_to_string(&diag, &COLOR_DISABLED);
+        assert!(card.contains(
+            "Hint:  run 'pite check --reimport-assets' to update references automatically"
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
