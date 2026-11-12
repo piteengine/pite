@@ -100,7 +100,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/pite/toolchains
-          key: pite-toolchains-linux-${{ hashFiles('pite-export/src/python_bundle.rs') }}
+          key: pite-toolchains-linux-${{ hashFiles('crates/pite-export/src/python_bundle.rs') }}
       - name: Export smoke test
         run: PITE_BUNDLE_SMOKE=1 cargo test -p pite-export --lib
 

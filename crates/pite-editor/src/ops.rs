@@ -864,7 +864,7 @@ prefix = "e1_"
     #[test]
     fn dogfood_scene_save_keeps_its_instance() {
         let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
+            .join("../..")
             .join("examples")
             .join("minimal-2d");
         let scene = project.join("scenes").join("main.ptscn");
@@ -908,7 +908,7 @@ prefix = "e1_"
     #[test]
     fn gem_collector_scene_save_is_byte_identical() {
         let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
+            .join("../..")
             .join("examples")
             .join("gem-collector");
         let scene = project.join("scenes").join("main.ptscn");

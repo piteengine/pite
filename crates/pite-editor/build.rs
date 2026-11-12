@@ -56,7 +56,7 @@ fn python_parent(type_name: &str) -> Option<&'static str> {
 }
 
 /// The exact member list a pyclass exposes. Kept in hand-parity with
-/// `pite-script/src/python/nodes/*.rs` — every entry here corresponds to a
+/// `crates/pite-script/src/python/nodes/*.rs` — every entry here corresponds to a
 /// `pite_props!` accessor, an explicit `#[getter]`, or a `#[pymethods]`
 /// callable. The `generated_stub_covers_pyclass_surface` test in `src/lsp.rs`
 /// catches missing *classes*; missing *members* fall through to
@@ -170,11 +170,11 @@ fn emit_class(out: &mut String, schema: &'static NodeTypeSchema) {
 
 /// Module-level surface — `Signal`, `Vec2`, `InputQuery`, free functions.
 /// Hand-written because it's not schema-derived (no node type owns these).
-/// Kept in sync with `pite-script/src/python/mod.rs` and `vec2.rs`.
+/// Kept in sync with `crates/pite-script/src/python/mod.rs` and `vec2.rs`.
 const HEADER: &str = "\
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # AUTO-GENERATED from pite_core::NODE_SCHEMAS — do not edit by hand.
-# Regenerate by building pite-editor; source in pite-editor/build.rs.
+# Regenerate by building pite-editor; source in crates/pite-editor/build.rs.
 from __future__ import annotations
 
 from typing import Any, Iterator
@@ -257,6 +257,7 @@ fn generate_docs() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let root = std::path::Path::new(&manifest)
         .parent()
+        .and_then(|p| p.parent())
         .expect("workspace root");
     let dir = root.join("docs").join("reference").join("nodes");
     std::fs::create_dir_all(&dir).expect("create docs dir");
@@ -274,7 +275,7 @@ fn generate_docs() {
     let mut index = String::from(
         "# Node Reference\n\n\
          Every node type in the engine, derived from `pite_core::NODE_SCHEMAS` \
-         at build time. Do not edit these files by hand — `pite-editor/build.rs` \
+         at build time. Do not edit these files by hand — `crates/pite-editor/build.rs` \
          rewrites them whenever the schema changes.\n\n",
     );
     for name in &names {

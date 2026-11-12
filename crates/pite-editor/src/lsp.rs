@@ -1535,7 +1535,7 @@ mod tests {
             return;
         }
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
+            .join("../..")
             .join("examples")
             .join("minimal-2d");
         let script = root.join("scripts").join("player.py");

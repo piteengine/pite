@@ -39,7 +39,7 @@ The release process requires coordinated version bumps across internal crates an
 - `docs/changelog.md`: Move unreleased entries under the new version header with a release date.
 - MSRV proof: Ensure `msrv-proof.yml` passes on the pinned workspace `rust-version`.
 - Python bundle pins: When updating the embedded CPython distribution, update `python_bundle.rs` (`PINNED_PYTHON`, `PINNED_BUILD`, filenames, and SHA-256 checksums).
-- Pyright language server: When upgrading pyright, synchronize the version pin in `pite-editor/src/lsp.rs`, `ci.yml`, and `AGENTS.md`.
+- Pyright language server: When upgrading pyright, synchronize the version pin in `crates/pite-editor/src/lsp.rs`, `ci.yml`, and `AGENTS.md`.
 - Scene format changes: If the `.ptscn` schema evolves, update `FORMAT_VERSION`, `CACHE_VERSION`, the template literals, and `docs/reference/scene-format.md`.
 - Release tagging: Strict `v*.*.*` tags must match the workspace version; milestone tags (`v0.1-mN`) are non-publishing tags.
 

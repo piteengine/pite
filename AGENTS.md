@@ -20,7 +20,7 @@ bash scripts/check-examples.sh
 
 ## Architecture by Crate Role
 
-`pite` (the `pite` binary, in `pite-cli/`) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
+`pite` (the `pite` binary, in `crates/pite-cli/`) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
 
 ## Gotchas agents miss
 
@@ -29,14 +29,14 @@ bash scripts/check-examples.sh
 - **Deps**: exports drop `site-packages`; third-party imports die in an export unless vendored (`pite vendor add pkg==ver` → project `vendor/`, pinned in `[vendor]`). `pite check` warns per offending import; non-vendored sibling modules need `[export] include` to ship.
 - **Scripts**: one file = one class inheriting `pite.*`, `snake_case`. Missing `_ready`/`_process` is a no-op, never an error. Cross-node calls go through `get_node("../Name")`; a miss raises `KeyError`. Signals are typed (`pite.signal(int)`); `Button.pressed` and `Timer.timeout` (fires each `wait_time` seconds, looping; non-positive never fires) are engine-owned — just `connect`, don't declare.
 - **Logging**: `tracing` everywhere — never `println!`/`log::` in engine code.
-- **Visuals**: `DESIGN.md` + `assets/palette.json` are the single source of truth (teal `#0b9387`, dark-only editor in `pite-editor/src/theme.rs`). Don't invent hexes.
+- **Visuals**: `DESIGN.md` + `assets/palette.json` are the single source of truth (teal `#0b9387`, dark-only editor in `crates/pite-editor/src/theme.rs`). Don't invent hexes.
 - **LSP**: pinned pyright server; live test is env-gated (`PITE_LSP_SMOKE=1`), don't run it unconditionally.
 
 ## Conventions
 
 - Conventional commits (`feat:`/`fix:`/`docs:`/`chore:`), one focused change per commit/PR; never commit secrets, `target/`, or local paths.
 - New Rust files start with `// SPDX-License-Identifier: MIT OR Apache-2.0` (Python: `# …`); `examples/` game scripts stay header-free.
-- Pinned values bump in multi-file lockstep (13 internal path-dep pins, scene `FORMAT_VERSION`/`CACHE_VERSION`, the pyright pin in `lsp.rs` + docs + CI, `python_bundle.rs` pins) — checklist in `CONTRIBUTING.md`.
+- Pinned values bump in multi-file lockstep (13 internal path-dep pins, scene `FORMAT_VERSION`/`CACHE_VERSION`, the pyright pin in `crates/pite-editor/src/lsp.rs` + docs + CI, `python_bundle.rs` pins) — checklist in `CONTRIBUTING.md`.
 
 ## Repository Governance
 

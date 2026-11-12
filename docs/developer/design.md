@@ -104,12 +104,12 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
 ## Platform Integration and Visual Roadmap
 
 1. **Window and Desktop Icons**:
-    - **Editor Application**: Configured in `pite-editor/src/app.rs` via `ViewportBuilder::with_icon` loaded from `assets/icon.png` (256 px render of `logo.svg`) using `eframe::icon_data::from_png_bytes`. Replaces default egui icons across desktop taskbars, alt-tab switchers, and window borders.
-    - **Game Runtime Window**: Configured in `pite-runtime/src/lib.rs` via `.with_window_icon(...)` from `assets/icon.png`, decoded during startup via the workspace `image` crate. The icon is gracefully optional: if absent or unreadable, the window initializes with system defaults.
+    - **Editor Application**: Configured in `crates/pite-editor/src/app.rs` via `ViewportBuilder::with_icon` loaded from `assets/icon.png` (256 px render of `logo.svg`) using `eframe::icon_data::from_png_bytes`. Replaces default egui icons across desktop taskbars, alt-tab switchers, and window borders.
+    - **Game Runtime Window**: Configured in `crates/pite-runtime/src/lib.rs` via `.with_window_icon(...)` from `assets/icon.png`, decoded during startup via the workspace `image` crate. The icon is gracefully optional: if absent or unreadable, the window initializes with system defaults.
     - **System Tray**: Dedicated assets (`assets/tray-icon.svg` and pre-rendered RGBA PNGs `tray-icon-{16,22,24,32}.png`) are staged for future system tray integrations.
 2. **Editor Header Branding**:
     - The top menu bar (`Panel::top("menu")` in `app.rs`) is slated to display the white monochrome monogram (`logo-white.svg` rendered as an egui texture) adjacent to the playback transport controls.
 3. **Renderer Default Clear Color**:
-    - Align the default initial clear color in `pite-render` with the canonical dark background token `#042F2E` (`[0.016, 0.184, 0.180]`).
+    - Align the default initial clear color in `crates/pite-render` with the canonical dark background token `#042F2E` (`[0.016, 0.184, 0.180]`).
 4. **Light Theme Specifications**:
     - The editor is currently dark-theme only. A future light mode will map tokens as follows: surface background `#FFFFFF`, brand mark `logo.svg` (`#0b9387`), accent highlights `#2bd3bf`, and primary text `#111827`.

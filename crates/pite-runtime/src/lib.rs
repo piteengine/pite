@@ -2009,7 +2009,7 @@ mod tests {
 
     fn dogfood_scene() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
+            .join("../..")
             .join("examples")
             .join("minimal-2d")
             .join("scenes")
@@ -2167,7 +2167,7 @@ mod tests {
         use pite_script::{input_begin_frame, input_set_key};
 
         let scene = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
+            .join("../..")
             .join("examples")
             .join("minimal-2d")
             .join("scenes")

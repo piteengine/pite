@@ -140,7 +140,7 @@ Pite is built to be handy to use, to change, and to own. It unites Python script
 
 | Crate | Role |
 | ----- | ---- |
-| `pite` | `pite` binary: new / run / check / edit / export / vendor / toolchain (in `pite-cli/`) |
+| `pite` | `pite` binary: new / run / check / edit / export / vendor / toolchain (in `crates/pite-cli/`) |
 | `pite-player` | Lean export player: runs a scene, no editor |
 | `pite-runtime` | Window, main loop, script driving, hot reload |
 | `pite-core` | Node tree, handles, props, lifecycle dispatch |
