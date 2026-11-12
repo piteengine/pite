@@ -1,0 +1,98 @@
+name: Bug Report
+description: Report a bug, crash, or unexpected behavior in the Pite engine, editor, or CLI.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please verify the bug reproduces on the latest `main` commit or latest release before submitting.
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what happened...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to Reproduce
+      description: Provide detailed steps to reproduce the issue.
+      placeholder: |
+        1. Run `pite new repro-project`
+        2. Open scene `main.ptscn` in editor
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux (Native Wayland)
+        - Linux (X11)
+        - Windows (Native)
+        - WSL2 (Windows Subsystem for Linux)
+        - macOS
+    validations:
+      required: true
+  - type: dropdown
+    id: graphics-backend
+    attributes:
+      label: Graphics Backend and Windowing
+      options:
+        - Auto-detected
+        - Vulkan
+        - DirectX 12
+        - Metal
+        - OpenGL / WebGPU fallback
+    validations:
+      required: true
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust Version
+      placeholder: "e.g., 1.95.0 (output of `rustc --version`)"
+    validations:
+      required: false
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      placeholder: "e.g., 3.12.3 (output of `python3 --version`)"
+    validations:
+      required: false
+  - type: textarea
+    id: reproduction-scene
+    attributes:
+      label: Minimal Scene or Script Reproduction
+      description: Paste the minimal `.ptscn` snippet or Python script demonstrating the failure.
+      render: toml
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal Logs and Backtrace
+      description: Include relevant log output or stack traces (run with `RUST_BACKTRACE=1`).
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checkboxes
+    attributes:
+      label: Verification Checklist
+      options:
+        - label: I searched existing GitHub issues and confirmed this is not a duplicate.
+          required: true
+        - label: I tested against the latest `main` branch or latest release.
+          required: true

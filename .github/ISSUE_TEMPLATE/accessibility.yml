@@ -1,0 +1,57 @@
+name: Accessibility Barrier Report
+description: Report an accessibility barrier in the Pite visual editor, CLI tool, or documentation.
+title: "[A11y]: "
+labels: ["area/accessibility", "accessibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Pite is committed to digital accessibility. Refer to [ACCESSIBILITY.md](https://github.com/piteengine/pite/blob/main/ACCESSIBILITY.md) for our accessibility statement, supported environments, and technical roadmap.
+  - type: textarea
+    id: barrier-description
+    attributes:
+      label: Barrier Description
+      description: Describe the accessibility barrier, assistive technology conflict, or usability obstruction.
+      placeholder: Describe the barrier encountered...
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected Surface
+      options:
+        - Visual Editor (egui UI, canvas, viewport, inspector)
+        - Command-Line Interface (pite CLI, terminal output, ANSI formatting)
+        - Documentation Site (web documentation, navigation, readability)
+        - Player Runtime (exported game window, input handling)
+    validations:
+      required: true
+  - type: textarea
+    id: assistive-tech
+    attributes:
+      label: Assistive Technology and Configuration
+      description: Specify screen readers (NVDA, JAWS, Orca, VoiceOver), magnification software, keyboard-only setups, or high-contrast settings used.
+      placeholder: e.g., NVDA on Windows 11, keyboard-only navigation on Linux (X11)...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can maintainers reproduce the accessibility barrier?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Accessible Experience
+      description: What was the expected behavior according to accessibility standards?
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Known Workaround
+      description: If you found an interim workaround, please describe it to help other users.
+    validations:
+      required: false

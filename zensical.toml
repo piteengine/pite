@@ -37,6 +37,9 @@ nav = [
   { "Changelog" = "changelog.md" },
   { "For Contributors" = [
     "contributing.md",
+    "code-of-conduct.md",
+    "security.md",
+    "accessibility.md",
     "developer/design.md",
     "developer/rust-docs.md"
   ] }

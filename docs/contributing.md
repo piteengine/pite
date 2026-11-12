@@ -19,7 +19,7 @@ We welcome contributions across all areas of the project—code, documentation, 
 - Adhere to Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 - Never commit credentials, local filesystem paths, or build artifacts (`target/`, `_cache/`).
 
-## Continuous Integration (CI)
+## Continuous Integration
 
 Every pull request must pass the full workspace verification suite:
 
@@ -57,6 +57,14 @@ export LD_LIBRARY_PATH=/path/to/python3.12/lib:$LD_LIBRARY_PATH
 ```sh
 WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit
 ```
+
+## Community Governance and Policies
+
+Contributors and community participants must adhere to our project policies:
+
+- **Code of Conduct:** We are committed to a welcoming and harassment-free community. See [Code of Conduct](https://github.com/piteengine/pite/blob/main/CODE_OF_CONDUCT.md).
+- **Security Policy:** To report vulnerabilities or review our security practices, see [Security Policy](https://github.com/piteengine/pite/blob/main/SECURITY.md).
+- **Accessibility:** For our accessibility baseline, supported assistive environments, and barrier reporting, see [Accessibility Statement](https://github.com/piteengine/pite/blob/main/ACCESSIBILITY.md).
 
 ## Licensing
 

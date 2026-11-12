@@ -2,7 +2,7 @@
 
 Rust workspace (resolver 2, edition 2021, rust-version 1.95). Scene-tree game engine (not ECS): Rust core + embedded Python 3.12 + eframe/egui editor. `target/`, scene `_cache/`, `assets.pite.toml` are gitignored — never commit them.
 
-## Commands (CI order)
+## Commands in CI Order
 
 ```sh
 cargo fmt --all -- --check
@@ -18,7 +18,7 @@ bash scripts/check-examples.sh
 - WSL without Wayland: `WINIT_UNIX_BACKEND=x11 cargo run -p pite -- edit`.
 - `pite` dogfood flow: `new` → `cd <project>` → `edit` → `check` → `run`. Export via `pite export linux|windows|macos`; offline export needs `--no-bundle-python` (+ `PITE_PYTHON` / `--skip-python-check`). Export ships the player found via `--binary`, else a `pite-player` sibling of `pite` (with automatic download fallback to toolchain cache if missing) — from a source checkout build both: `cargo build --release -p pite -p pite-player`.
 
-## Architecture (crate → role)
+## Architecture by Crate Role
 
 `pite` (the `pite` binary, in `pite-cli/`) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
 
@@ -37,3 +37,12 @@ bash scripts/check-examples.sh
 - Conventional commits (`feat:`/`fix:`/`docs:`/`chore:`), one focused change per commit/PR; never commit secrets, `target/`, or local paths.
 - New Rust files start with `// SPDX-License-Identifier: MIT OR Apache-2.0` (Python: `# …`); `examples/` game scripts stay header-free.
 - Pinned values bump in multi-file lockstep (13 internal path-dep pins, scene `FORMAT_VERSION`/`CACHE_VERSION`, the pyright pin in `lsp.rs` + docs + CI, `python_bundle.rs` pins) — checklist in `CONTRIBUTING.md`.
+
+## Repository Governance
+
+All agents operating in this repository must uphold the unbroken link chain and project standards:
+
+- Code of Conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- Security Policy and Invariants: [`SECURITY.md`](SECURITY.md)
+- Accessibility Statement: [`ACCESSIBILITY.md`](ACCESSIBILITY.md)
+- Contributor Guidelines: [`CONTRIBUTING.md`](CONTRIBUTING.md)

@@ -181,7 +181,14 @@ Documentation is available online at **[piteengine.github.io/pite](https://pitee
 
 ## Contributing
 
-We accept contributions, and we help newcomers. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+We accept contributions, and we help newcomers. Review our core contribution and governance guides:
+
+- [Contributing Guide](CONTRIBUTING.md) — Local development workflow, testing, and PR conventions.
+- [Code of Conduct](CODE_OF_CONDUCT.md) — Community standards, pledge, and enforcement responsibilities.
+- [Security Policy](SECURITY.md) — Vulnerability reporting, supported versions, and memory safety invariants.
+- [Accessibility Statement](ACCESSIBILITY.md) — Accessibility baseline, supported assistive tech, and barrier reporting.
+
+Ways to participate:
 
 - Found a bug or have an idea? Open an issue.
 - Want to fix or build something? Open a PR.
