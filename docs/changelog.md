@@ -4,6 +4,14 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+- **Enhanced `pite check` CLI Diagnostics**:
+    - Redesigned terminal report with structured What / Why / Fix diagnostic cards for all errors and warnings.
+    - Standard 16-color ANSI output with bold red (`✖ ERROR`), bold yellow (`▲ WARN`), bold green (`✔ Checked`), and bold cyan locations.
+    - Clean single-line quiet success banner displaying checked project name, scene count, asset count, and elapsed time.
+    - Added `--color <auto|always|never>` option with automatic terminal and `NO_COLOR` detection.
+    - Added `-v, --verbose` flag to view scene cache details on demand, suppressing them by default in clean output.
+    - Upgraded machine-readable `--json` report to `schema_version: 3` with structured `summary` and `diagnostics` objects.
+
 - **2D Flipbook Animations (`AnimatedSprite2D`)**:
     - Added `AnimatedSprite2D` node inheriting from `Node2D` for frame-by-frame 2D animations using sprite sheets.
     - Extended `.atlas.json` schema with `"animations"` defining named sequences of frames, frames-per-second (`fps`), and `loop` setting.

@@ -65,7 +65,7 @@ pite edit [SCENE]
 Validate project integrity: parse manifests, verify scene syntax, check asset references, validate audio headers, scan script imports, and enforce type invariants.
 
 ```sh title="Terminal"
-pite check [PATH] [--reimport-assets] [--strict] [--json]
+pite check [PATH] [--reimport-assets] [--strict] [--json] [--color <WHEN>] [--verbose]
 ```
 
 | Flag                | Description                                                                                                    |
@@ -73,7 +73,9 @@ pite check [PATH] [--reimport-assets] [--strict] [--json]
 | `[PATH]`            | Path to project root. Defaults to current directory.                                                           |
 | `--reimport-assets` | Re-scan project assets, reconcile the UID registry (`assets.pite.toml`), and rewrite moved asset references. |
 | `--strict`          | Promote all warnings to errors, exiting with a non-zero exit status if any warning is reported.                |
-| `--json`            | Format diagnostic findings as machine-readable JSON (`schema_version: 2`).                                     |
+| `--json`            | Format diagnostic findings as machine-readable JSON (`schema_version: 3`) with structured What/Why/Fix fields. |
+| `--color <WHEN>`    | Control colored output: `auto` (default, checks TTY and `NO_COLOR`), `always`, or `never`.                     |
+| `-v, --verbose`     | Show verbose output including scene cache hit/miss details.                                                    |
 
 ---
 

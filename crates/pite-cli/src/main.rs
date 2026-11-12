@@ -57,6 +57,12 @@ enum Command {
         /// Output the check report formatted as JSON.
         #[arg(long, default_value_t = false)]
         json: bool,
+        /// Control colored output: auto, always, never.
+        #[arg(long, value_name = "WHEN", default_value = "auto")]
+        color: cmd_check::ColorChoice,
+        /// Show verbose output including scene cache hit/miss details.
+        #[arg(short, long, default_value_t = false)]
+        verbose: bool,
     },
     /// Launch the interactive graphical scene and script editor.
     Edit {
@@ -144,7 +150,16 @@ fn main() -> Result<()> {
             reimport_assets,
             strict,
             json,
-        }) => cmd_check::run(path.as_deref(), reimport_assets, strict, json),
+            color,
+            verbose,
+        }) => cmd_check::run(
+            path.as_deref(),
+            reimport_assets,
+            strict,
+            json,
+            color,
+            verbose,
+        ),
         Some(Command::Edit { scene }) => cmd_edit::run(scene.as_deref()),
         Some(Command::Export {
             platform,
