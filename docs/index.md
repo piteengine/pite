@@ -11,7 +11,7 @@ Pite is a **2D** game engine built to be **easy to learn and to use**, shaped ar
 [Get started](getting-started/install){ .md-button .md-button--primary }
 [View on GitHub :fontawesome-brands-github:](https://github.com/piteengine/pite){ .md-button }
 
-![Editor Window Editing `minimal-2d` example](images/editor.png)
+![Editor Window Editing "Gem Collector" example](images/editor.png)
 
 ## Install
 
