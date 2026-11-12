@@ -1129,7 +1129,7 @@ mod tests {
 
     #[test]
     fn demo_textures_decode() {
-        let sheet = image::open("../examples/minimal-2d/assets/sheet.png").unwrap();
+        let sheet = image::open("../../examples/minimal-2d/assets/sheet.png").unwrap();
         assert_eq!((sheet.width(), sheet.height()), (128, 64));
     }
 
@@ -1152,7 +1152,7 @@ mod tests {
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (tex_layout, pipeline, sampler) = create_sprite_pipeline(&device, format);
 
-        let sheet = image::open("../examples/minimal-2d/assets/sheet.png")
+        let sheet = image::open("../../examples/minimal-2d/assets/sheet.png")
             .unwrap()
             .to_rgba8();
         // The `player` frame's rect from sheet.atlas.json: (0, 0, 32, 32).
@@ -1306,7 +1306,7 @@ mod tests {
             return;
         };
         r.draw_sprite_frame(
-            "../examples/minimal-2d/assets/sheet.png",
+            "../../examples/minimal-2d/assets/sheet.png",
             Some("player"),
             0.0,
             0.0,
@@ -1332,7 +1332,7 @@ mod tests {
             return;
         };
         r.draw_sprite_frame(
-            "../examples/minimal-2d/assets/sheet.png",
+            "../../examples/minimal-2d/assets/sheet.png",
             Some("player"),
             0.0,
             0.0,
