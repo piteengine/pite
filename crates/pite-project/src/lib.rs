@@ -270,73 +270,48 @@ window_width = 1280
 window_height = 720
 "#;
 
-/// Fresh `main.ptscn` for `create_project`. The format version comes
-/// from the `pite-scene` const so scaffolds track format bumps.
-pub fn template_scene() -> String {
-    format!(
-        r#"format_version = {}
-root = "root"
+const TEMPLATE_MINIMAL_2D_ZIP: &[u8] = include_bytes!("../templates/minimal-2d.zip");
+const TEMPLATE_GEM_COLLECTOR_ZIP: &[u8] = include_bytes!("../templates/gem-collector.zip");
 
-[[node]]
-id = "root"
-type = "Node2D"
-name = "Main"
-
-[[node]]
-id = "player"
-type = "Sprite2D"
-name = "Player"
-parent = "root"
-
-[node.props]
-texture = "res://assets/player.png"
-
-[node.script]
-path = "res://scripts/player.py"
-class = "Player"
-
-[[node]]
-id = "cam"
-type = "Camera2D"
-name = "Camera"
-parent = "root"
-
-[node.props]
-position = [100.0, 200.0]
-"#,
-        pite_scene::FORMAT_VERSION
-    )
+fn extract_zip_template(zip_bytes: &[u8], dest: &Path, project_name: &str) -> Result<()> {
+    let reader = std::io::Cursor::new(zip_bytes);
+    let mut archive = zip::ZipArchive::new(reader)?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let Some(enclosed) = file.enclosed_name() else {
+            continue;
+        };
+        let rel_path = enclosed.to_path_buf();
+        let rel_str = rel_path.to_string_lossy();
+        if rel_str.starts_with('.') || rel_str.contains("/.") || rel_str.contains("_cache") {
+            continue;
+        }
+        let outpath = dest.join(&rel_path);
+        if file.is_dir() {
+            std::fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if rel_path.as_os_str() == MANIFEST_FILE {
+                let mut contents = String::new();
+                std::io::Read::read_to_string(&mut file, &mut contents)?;
+                let customized = if let Some(first_line) =
+                    contents.lines().find(|l| l.trim().starts_with("name = "))
+                {
+                    contents.replacen(first_line, &format!("name = \"{project_name}\""), 1)
+                } else {
+                    contents
+                };
+                std::fs::write(&outpath, customized)?;
+            } else {
+                let mut outfile = std::fs::File::create(&outpath)?;
+                std::io::copy(&mut file, &mut outfile)?;
+            }
+        }
+    }
+    Ok(())
 }
-
-pub const TEMPLATE_SCRIPT: &str = r#"import pite
-
-
-class Player(pite.Node2D):
-    speed: float = 200.0
-
-    def _ready(self):
-        self.position = (100.0, 200.0)
-
-    def _process(self, delta: float):
-        if pite.held.right:
-            self.position.x += self.speed * delta
-        if pite.held.left:
-            self.position.x -= self.speed * delta
-        if pite.held.down:
-            self.position.y += self.speed * delta
-        if pite.held.up:
-            self.position.y -= self.speed * delta
-        if pite.pressed.space:
-            self.position.x += 10.0
-"#;
-
-/// Valid 1x1 RGBA PNG backing the `res://assets/player.png` reference in
-/// [`template_scene()`], so fresh scaffolds pass `pite check`.
-const TEMPLATE_PLAYER_PNG: &[u8] = &[
-    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
-    0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 255, 127, 0,
-    9, 251, 3, 253, 42, 134, 227, 138, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
-];
 
 /// Minimal blank `main.ptscn` for projects created without a template.
 pub fn blank_scene() -> String {
@@ -348,8 +323,10 @@ pub fn blank_scene() -> String {
 
 pub fn create_project(dest: &Path, name: &str, template: Option<&str>) -> Result<PathBuf> {
     if let Some(t) = template {
-        if t != "minimal-2d" {
-            anyhow::bail!("unknown template {t:?} (supported: \"minimal-2d\", or omit for blank)");
+        if t != "minimal-2d" && t != "gem-collector" {
+            anyhow::bail!(
+                "unknown template {t:?} (supported: \"minimal-2d\", \"gem-collector\", or omit for blank)"
+            );
         }
     }
     let dir = if dest.file_name().map(|n| n == name).unwrap_or(false) {
@@ -360,19 +337,25 @@ pub fn create_project(dest: &Path, name: &str, template: Option<&str>) -> Result
     if dir.exists() {
         anyhow::bail!("{} already exists", dir.display());
     }
-    std::fs::create_dir_all(dir.join("scenes")).with_context(|| "cannot create project dirs")?;
-    std::fs::create_dir_all(dir.join("scripts"))?;
-    std::fs::create_dir_all(dir.join("assets"))?;
-    std::fs::write(
-        dir.join(MANIFEST_FILE),
-        TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
-    )?;
-    if template == Some("minimal-2d") {
-        std::fs::write(dir.join("scenes").join("main.ptscn"), template_scene())?;
-        std::fs::write(dir.join("scripts").join("player.py"), TEMPLATE_SCRIPT)?;
-        std::fs::write(dir.join("assets").join("player.png"), TEMPLATE_PLAYER_PNG)?;
-    } else {
-        std::fs::write(dir.join("scenes").join("main.ptscn"), blank_scene())?;
+    match template {
+        Some("gem-collector") => {
+            extract_zip_template(TEMPLATE_GEM_COLLECTOR_ZIP, &dir, name)?;
+        }
+        Some("minimal-2d") => {
+            extract_zip_template(TEMPLATE_MINIMAL_2D_ZIP, &dir, name)?;
+        }
+        None => {
+            std::fs::create_dir_all(dir.join("scenes"))
+                .with_context(|| "cannot create project dirs")?;
+            std::fs::create_dir_all(dir.join("scripts"))?;
+            std::fs::create_dir_all(dir.join("assets"))?;
+            std::fs::write(
+                dir.join(MANIFEST_FILE),
+                TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
+            )?;
+            std::fs::write(dir.join("scenes").join("main.ptscn"), blank_scene())?;
+        }
+        Some(_) => unreachable!(),
     }
     Ok(dir)
 }
@@ -513,9 +496,27 @@ mod tests {
         let root2 = tmpdir("new-tmpl");
         let dir2 = create_project(&root2, "tmpl_game", Some("minimal-2d")).unwrap();
         assert!(dir2.join(MANIFEST_FILE).is_file());
+        assert!(dir2.join("scenes").join("main.ptscn").is_file());
+        assert!(dir2.join("scenes").join("enemy.ptscn").is_file());
         assert!(dir2.join("scripts").join("player.py").is_file());
-        assert!(dir2.join("assets").join("player.png").is_file());
+        assert!(dir2.join("scripts").join("enemy.py").is_file());
+        assert!(dir2.join("scripts").join("hitbutton.py").is_file());
+        assert!(dir2.join("assets").join("sheet.png").is_file());
+        assert!(dir2.join("assets").join("sheet.atlas.json").is_file());
+        assert!(dir2.join("sfx").join("hit.wav").is_file());
         std::fs::remove_dir_all(&root2).ok();
+
+        let root3 = tmpdir("new-gem");
+        let dir3 = create_project(&root3, "gem_game", Some("gem-collector")).unwrap();
+        assert!(dir3.join(MANIFEST_FILE).is_file());
+        assert!(dir3.join("scenes").join("main.ptscn").is_file());
+        assert!(dir3.join("scripts").join("player.py").is_file());
+        assert!(dir3.join("scripts").join("gem.py").is_file());
+        assert!(dir3.join("scripts").join("game_timer.py").is_file());
+        assert!(dir3.join("assets").join("player.png").is_file());
+        assert!(dir3.join("assets").join("gem.png").is_file());
+        assert!(dir3.join("sfx").join("coin.wav").is_file());
+        std::fs::remove_dir_all(&root3).ok();
     }
 
     #[test]

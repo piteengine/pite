@@ -27,7 +27,7 @@ pite new <NAME> [--template <TEMPLATE>]
 | Argument / Flag         | Description                                                                              |
 | :---------------------- | :--------------------------------------------------------------------------------------- |
 | `<NAME>` *(Required)*   | Name of the project directory to create.                                                 |
-| `--template <TEMPLATE>` | Project template to scaffold. Available: `minimal-2d`. Omit to generate a blank project. |
+| `--template <TEMPLATE>` | Project template to scaffold. Available: `minimal-2d`, `gem-collector`. Omit to generate a blank project. |
 
 ---
 

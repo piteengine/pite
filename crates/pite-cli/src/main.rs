@@ -30,8 +30,8 @@ enum Command {
     New {
         /// Name of the new project directory.
         name: String,
-        /// Project template to scaffold (available: "minimal-2d", or omit for blank).
-        #[arg(long, value_parser = ["minimal-2d"])]
+        /// Project template to scaffold (available: "minimal-2d", "gem-collector", or omit for blank).
+        #[arg(long, value_parser = ["minimal-2d", "gem-collector"])]
         template: Option<String>,
     },
     /// Run a scene in the standalone engine runtime.

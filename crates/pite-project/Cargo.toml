@@ -19,3 +19,7 @@ serde.workspace = true
 toml.workspace = true
 pite-core.workspace = true
 pite-scene.workspace = true
+zip.workspace = true
+
+[build-dependencies]
+zip = { workspace = true }
