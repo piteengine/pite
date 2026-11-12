@@ -621,6 +621,109 @@ pub fn print_diagnostic_card(diag: &Diagnostic, c: &Colors) {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReimportReportSummary {
+    pub scanned: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renamed: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs_updated: Vec<String>,
+}
+
+pub fn format_reimport_summary_to_string(summary: &ReimportReportSummary, c: &Colors) -> String {
+    let total_actions = summary.renamed.len()
+        + summary.refs_updated.len()
+        + summary.added.len()
+        + summary.changed.len()
+        + summary.removed.len();
+
+    if total_actions == 0 {
+        return format!(
+            "{check_color}✔{reset} {bold}Reimported assets{reset} {dim}({} scanned, 0 changes){reset}",
+            summary.scanned,
+            check_color = c.bold_green,
+            reset = c.reset,
+            bold = c.bold,
+            dim = c.dim,
+        );
+    }
+
+    let change_label = if total_actions == 1 {
+        "change"
+    } else {
+        "changes"
+    };
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "{check_color}✔{reset} {bold}Reimported assets{reset} {dim}({} scanned, {total_actions} {change_label}):{reset}",
+        summary.scanned,
+        check_color = c.bold_green,
+        reset = c.reset,
+        bold = c.bold,
+        dim = c.dim,
+    ));
+
+    for (old_path, new_path) in &summary.renamed {
+        lines.push(format!(
+            "  {check_color}✔{reset} {dim}Renamed:{reset}  {loc_color}{old_path}{reset} {dim}→{reset} {loc_color}{new_path}{reset}",
+            check_color = c.bold_green,
+            reset = c.reset,
+            dim = c.dim,
+            loc_color = c.bold_cyan,
+            old_path = old_path,
+            new_path = new_path,
+        ));
+    }
+    for r in &summary.refs_updated {
+        lines.push(format!(
+            "  {check_color}✔{reset} {dim}Updated:{reset}  {loc_color}{r}{reset}",
+            check_color = c.bold_green,
+            reset = c.reset,
+            dim = c.dim,
+            loc_color = c.bold_cyan,
+            r = r,
+        ));
+    }
+    for added in &summary.added {
+        lines.push(format!(
+            "  {check_color}+{reset} {dim}Added:{reset}    {loc_color}{added}{reset}",
+            check_color = c.bold_green,
+            reset = c.reset,
+            dim = c.dim,
+            loc_color = c.bold_cyan,
+            added = added,
+        ));
+    }
+    for changed in &summary.changed {
+        lines.push(format!(
+            "  {warn_color}~{reset} {dim}Changed:{reset}  {loc_color}{changed}{reset}",
+            warn_color = c.bold_yellow,
+            reset = c.reset,
+            dim = c.dim,
+            loc_color = c.bold_cyan,
+            changed = changed,
+        ));
+    }
+    for removed in &summary.removed {
+        lines.push(format!(
+            "  {err_color}-{reset} {dim}Removed:{reset}  {loc_color}{removed}{reset}",
+            err_color = c.bold_red,
+            reset = c.reset,
+            dim = c.dim,
+            loc_color = c.bold_cyan,
+            removed = removed,
+        ));
+    }
+
+    lines.join("\n")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CheckSummary {
     pub errors: usize,
     pub warnings: usize,
@@ -634,6 +737,8 @@ pub struct CheckReport {
     pub schema_version: u32,
     pub ok: bool,
     pub summary: CheckSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reimport: Option<ReimportReportSummary>,
     pub diagnostics: Vec<Diagnostic>,
     pub cache: Vec<String>,
 }
@@ -647,6 +752,14 @@ pub fn run(
     verbose: bool,
 ) -> Result<()> {
     let start_time = std::time::Instant::now();
+    let is_term = std::io::stdout().is_terminal() || std::io::stderr().is_terminal();
+    let use_color = color.is_enabled(is_term);
+    let c = if use_color {
+        COLOR_ENABLED
+    } else {
+        COLOR_DISABLED
+    };
+
     let cwd = std::env::current_dir()?;
     let start = match path {
         Some(p) => {
@@ -669,7 +782,7 @@ pub fn run(
         Some(root) => root,
         None => {
             errors.push(format!(
-                "no {} found above {}; run inside a project or pass --path",
+                "no {} found above {}; run inside a project or pass <PATH>",
                 pite_project::MANIFEST_FILE,
                 start.display()
             ));
@@ -677,31 +790,33 @@ pub fn run(
         }
     };
 
+    let mut reimport_summary: Option<ReimportReportSummary> = None;
     if reimport_assets && errors.is_empty() {
         let old = pite_assets::load_registry(&root).unwrap_or_default();
         let files = pite_assets::scan_files(&root).unwrap_or_default();
         let (_next, scan) = pite_assets::reconcile(&old, &files);
         let (_reg, report) = pite_assets::reimport_project(&root)?;
+
+        let sum = ReimportReportSummary {
+            scanned: scan.scanned,
+            added: scan.added,
+            renamed: scan.renamed,
+            removed: scan.removed,
+            changed: scan.changed,
+            refs_updated: report.refs_updated,
+        };
+
         if !json {
-            println!("scanned {} asset(s)", scan.scanned);
-            for added in &scan.added {
-                println!("added: {added}");
-            }
-            for (old_path, new_path) in &scan.renamed {
-                println!("renamed: {old_path} -> {new_path}");
-            }
-            for removed in &scan.removed {
-                println!("removed: {removed}");
-            }
-            for changed in &scan.changed {
-                println!("changed: {changed}");
-            }
-            println!("reimported {} asset(s)", report.reimported.len());
-            for r in &report.reimported {
-                println!("reimported: {r}");
-            }
-            for r in &report.refs_updated {
-                println!("refs updated: {r}");
+            let rendered = format_reimport_summary_to_string(&sum, &c);
+            let has_actions = !sum.renamed.is_empty()
+                || !sum.refs_updated.is_empty()
+                || !sum.added.is_empty()
+                || !sum.changed.is_empty()
+                || !sum.removed.is_empty();
+            if has_actions {
+                println!("{rendered}\n");
+            } else {
+                println!("{rendered}");
             }
         }
         if !report.failed.is_empty() {
@@ -709,6 +824,7 @@ pub fn run(
                 errors.push(format!("failed to reimport asset {f}"));
             }
         }
+        reimport_summary = Some(sum);
     }
 
     let manifest = if errors.is_empty() {
@@ -837,6 +953,7 @@ pub fn run(
             assets_scanned: scanned_count,
             elapsed_ms,
         },
+        reimport: reimport_summary,
         diagnostics,
         cache,
     };
@@ -844,18 +961,35 @@ pub fn run(
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        let is_term = std::io::stdout().is_terminal() || std::io::stderr().is_terminal();
-        let use_color = color.is_enabled(is_term);
-        let c = if use_color {
-            COLOR_ENABLED
-        } else {
-            COLOR_DISABLED
-        };
-
-        if verbose {
+        if verbose && !report.cache.is_empty() {
+            println!("{dim}Scene cache:{reset}", dim = c.dim, reset = c.reset);
             for line in &report.cache {
-                println!("{}cache:{} {line}", c.dim, c.reset);
+                if let Some((status, path_str)) = line.split_once(' ') {
+                    let rel = format_path_rel(&root, path_str);
+                    let (status_badge, status_color) = match status {
+                        "hit" => ("hit ", c.bold_green),
+                        "miss" => ("miss", c.bold_yellow),
+                        _ => (status, c.dim),
+                    };
+                    println!(
+                        "  {dim}•{reset} {status_color}{status_badge}{reset}  {loc_color}{rel}{reset}",
+                        dim = c.dim,
+                        reset = c.reset,
+                        status_color = status_color,
+                        status_badge = status_badge,
+                        loc_color = c.bold_cyan,
+                        rel = rel,
+                    );
+                } else {
+                    println!(
+                        "  {dim}• cache:{reset} {line}",
+                        dim = c.dim,
+                        reset = c.reset,
+                        line = line
+                    );
+                }
             }
+            println!();
         }
 
         for diag in &report.diagnostics {
@@ -2061,6 +2195,7 @@ animation = "idle"
                 assets_scanned: 10,
                 elapsed_ms: 15,
             },
+            reimport: None,
             diagnostics: vec![Diagnostic {
                 severity: DiagnosticSeverity::Error,
                 file: Some("scenes/main.ptscn".to_string()),
@@ -2087,6 +2222,42 @@ animation = "idle"
             val["diagnostics"][0]["hint"],
             "run 'pite check --reimport-assets'"
         );
+        assert!(val.get("reimport").is_none());
+    }
+
+    #[test]
+    fn reimport_summary_formatting() {
+        // Zero changes
+        let s0 = ReimportReportSummary {
+            scanned: 5,
+            added: Vec::new(),
+            renamed: Vec::new(),
+            removed: Vec::new(),
+            changed: Vec::new(),
+            refs_updated: Vec::new(),
+        };
+        let out0 = format_reimport_summary_to_string(&s0, &COLOR_DISABLED);
+        assert_eq!(out0, "✔ Reimported assets (5 scanned, 0 changes)");
+
+        // With actions
+        let s1 = ReimportReportSummary {
+            scanned: 8,
+            added: vec!["res://assets/new.png".to_string()],
+            renamed: vec![(
+                "res://assets/old.png".to_string(),
+                "res://assets/renamed.png".to_string(),
+            )],
+            removed: vec!["res://assets/old.png".to_string()],
+            changed: vec!["res://assets/icon.png".to_string()],
+            refs_updated: vec!["res://scenes/main.ptscn".to_string()],
+        };
+        let out1 = format_reimport_summary_to_string(&s1, &COLOR_DISABLED);
+        assert!(out1.starts_with("✔ Reimported assets (8 scanned, 5 changes):\n"));
+        assert!(out1.contains("  ✔ Renamed:  res://assets/old.png → res://assets/renamed.png\n"));
+        assert!(out1.contains("  ✔ Updated:  res://scenes/main.ptscn\n"));
+        assert!(out1.contains("  + Added:    res://assets/new.png\n"));
+        assert!(out1.contains("  ~ Changed:  res://assets/icon.png\n"));
+        assert!(out1.contains("  - Removed:  res://assets/old.png"));
     }
 
     #[test]
