@@ -138,46 +138,15 @@ Pite is built to be handy to use, to change, and to own. It unites Python script
 
 ## Workspace
 
-| Crate | Role |
-| ----- | ---- |
-| `pite` | `pite` binary: new / run / check / edit / export / vendor / toolchain (in `crates/pite-cli/`) |
-| `pite-player` | Lean export player: runs a scene, no editor |
-| `pite-runtime` | Window, main loop, script driving, hot reload |
-| `pite-core` | Node tree, handles, props, lifecycle dispatch |
-| `pite-physics` | Pure-Rust 2D physics subsystem (`rapier2d`): rigid bodies, character controller, triggers, raycasts |
-| `pite-render` | `Renderer2D` trait (wgpu seam) |
-| `pite-script` | Embedded Python (`pite` module) |
-| `pite-scene` | TOML scenes, instantiation, validation, binary cache |
-| `pite-editor` | eframe/egui panels on the same tree, LSP client |
-| `pite-assets` | `Importer` trait, uid registry |
-| `pite-audio` | Audio decode (WAV, OGG, MP3, FLAC), default-device output, silent-simulation fallback |
-| `pite-project` | `pite.toml`, `res://` paths, templates |
-| `pite-export` | Desktop export (binary + resolved content) |
+Pite is structured as a modular Rust workspace consisting of 13 crates, all located in [`crates/`](crates). For crate roles, crate dependencies, and architecture documentation, see the [Rust Architecture Reference](https://piteengine.github.io/pite/developer/rust-docs/).
 
-All 13 crates are published on crates.io, versioned lockstep with the engine:
-
-- [`pite`](https://crates.io/crates/pite) [![crates.io](https://img.shields.io/crates/v/pite)](https://crates.io/crates/pite) [![docs.rs](https://img.shields.io/docsrs/pite)](https://docs.rs/pite)
-- [`pite-core`](https://crates.io/crates/pite-core) [![crates.io](https://img.shields.io/crates/v/pite-core)](https://crates.io/crates/pite-core) [![docs.rs](https://img.shields.io/docsrs/pite-core)](https://docs.rs/pite-core)
-- [`pite-project`](https://crates.io/crates/pite-project) [![crates.io](https://img.shields.io/crates/v/pite-project)](https://crates.io/crates/pite-project) [![docs.rs](https://img.shields.io/docsrs/pite-project)](https://docs.rs/pite-project)
-- [`pite-scene`](https://crates.io/crates/pite-scene) [![crates.io](https://img.shields.io/crates/v/pite-scene)](https://crates.io/crates/pite-scene) [![docs.rs](https://img.shields.io/docsrs/pite-scene)](https://docs.rs/pite-scene)
+All 13 crates are published in lockstep with the engine on [crates.io](https://crates.io) and documented on [docs.rs](https://docs.rs).
 
 ## Docs
 
 Documentation is available online at **[piteengine.github.io/pite](https://piteengine.github.io/pite)**.
 
-| Guide / Reference | Covers |
-| :---------------- | :----- |
-| [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md) | Setup, scaffolding, and opening the editor |
-| [`docs/tutorials/first-game.md`](docs/tutorials/first-game.md) | End-to-end tutorial building a 2D Gem Collector game |
-| [`docs/guides/editor.md`](docs/guides/editor.md) | Interface, viewport, inspector, assets, completion, shortcuts |
-| [`docs/guides/export.md`](docs/guides/export.md) | Standalone builds, bundled Python, asset collection |
-| [`docs/guides/assets.md`](docs/guides/assets.md) | `res://` refs, UID manifest, asset reimport |
-| [`docs/reference/scripting-api.md`](docs/reference/scripting-api.md) | Python API: nodes, signals, input, physics, audio, text |
-| [`docs/reference/scene-format.md`](docs/reference/scene-format.md) | `.ptscn` TOML, instantiation, binary scene cache |
-| [`docs/reference/manifest.md`](docs/reference/manifest.md) | `pite.toml` fields, defaults, vendor, custom properties |
-| [`docs/reference/cli.md`](docs/reference/cli.md) | CLI commands (`new`, `run`, `check`, `edit`, `export`, etc.) |
-| [`docs/concepts/architecture.md`](docs/concepts/architecture.md) | Dual-layer Rust/Python engine architecture and lifecycle |
-| [`docs/concepts/why-scene-tree.md`](docs/concepts/why-scene-tree.md) | Scene tree rationale vs Entity Component System (ECS) |
+All documentation source files are located in the [`docs/`](docs) folder. Node class reference documentation is automatically generated from the engine schema defined in [`crates/pite-core/src/schema.rs`](crates/pite-core/src/schema.rs) and [`crates/pite-core/src/nodes/`](crates/pite-core/src/nodes) (with Python bindings in [`crates/pite-script/src/python/nodes/`](crates/pite-script/src/python/nodes)).
 
 ## Contributing
 
