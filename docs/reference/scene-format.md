@@ -2,7 +2,7 @@
 icon: lucide/tv-minimal-play
 ---
 
-# Scene Format (`.ptscn`)
+# Scene Format
 
 Pite scenes are defined as human-readable, version-controllable TOML documents (`.ptscn`). The plain-text TOML format is the single source of truth for all scene descriptions. Node identifiers are human-friendly strings (such as `root`, `player`, `ui`), rather than arbitrary UUIDs.
 
@@ -71,7 +71,7 @@ prefix = "e1_"
 - **Subtree Cloning**: Loading clones the target scene's node hierarchy under `parent` (defaulting to the host scene root).
 - **ID Namespacing**: Every node identifier in the instantiated subtree is prefixed with `prefix` to avoid collisions.
 - **Property Overrides**: The `[instance.overrides]` table applies modifications keyed as `"node_id.prop"`.
-- **Byte-Stable Persistence**: Saving preserves `[[instance]]` entries rather than inlining subtrees into the host scene. Property keys are written in sorted order, ensuring byte-stable output (see the [Editor Guide](../guides/editor.md#saving-scenes)).
+- **Byte-Stable Persistence**: Saving preserves `[[instance]]` entries rather than inlining subtrees into the host scene. Property keys are written in sorted order, ensuring byte-stable output (see the [Editor Guide](../guides/editor#saving-scenes)).
 
 ---
 

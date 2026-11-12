@@ -2,7 +2,7 @@
 icon: lucide/file-code-corner
 ---
 
-# Scripting API (Python)
+# Python Scripting API
 
 Gameplay logic in Pite is authored in Python scripts that inherit from engine node classes in the embedded `pite` module. Scripts execute directly within the engine process via embedded CPython 3.12, providing high performance with full access to standard Python features.
 
@@ -261,7 +261,7 @@ Built-in signals:
 - `area_entered(area_id: str)`
 - `area_exited(area_id: str)`
 
-### Spatial Queries (Raycasts)
+### Spatial Queries and Raycasts
 
 ```python
 hit = pite.raycast((x, y), (target_x, target_y), mask=1)

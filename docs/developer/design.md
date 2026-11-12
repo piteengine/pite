@@ -8,7 +8,7 @@ This page documents brand identity, color tokens, logo usage, and UI theming for
 
 ## Logo
 
-![Pite Logo](../images/logo.svg){ width="100" height="100" }
+![Pite Logo](../images/logo.svg)
 
 Main mark is a hexagonal icon on a 512×512 grid, scaled to fill the viewport edge-to-edge vertically (no top/bottom padding). Single path, `fill-rule="evenodd"`, no strokes, no gradients. It recolors cleanly via the `fill` attribute, which is how all variants are derived.
 
@@ -33,7 +33,7 @@ Main mark is a hexagonal icon on a 512×512 grid, scaled to fill the viewport ed
 - egui cannot render SVG natively. In-app surfaces (window icon, editor header)
     need PNG renditions — export from the SVG at 16 / 32 / 64 / 128 / 256 px.
 
-## 2. Core palette — Pite Teal
+## Core Palette and Pite Teal
 
 Canonical tokens: [`palette.json`](palette.json) (plus `usage` allow lists).
 The table mirrors it — do not add new hexes here, update `palette.json` first.
@@ -46,13 +46,13 @@ The table mirrors it — do not add new hexes here, update `palette.json` first.
 | Background | `#042F2E` | 4, 47, 46     | Dark theme background                                          |
 | Pale       | `#cbfaf0` | 203, 250, 240 | Soft / subtle tone. Secondary text on dark                     |
 
-## 3. Theme tokens
+## Theme Tokens
 
 Light-theme surface tokens live with the open light-theme item (§6.4) — only
 the dark editor mapping below is implemented. Backgrounds use palette
 `Background` (`#042F2E`); the mark on dark is `logo-white.svg` (`#f7f7f9`).
 
-## 4. Editor mapping (`pite-editor/src/theme.rs`)
+## Editor Theme Mapping
 
 The editor is dark-theme-only today. Surfaces are neutral near-black; the teal
 `ACCENT` is a signal color only (selection stroke, hyperlinks, active widget
@@ -93,7 +93,7 @@ what is selected, what is a link, what is actively pressed. The viewport
 follows the same rule: the textured game frame is the content, and its overlay
 glyphs drop from neon to muted slate so captions annotate instead of shouting.
 
-## 5. Typography
+## Typography Standards
 
 - **UI / proportional:** Inter (`fonts/Inter-Regular.ttf`), 15 px body/buttons,
     20 px headings, 12 px small — embedded via `include_bytes!("../../fonts/…")`.
@@ -101,7 +101,7 @@ glyphs drop from neon to muted slate so captions annotate instead of shouting.
 - Spacing: item 8×6, button padding 10×5, indent 20, scrollbar width 10,
     corner radii 8 (window) / 6 (widgets, menu).
 
-## 6. Platform Integration and Visual Roadmap
+## Platform Integration and Visual Roadmap
 
 1. **Window and Desktop Icons**:
     - **Editor Application**: Configured in `pite-editor/src/app.rs` via `ViewportBuilder::with_icon` loaded from `assets/icon.png` (256 px render of `logo.svg`) using `eframe::icon_data::from_png_bytes`. Replaces default egui icons across desktop taskbars, alt-tab switchers, and window borders.

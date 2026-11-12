@@ -2,7 +2,7 @@
 icon: lucide/terminal
 ---
 
-# Command-Line Interface (CLI)
+# Command Line Interface
 
 The `pite` binary is the central command-line entry point for project creation, running, integrity checking, visual editing, asset management, package vendoring, and game export.
 

@@ -2,7 +2,7 @@
 icon: lucide/file-cog
 ---
 
-# Project Manifest (`pite.toml`)
+# Project Manifest
 
 Every Pite project is defined by a `pite.toml` manifest located in its root directory. The manifest schema is designed for stability and compatibility: all standard fields provide sensible defaults, enabling older configurations to load seamlessly, while unknown custom keys are preserved across round-trip edits rather than silently discarded.
 

@@ -2,7 +2,9 @@
 title: Home
 ---
 
-# Pite [![GitHub Release](https://img.shields.io/github/v/release/piteengine/pite?style=flat-square&label=%20&color=0b9387)](https://github.com/piteengine/pite/releases/latest)
+# Pite
+
+[![GitHub Release](https://img.shields.io/github/v/release/piteengine/pite?style=flat-square&label=%20&color=0b9387)](https://github.com/piteengine/pite/releases/latest)
 
 **A game engine that's handy to use, to change, to own.**
 
@@ -94,6 +96,6 @@ class Player(pite.Node2D):
 ??? Question "Do I have to install Rust and Python to export games?"
     **No**, Pite fetches Python and engine binary from the internet at export time (and stores them inside `~/.cache/pite/toolchains`). But you must have Python installed on your device **to run games inside editor.**
 
-    For more details on Python bundling and runtime resolution, see the [Export Guide](guides/export.md).
+    For more details on Python bundling and runtime resolution, see the [Export Guide](guides/export).
 
 [^1]: Measured on the `minimal-2d` template with Pite v0.3.0. ~20 MB on Window, ~36 MB on macOS, ~52 MB on Linux. the difference comes from the *Python Standard Library* needing different dynamic linkers on each platform.

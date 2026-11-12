@@ -166,7 +166,7 @@ Clicking any script in the Assets browser or choosing **Open Script** switches t
 - **Error Gutter**: Line numbers line the left margin. Lines encountering runtime errors or syntax issues display diagnostic badges with hover tooltips.
 - **Live Code Reload**: Saving a script (++ctrl+s++) while the game is playing updates logic in real time via hot reloading.
 
-### Language Server (Pyright)
+### Language Server Integration
 
 The editor integrates with Pyright using the Language Server Protocol (LSP) to provide intelligent autocomplete and type checking:
 

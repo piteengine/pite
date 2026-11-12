@@ -43,7 +43,7 @@ Run below command in your terminal:
     irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1 | iex
     ```
 
-The script identifies latest version, detects OS and architecture, downloads, verifies, and then installs Pite plus each platform [Pite Player](../guides/export.md#cross-platform-exporting) for the current user. You should see a success message with the version and installation location. The `pite` command will be available after installation completes.
+The script identifies latest version, detects OS and architecture, downloads, verifies, and then installs Pite plus each platform [Pite Player](../guides/export#cross-platform-exporting) for the current user. You should see a success message with the version and installation location. The `pite` command will be available after installation completes.
 
 !!! Info "To Update: Same command works for updating to newer versions."
 
@@ -79,7 +79,7 @@ The script identifies latest version, detects OS and architecture, downloads, ve
         iex "& { $(irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1) } -Prefix 'C:\Tools\Pite'"
         ```
 
-### GitHub (Portable Install)
+### Portable Install via GitHub
 
 Engine executables are available in [GitHub releases](https://github.com/piteengine/pite/releases) too. Each release contains engine binary for each platform with export utilities for all platforms alongside it:
 
@@ -94,9 +94,9 @@ You can download your platform build and then run `pite` (or `pite.exe`) executa
 !!! Note
     The remaining files are standalone `pite-player` binaries — one per platform plus all-platform archives — used by `pite export` when no player sibling exists, and by `cargo install` users (cargo only builds `pite`, not the players).
 
-    For more information, see the [Export Guide](../guides/export.md#cross-platform-exporting).
+    For more information, see the [Export Guide](../guides/export#cross-platform-exporting).
 
-### Cargo (Build From Source)
+### Build From Source via Cargo
 
 Pite can be built from source via [crates.io](https://crates.io/crates/pite):
 
@@ -116,7 +116,7 @@ cargo install pite
 !!! Info "To Update: Use `--force` flag: `cargo install pite --force`"
 
 !!! Info
-    This method won't install [Pite Players](../guides/export.md#cross-platform-exporting), they will be downloaded at export time or when you run `pite toolchain download`.
+    This method won't install [Pite Players](../guides/export#cross-platform-exporting), they will be downloaded at export time or when you run `pite toolchain download`.
 
 ## Verify the Installation
 

@@ -50,7 +50,7 @@ graph TD
 
 ---
 
-## 1. Architectural Philosophy
+## Architectural Philosophy
 
 Game development balances two distinct programming needs:
 
@@ -61,7 +61,7 @@ Rather than building an interpreted engine or requiring developers to compile C+
 
 ---
 
-## 2. Workspace Crates
+## Workspace Crates
 
 The engine is structured as a modular Rust workspace consisting of 13 focused crates:
 
@@ -83,7 +83,7 @@ The engine is structured as a modular Rust workspace consisting of 13 focused cr
 
 ---
 
-## 3. The Execution Frame Loop
+## Execution Frame Loop
 
 Each frame of a running game executes deterministically through `pite-runtime`:
 
@@ -98,24 +98,24 @@ flowchart TD
     RenderPass --> AudioPass["6. Audio Buffer Mixing"]
 ```
 
-### 1. Input Event Collection
+### Input Event Collection
 Window and hardware events are collected from the OS via `winit` and translated into engine input state (`pite.held`, `pite.pressed`, and physical mouse coordinates).
 
-### 2. Fixed Physics Simulation (60 Hz)
+### Fixed Physics Simulation at 60 Hz
 Physics runs on a fixed time accumulator at 60 Hz (`dt = 1/60`):
 - Dynamic bodies and forces advance via `rapier2d`.
 - Scripts defining `_physics_process(delta)` execute, allowing kinematic controllers like `CharacterBody2D` to call `move_and_slide()`.
 - Contact flags (`is_on_floor`, `is_on_wall`, `is_on_ceiling`) and overlap events (`body_entered`) update.
 
-### 3. Variable Gameplay Frame
+### Variable Gameplay Frame
 For each visual frame:
 - The delta time `delta` (clamped to at most 0.1s to prevent spiral-of-death during pauses) passes to `_process(delta)` in attached Python scripts.
 - Input edge states (`pressed` and `released`) clear at the end of the frame.
 
-### 4. Direct Property Synchronization
+### Direct Property Synchronization
 Script assignments such as `self.position.x += 10` or `self.texture = "res://…"` write directly into the Rust tree state without intermediary string lookups or end-of-frame reflection passes.
 
-### 5. Offscreen & Surface Rendering
+### Offscreen and Surface Rendering
 The renderer traverses the node tree in scene-tree order:
 - Cameras calculate view projections (`screen_to_world`).
 - Sprite quads and text glyphs batch into vertex buffers.
@@ -123,7 +123,7 @@ The renderer traverses the node tree in scene-tree order:
 
 ---
 
-## 4. Scripting Bridge & Memory Model
+## Scripting Bridge and Memory Model
 
 The scripting subsystem connects Python to the Rust core without compromising stability:
 
@@ -134,7 +134,7 @@ The scripting subsystem connects Python to the Rust core without compromising st
 
 ---
 
-## 5. Assets and Scene Persistence
+## Assets and Scene Persistence
 
 Pite maintains strict data guarantees across your filesystem:
 

@@ -2,7 +2,7 @@
 icon: lucide/list-tree
 ---
 
-# Why Scene Tree?
+# Why Scene Tree
 
 Why Pite chose a hierarchical scene-tree architecture instead of an Entity Component System (ECS).
 
@@ -12,7 +12,7 @@ Pite deliberately chooses a **Scene Tree** model instead. Here is why.
 
 ---
 
-## 1. Games Are Naturally Hierarchical
+## Games Are Naturally Hierarchical
 
 Most video games are inherently spatial and relational:
 
@@ -50,7 +50,7 @@ graph TD
 
 ---
 
-## 2. Scenes Are Nodes (Composability)
+## Scenes Are Nodes and Composability
 
 In Pite, there is no conceptual division between a "game world" and an "actor":
 
@@ -62,7 +62,7 @@ Instantiated sub-scenes remain modular references on disk. If you tune `player.p
 
 ---
 
-## 3. Python Ergonomics Match Object Trees
+## Python Ergonomics Match Object Trees
 
 ECS works well when writing low-level data-parallel systems in languages with strong type systems like Rust or C++. However, ECS becomes clunky when bridged to high-level scripting languages like Python:
 
@@ -91,7 +91,7 @@ Gameplay scripts attach directly to the node they control. Each node owns its st
 
 ---
 
-## 4. Visual Editing Requires Tree Representation
+## Visual Editing Requires Tree Representation
 
 Game designers and artists think visually:
 
@@ -103,7 +103,7 @@ What you see in the visual editor matches your script structure and disk files.
 
 ---
 
-## 5. Architectural Comparison
+## Architectural Comparison
 
 | Dimension | Scene Tree (Pite) | Entity Component System (ECS) |
 | :-------- | :---------------- | :---------------------------- |
