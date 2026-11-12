@@ -226,6 +226,10 @@ mod tests {
             vec!["Sprite2D", "Node2D", "Node"]
         );
         assert_eq!(
+            inheritance_chain("AnimatedSprite2D"),
+            vec!["AnimatedSprite2D", "Node2D", "Node"]
+        );
+        assert_eq!(
             inheritance_chain("CharacterBody2D"),
             vec![
                 "CharacterBody2D",
@@ -249,6 +253,20 @@ mod tests {
         let keys: Vec<&str> = props.iter().map(|p| p.key).collect();
         assert_eq!(keys, vec!["texture", "atlas", "frame"]);
 
+        let anim_props = type_props("AnimatedSprite2D");
+        let keys: Vec<&str> = anim_props.iter().map(|p| p.key).collect();
+        assert_eq!(
+            keys,
+            vec![
+                "atlas",
+                "animation",
+                "frame",
+                "speed_scale",
+                "playing",
+                "autoplay"
+            ]
+        );
+
         // PhysicsBody2D declares friction/restitution; RigidBody2D declares only
         // its own new props (mass, gravity_scale, lock_rotation).
         let rigid = type_props("RigidBody2D");
@@ -263,6 +281,25 @@ mod tests {
         assert_eq!(
             keys,
             vec!["texture", "atlas", "frame", "position", "rotation"]
+        );
+
+        // AnimatedSprite2D → Node2D → Node
+        let keys: Vec<&str> = all_props("AnimatedSprite2D")
+            .iter()
+            .map(|p| p.key)
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                "atlas",
+                "animation",
+                "frame",
+                "speed_scale",
+                "playing",
+                "autoplay",
+                "position",
+                "rotation"
+            ]
         );
 
         // Button shadows Control's color and size; Control's color/size are

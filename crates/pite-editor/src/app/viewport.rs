@@ -246,7 +246,7 @@ impl EditorApp {
             painter.rect_filled(view_rect, 0.0, crate::theme::BG);
             for (id, type_name, (x, y), text, (w, h)) in nodes {
                 let p = center + egui::Vec2::new(x as f32, y as f32);
-                let color = if type_name == "Sprite2D" {
+                let color = if type_name == "Sprite2D" || type_name == "AnimatedSprite2D" {
                     egui::Color32::from_rgb(111, 179, 167)
                 } else {
                     egui::Color32::from_rgb(124, 155, 184)

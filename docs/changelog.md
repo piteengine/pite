@@ -4,6 +4,15 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+- **2D Flipbook Animations (`AnimatedSprite2D`)**:
+    - Added `AnimatedSprite2D` node inheriting from `Node2D` for frame-by-frame 2D animations using sprite sheets.
+    - Extended `.atlas.json` schema with `"animations"` defining named sequences of frames, frames-per-second (`fps`), and `loop` setting.
+    - Scripting API: `pite.AnimatedSprite2D` exposes `play(anim, loop)`, `pause()`, `stop()`, and `is_playing()`, along with properties `atlas`, `animation`, `frame`, `speed_scale`, `playing`, and `autoplay`.
+    - Signals: Engine-managed `animation_finished(anim_name)` on completion of non-looping animations and `animation_looped(anim_name)` on each cycle of looping animations.
+    - Runtime: Frame timing accumulation with remainder carry-over in `_process`, support for negative `speed_scale` (reverse playback), and scene-ready autoplay initialization.
+    - Static verification: `pite check` verifies `.atlas.json` animation definitions, ensures node animation names exist in referenced atlases, and flags unreferenced animations.
+    - Editor integration: Phosphor icon, atlas drag-and-drop support, inspector editing, and static viewport frame rendering.
+
 - **2D Tilemaps (`TileMap2D`)**:
     - Added multi-layer grid tilemaps via `.ptmap` TOML sidecars referencing atlas frames.
     - Greedy collider merging: adjacent solid tiles coalesce into maximal static box colliders in Rapier2D, preventing internal edge snagging.

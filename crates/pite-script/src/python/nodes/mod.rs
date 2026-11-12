@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! One file per `#[pyclass]` node exposed to Python.
 
+mod animated_sprite2d;
 mod area2d;
 mod button;
 mod camera2d;
@@ -15,6 +16,7 @@ mod static_body2d;
 mod tilemap;
 mod timer;
 
+pub(crate) use animated_sprite2d::PyAnimatedSprite2D;
 pub(crate) use area2d::PyArea2D;
 pub(crate) use button::PyButton;
 pub(crate) use camera2d::PyCamera2D;

@@ -46,12 +46,21 @@ impl AtlasFrame {
     }
 }
 
-/// A parsed sheet: its texture file plus named frames.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One animation sequence inside the sheet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AtlasAnimation {
+    pub frames: Vec<String>,
+    pub fps: f32,
+    pub looping: bool,
+}
+
+/// A parsed sheet: its texture file plus named frames and animations.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Atlas {
     pub texture: String,
     pub size: (u32, u32),
     pub frames: BTreeMap<String, AtlasFrame>,
+    pub animations: BTreeMap<String, AtlasAnimation>,
 }
 
 impl Atlas {
@@ -73,6 +82,25 @@ impl Atlas {
     pub fn names(&self) -> Vec<&str> {
         self.frames.keys().map(String::as_str).collect()
     }
+
+    /// Animation lookup that names the alternatives instead of failing silently.
+    pub fn animation(&self, name: &str) -> Result<&AtlasAnimation> {
+        self.animations.get(name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "atlas {:?} has no animation {name:?} (available: {})",
+                self.texture,
+                if self.animations.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.animation_names().join(", ")
+                }
+            )
+        })
+    }
+
+    pub fn animation_names(&self) -> Vec<&str> {
+        self.animations.keys().map(String::as_str).collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,6 +108,25 @@ struct RawAtlas {
     texture: String,
     size: [u32; 2],
     frames: BTreeMap<String, RawFrame>,
+    #[serde(default)]
+    animations: BTreeMap<String, RawAnimation>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAnimation {
+    frames: Vec<String>,
+    #[serde(default = "default_fps")]
+    fps: f32,
+    #[serde(default = "default_looping", rename = "loop", alias = "looping")]
+    looping: bool,
+}
+
+fn default_fps() -> f32 {
+    10.0
+}
+
+fn default_looping() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,10 +177,47 @@ pub fn parse_atlas(text: &str) -> Result<Atlas> {
         }
         frames.insert(name, frame);
     }
+    let mut animations = BTreeMap::new();
+    let available_frames = if frames.is_empty() {
+        "none".to_string()
+    } else {
+        frames
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    for (name, anim) in raw.animations {
+        if anim.frames.is_empty() {
+            anyhow::bail!("atlas animation {name:?} declares no frames");
+        }
+        if anim.fps <= 0.0 || !anim.fps.is_finite() {
+            anyhow::bail!(
+                "atlas animation {name:?} fps ({}) must be positive",
+                anim.fps
+            );
+        }
+        for frame_name in &anim.frames {
+            if !frames.contains_key(frame_name) {
+                anyhow::bail!(
+                    "atlas animation {name:?} references nonexistent frame {frame_name:?} (available: {available_frames})"
+                );
+            }
+        }
+        animations.insert(
+            name,
+            AtlasAnimation {
+                frames: anim.frames,
+                fps: anim.fps,
+                looping: anim.looping,
+            },
+        );
+    }
     Ok(Atlas {
         texture: raw.texture,
         size: sheet,
         frames,
+        animations,
     })
 }
 
@@ -249,5 +333,75 @@ mod tests {
         let sidecar = sidecar_for(sheet);
         assert_eq!(sidecar, PathBuf::from("/game/assets/sheet.atlas.json"));
         assert_eq!(sheet_for_sidecar(&sidecar), sheet);
+    }
+
+    #[test]
+    fn parses_animations_and_validates_frames() {
+        let json = r#"{
+            "texture": "sheet.png",
+            "size": [64, 32],
+            "frames": {
+                "f1": { "x": 0, "y": 0, "w": 32, "h": 32 },
+                "f2": { "x": 32, "y": 0, "w": 32, "h": 32 }
+            },
+            "animations": {
+                "walk": {
+                    "frames": ["f1", "f2"],
+                    "fps": 12.0,
+                    "loop": true
+                },
+                "jump": {
+                    "frames": ["f1"],
+                    "fps": 8.0,
+                    "loop": false
+                }
+            }
+        }"#;
+        let atlas = parse_atlas(json).unwrap();
+        assert_eq!(atlas.animation_names(), vec!["jump", "walk"]);
+        let walk = atlas.animation("walk").unwrap();
+        assert_eq!(walk.frames, vec!["f1", "f2"]);
+        assert_eq!(walk.fps, 12.0);
+        assert!(walk.looping);
+
+        let jump = atlas.animation("jump").unwrap();
+        assert_eq!(jump.frames, vec!["f1"]);
+        assert_eq!(jump.fps, 8.0);
+        assert!(!jump.looping);
+
+        let err = atlas.animation("idle").unwrap_err().to_string();
+        assert!(err.contains("no animation \"idle\""), "got: {err}");
+        assert!(err.contains("walk"), "got: {err}");
+    }
+
+    #[test]
+    fn invalid_animations_fail_loudly() {
+        let missing_frame = r#"{
+            "texture": "sheet.png",
+            "size": [64, 32],
+            "frames": { "f1": { "x": 0, "y": 0, "w": 32, "h": 32 } },
+            "animations": { "walk": { "frames": ["ghost"], "fps": 10.0 } }
+        }"#;
+        let err = parse_atlas(missing_frame).unwrap_err().to_string();
+        assert!(err.contains("nonexistent frame \"ghost\""), "got: {err}");
+        assert!(err.contains("f1"), "got: {err}");
+
+        let empty_frames = r#"{
+            "texture": "sheet.png",
+            "size": [64, 32],
+            "frames": { "f1": { "x": 0, "y": 0, "w": 32, "h": 32 } },
+            "animations": { "walk": { "frames": [], "fps": 10.0 } }
+        }"#;
+        let err = parse_atlas(empty_frames).unwrap_err().to_string();
+        assert!(err.contains("declares no frames"), "got: {err}");
+
+        let zero_fps = r#"{
+            "texture": "sheet.png",
+            "size": [64, 32],
+            "frames": { "f1": { "x": 0, "y": 0, "w": 32, "h": 32 } },
+            "animations": { "walk": { "frames": ["f1"], "fps": 0.0 } }
+        }"#;
+        let err = parse_atlas(zero_fps).unwrap_err().to_string();
+        assert!(err.contains("must be positive"), "got: {err}");
     }
 }

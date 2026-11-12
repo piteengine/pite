@@ -9,7 +9,7 @@
 pub mod atlas;
 
 pub use atlas::{atlas_report, load_sidecar, resolve_sprite_source, sheet_path};
-pub use atlas::{AtlasUse, SpriteSource};
+pub use atlas::{AnimationUse, AtlasUse, SpriteSource};
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

@@ -57,6 +57,15 @@ pub struct AtlasUse {
     pub frame: String,
 }
 
+/// One scene node referencing a named animation in an atlas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationUse {
+    pub scene: String,
+    pub node: String,
+    pub atlas: String,
+    pub animation: String,
+}
+
 fn atlas_path(root: &Path, atlas_ref: &str) -> PathBuf {
     match atlas_ref.strip_prefix("res://") {
         Some(rel) => root.join(rel),
@@ -64,24 +73,41 @@ fn atlas_path(root: &Path, atlas_ref: &str) -> PathBuf {
     }
 }
 
-/// Check every atlas reference in the project: unknown frames are errors
-/// (naming the alternatives), frames nothing points at are warnings.
+/// Check every atlas reference in the project: unknown frames and animations are
+/// errors (naming the alternatives), unreferenced frames and animations are warnings.
 /// Output is sorted so repeated runs report identically.
-pub fn atlas_report(root: &Path, uses: &[AtlasUse]) -> (Vec<String>, Vec<String>) {
+pub fn atlas_report(
+    root: &Path,
+    uses: &[AtlasUse],
+    anim_uses: &[AnimationUse],
+) -> (Vec<String>, Vec<String>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    let mut by_atlas: BTreeMap<&str, Vec<&AtlasUse>> = BTreeMap::new();
+    let mut by_atlas: BTreeMap<&str, (Vec<&AtlasUse>, Vec<&AnimationUse>)> = BTreeMap::new();
     for use_ in uses {
-        by_atlas.entry(use_.atlas.as_str()).or_default().push(use_);
+        by_atlas
+            .entry(use_.atlas.as_str())
+            .or_default()
+            .0
+            .push(use_);
     }
-    for (atlas_ref, uses) in by_atlas {
+    for anim_use in anim_uses {
+        by_atlas
+            .entry(anim_use.atlas.as_str())
+            .or_default()
+            .1
+            .push(anim_use);
+    }
+    for (atlas_ref, (uses, anim_uses)) in by_atlas {
         let path = atlas_path(root, atlas_ref);
         let loaded = atlas::load_atlas(&path);
-        let mut referenced: Vec<&str> = Vec::new();
+        let mut referenced_frames: Vec<&str> = Vec::new();
+        let mut referenced_anims: Vec<&str> = Vec::new();
+
         for use_ in &uses {
             match &loaded {
                 Ok(atlas) => match atlas.frame(&use_.frame) {
-                    Ok(_) => referenced.push(use_.frame.as_str()),
+                    Ok(_) => referenced_frames.push(use_.frame.as_str()),
                     Err(e) => {
                         errors.push(format!("scene {}: node {:?} {e}", use_.scene, use_.node))
                     }
@@ -89,11 +115,40 @@ pub fn atlas_report(root: &Path, uses: &[AtlasUse]) -> (Vec<String>, Vec<String>
                 Err(e) => errors.push(format!("scene {}: node {:?} {e:#}", use_.scene, use_.node)),
             }
         }
+
+        for anim_use in &anim_uses {
+            match &loaded {
+                Ok(atlas) => match atlas.animation(&anim_use.animation) {
+                    Ok(anim) => {
+                        referenced_anims.push(anim_use.animation.as_str());
+                        for f in &anim.frames {
+                            referenced_frames.push(f.as_str());
+                        }
+                    }
+                    Err(e) => errors.push(format!(
+                        "scene {}: node {:?} {e}",
+                        anim_use.scene, anim_use.node
+                    )),
+                },
+                Err(e) => errors.push(format!(
+                    "scene {}: node {:?} {e:#}",
+                    anim_use.scene, anim_use.node
+                )),
+            }
+        }
+
         if let Ok(atlas) = &loaded {
             for name in atlas.names() {
-                if !referenced.contains(&name) {
+                if !referenced_frames.contains(&name) {
                     warnings.push(format!(
                         "atlas {atlas_ref:?}: frame {name:?} is never referenced"
+                    ));
+                }
+            }
+            for anim_name in atlas.animation_names() {
+                if !referenced_anims.contains(&anim_name) {
+                    warnings.push(format!(
+                        "atlas {atlas_ref:?}: animation {anim_name:?} is never referenced"
                     ));
                 }
             }
@@ -217,7 +272,7 @@ mod tests {
                 frame: "ghost".to_string(),
             },
         ];
-        let (errors, warnings) = atlas_report(&dir, &uses);
+        let (errors, warnings) = atlas_report(&dir, &uses, &[]);
         assert_eq!(errors.len(), 1, "got: {errors:?}");
         assert!(errors[0].contains("no frame \"ghost\""), "got: {errors:?}");
         assert!(
@@ -238,10 +293,58 @@ mod tests {
             atlas: "res://assets/nope.atlas.json".to_string(),
             frame: "player".to_string(),
         }];
-        let (errors, warnings) = atlas_report(&dir, &uses);
+        let (errors, warnings) = atlas_report(&dir, &uses, &[]);
         assert_eq!(errors.len(), 1, "got: {errors:?}");
         assert!(errors[0].contains("cannot read atlas"), "got: {errors:?}");
         assert!(warnings.is_empty(), "got: {warnings:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn report_checks_animations() {
+        let dir = project("anim");
+        std::fs::write(
+            dir.join("assets").join("sheet.atlas.json"),
+            r#"{"texture":"sheet.png","size":[64,32],
+                "frames":{"f1":{"x":0,"y":0,"w":32,"h":32},
+                          "f2":{"x":32,"y":0,"w":32,"h":32}},
+                "animations":{"walk":{"frames":["f1","f2"],"fps":8.0,"loop":true},
+                             "idle":{"frames":["f1"],"fps":4.0}}}"#,
+        )
+        .unwrap();
+
+        let anim_uses = vec![
+            AnimationUse {
+                scene: "res://scenes/main.ptscn".to_string(),
+                node: "hero".to_string(),
+                atlas: "res://assets/sheet.atlas.json".to_string(),
+                animation: "walk".to_string(),
+            },
+            AnimationUse {
+                scene: "res://scenes/main.ptscn".to_string(),
+                node: "npc".to_string(),
+                atlas: "res://assets/sheet.atlas.json".to_string(),
+                animation: "jump".to_string(),
+            },
+        ];
+        let (errors, warnings) = atlas_report(&dir, &[], &anim_uses);
+        assert_eq!(errors.len(), 1, "got errors: {errors:?}");
+        assert!(
+            errors[0].contains("no animation \"jump\""),
+            "got: {errors:?}"
+        );
+        assert!(
+            errors[0].contains("walk"),
+            "should list alternatives: {errors:?}"
+        );
+
+        // "idle" was unreferenced, so it should produce a warning.
+        // "f1" and "f2" were used in "walk", so NO frame warnings!
+        assert_eq!(warnings.len(), 1, "got warnings: {warnings:?}");
+        assert!(
+            warnings[0].contains("animation \"idle\" is never referenced"),
+            "got: {warnings:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

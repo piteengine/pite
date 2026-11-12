@@ -1090,3 +1090,25 @@ pub fn fire_area_exited(
         host.emit(py, area_id, "area_exited", &arg)
     })
 }
+
+pub fn fire_animation_finished(
+    host: &ScriptHost,
+    node_id: &str,
+    anim_name: &str,
+) -> anyhow::Result<()> {
+    Python::attach(|py| {
+        let arg = PyTuple::new(py, [anim_name])?;
+        host.emit(py, node_id, "animation_finished", &arg)
+    })
+}
+
+pub fn fire_animation_looped(
+    host: &ScriptHost,
+    node_id: &str,
+    anim_name: &str,
+) -> anyhow::Result<()> {
+    Python::attach(|py| {
+        let arg = PyTuple::new(py, [anim_name])?;
+        host.emit(py, node_id, "animation_looped", &arg)
+    })
+}

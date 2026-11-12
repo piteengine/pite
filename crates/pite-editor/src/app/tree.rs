@@ -370,9 +370,9 @@ impl EditorApp {
         {
             if payload.rel_path.ends_with(".py") {
                 true
-            } else if payload.rel_path.ends_with(".png")
-                || payload.rel_path.ends_with(".atlas.json")
-            {
+            } else if payload.rel_path.ends_with(".atlas.json") {
+                type_name == "Sprite2D" || type_name == "AnimatedSprite2D"
+            } else if payload.rel_path.ends_with(".png") {
                 type_name == "Sprite2D"
             } else {
                 false
@@ -452,6 +452,13 @@ impl EditorApp {
                                         pite_core::PropValue::Str(res_path.clone()),
                                     );
                                 }
+                            } else if n.type_name == "AnimatedSprite2D"
+                                && payload.rel_path.ends_with(".atlas.json")
+                            {
+                                n.props.insert(
+                                    "atlas".to_string(),
+                                    pite_core::PropValue::Str(res_path.clone()),
+                                );
                             }
                         }
                     });

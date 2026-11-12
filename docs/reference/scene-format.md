@@ -36,7 +36,7 @@ class = "Player"
 
 - **`format_version`**: Explicit schema version integer (currently `1`). An unsupported version causes an immediate parse failure to prevent data corruption.
 - **`root`**: Identifies the scene's top-level root node in the `[[node]]` list. A node referencing an invalid `parent` is tolerated during editing but flagged as an error by `pite check`.
-- **`type`**: Must correspond to a registered engine node class (`Node`, `Node2D`, `Sprite2D`, `Camera2D`, `Timer`, `Label`, `Button`, `StaticBody2D`, `CharacterBody2D`, `RigidBody2D`, `Area2D`, `CollisionShape2D`, `TileMap2D`). Unrecognized types produce validation errors.
+- **`type`**: Must correspond to a registered engine node class (`Node`, `Node2D`, `Sprite2D`, `AnimatedSprite2D`, `Camera2D`, `Timer`, `Label`, `Button`, `StaticBody2D`, `CharacterBody2D`, `RigidBody2D`, `Area2D`, `CollisionShape2D`, `TileMap2D`). Unrecognized types produce validation errors.
 - **`props`**: Extensible key-value table. Scalar values map to typed primitives; 2-element numeric arrays parse into `Vec2`; other types are preserved as text. **Unknown properties are preserved across saves** to ensure forward compatibility, and surfaced as warnings.
 - **`script`**: Optional Python binding (`path` and `class`). If the referenced script file is missing, the engine creates a placeholder node and logs a warning rather than failing to load the scene.
 - **`res://` Paths**: All asset and script references must use project-relative resource paths (`res://…`). Absolute paths are prohibited. Asset references are verified by `pite check`, which uses the content-addressed UID manifest to track moved or renamed files.
@@ -79,6 +79,7 @@ prefix = "e1_"
 
 - **Design Resolution**: The window size declared in `pite.toml` establishes the design resolution. The viewport scales content uniformly to fit the window while maintaining aspect ratio via letterboxing. Input coordinates map through the same projection.
 - **Sprite2D**: Renders its `texture` centered at the node's global position, scaled by camera zoom and window scale. If a texture is missing, a magenta placeholder quad renders with a one-time console warning.
+- **AnimatedSprite2D**: Renders flipbook animations from an atlas sidecar (`.atlas.json`), advancing frames according to the animation's configured frame rate and playback speed.
 - **Camera2D**: The first active `Camera2D` in the scene centers the viewport on its global position. The optional `zoom` property (`float`, default `1.0`) scales the viewport.
 - **Transform Propagation**: Global positions are computed by accumulating local `position` vectors along ancestor chains, so moving or rotating a parent node carries all descendants naturally.
 

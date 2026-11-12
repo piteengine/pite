@@ -14,8 +14,8 @@ mod nodes;
 pub(crate) mod props;
 
 use nodes::{
-    PyArea2D, PyButton, PyCamera2D, PyCharacterBody2D, PyCollisionShape2D, PyLabel, PyNode,
-    PyNode2D, PyRigidBody2D, PySprite2D, PyStaticBody2D, PyTileMap2D, PyTimer,
+    PyAnimatedSprite2D, PyArea2D, PyButton, PyCamera2D, PyCharacterBody2D, PyCollisionShape2D,
+    PyLabel, PyNode, PyNode2D, PyRigidBody2D, PySprite2D, PyStaticBody2D, PyTileMap2D, PyTimer,
 };
 
 #[pyfunction]
@@ -69,6 +69,7 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
     m.add_class::<PyNode2D>()?;
     m.add_class::<PySprite2D>()?;
+    m.add_class::<PyAnimatedSprite2D>()?;
     m.add_class::<PyCamera2D>()?;
     m.add_class::<PyTimer>()?;
     m.add_class::<PyLabel>()?;
@@ -1353,6 +1354,54 @@ class Listener(pite.Node2D):
             std::env::temp_dir().join(format!("pite-py-loadbase-{}", std::process::id())),
         )
         .ok();
+    }
+
+    #[test]
+    fn load_base_animated_sprite2d() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        use pite_core::{NodeDesc, NodeId, NodeTree};
+        use std::sync::Arc;
+
+        let mut tree = NodeTree::new();
+        tree.insert(NodeDesc::new(
+            NodeId::from("anim".to_string()),
+            "AnimatedSprite2D",
+        ))
+        .unwrap();
+        let host = Arc::new(crate::ScriptHost::new(tree));
+        crate::set_current_host(host.clone());
+
+        let mut backend = Pyo3Backend::new("anim");
+        backend.set_host(host.clone());
+        backend.load_base("AnimatedSprite2D").unwrap();
+
+        Python::attach(|py| {
+            let inst = host.lookup_instance(py, "anim").unwrap();
+            let b = inst.bind(py);
+
+            // Initially not playing
+            let playing: bool = b.call_method0("is_playing").unwrap().extract().unwrap();
+            assert!(!playing);
+
+            // Calling play("run")
+            b.call_method1("play", ("run",)).unwrap();
+            assert_eq!(host.get_string("anim", "animation"), "run");
+            assert!(host.get_bool("anim", "playing"));
+
+            // Calling pause()
+            b.call_method0("pause").unwrap();
+            assert!(!host.get_bool("anim", "playing"));
+
+            // Calling play() resumes
+            b.call_method0("play").unwrap();
+            assert!(host.get_bool("anim", "playing"));
+
+            // Calling stop() resets frame to 0 and stops playing
+            host.set_prop("anim", "frame", pite_core::PropValue::Int(3));
+            b.call_method0("stop").unwrap();
+            assert!(!host.get_bool("anim", "playing"));
+            assert_eq!(host.get_i64("anim", "frame"), 0);
+        });
     }
 
     #[test]

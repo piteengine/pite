@@ -11,7 +11,7 @@ use wgpu::util::DeviceExt;
 pub mod atlas;
 pub mod text;
 
-pub use atlas::{Atlas, AtlasFrame};
+pub use atlas::{Atlas, AtlasAnimation, AtlasFrame};
 
 const FULL_UV: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 

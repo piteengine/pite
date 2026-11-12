@@ -6,6 +6,7 @@
 //! still registers them (for compatibility with existing scenes), but the
 //! editor's add-node menu filters them out.
 
+pub mod animated_sprite2d;
 pub mod area2d;
 pub mod button;
 pub mod camera2d;
@@ -37,6 +38,7 @@ pub static ALL_NODES: &[&NodeTypeSchema] = &[
     &physics_body2d::SCHEMA,
     // Concrete 2D
     &sprite2d::SCHEMA,
+    &animated_sprite2d::SCHEMA,
     &camera2d::SCHEMA,
     &collision_shape2d::SCHEMA,
     &area2d::SCHEMA,

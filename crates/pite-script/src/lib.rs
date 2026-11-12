@@ -18,8 +18,9 @@ use anyhow::Result;
 
 pub use descriptor::{child, node, PyChildDescriptor, PyNodeDescriptor};
 pub use host::{
-    fire_area_entered, fire_area_exited, fire_body_entered, fire_body_exited, proxy_for,
-    resolve_caller, resolve_caller_py, set_current_host, NodeProxy, ScriptHost,
+    fire_animation_finished, fire_animation_looped, fire_area_entered, fire_area_exited,
+    fire_body_entered, fire_body_exited, proxy_for, resolve_caller, resolve_caller_py,
+    set_current_host, NodeProxy, ScriptHost,
 };
 pub use input::{
     input_begin_frame, input_clear, input_held, input_mouse, input_pressed, input_released,

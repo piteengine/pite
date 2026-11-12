@@ -33,6 +33,7 @@ pub fn run(path: Option<&str>, reimport_assets: bool, strict: bool, json: bool) 
     let mut warnings: Vec<String> = Vec::new();
     let mut cache: Vec<String> = Vec::new();
     let mut atlas_uses: Vec<pite_assets::AtlasUse> = Vec::new();
+    let mut anim_uses: Vec<pite_assets::AnimationUse> = Vec::new();
 
     let root = match pite_project::find_project_root(&start) {
         Some(root) => root,
@@ -132,13 +133,15 @@ pub fn run(path: Option<&str>, reimport_assets: bool, strict: bool, json: bool) 
             &mut warnings,
             &mut cache,
             &mut atlas_uses,
+            &mut anim_uses,
             &registry,
             &by_path,
             &by_hash,
             &mut visited,
             &mut referenced,
         );
-        let (atlas_errors, atlas_warnings) = pite_assets::atlas_report(&root, &atlas_uses);
+        let (atlas_errors, atlas_warnings) =
+            pite_assets::atlas_report(&root, &atlas_uses, &anim_uses);
         errors.extend(atlas_errors);
         warnings.extend(atlas_warnings);
         // Sheets are referenced through their sidecar, never directly: mark
@@ -200,6 +203,7 @@ fn check_scene_ref(
     warnings: &mut Vec<String>,
     cache: &mut Vec<String>,
     atlas_uses: &mut Vec<pite_assets::AtlasUse>,
+    anim_uses: &mut Vec<pite_assets::AnimationUse>,
     uid_registry: &pite_assets::UidRegistry,
     by_path: &std::collections::HashMap<&str, &pite_assets::ScannedFile>,
     by_hash: &std::collections::HashMap<&str, &str>,
@@ -343,6 +347,48 @@ fn check_scene_ref(
                     path.display(),
                     node.id
                 )),
+            }
+        }
+        if node.type_name == "AnimatedSprite2D" {
+            let prop_str = |key: &str| node.props.get(key).and_then(|v| v.as_str());
+            let atlas = prop_str("atlas").unwrap_or_default();
+            let animation = prop_str("animation").unwrap_or_default();
+            let autoplay = prop_str("autoplay").unwrap_or_default();
+
+            if atlas.is_empty() {
+                if !animation.is_empty() {
+                    errors.push(format!(
+                        "scene {}: node {:?} `animation` requires an `atlas`",
+                        path.display(),
+                        node.id
+                    ));
+                }
+                if !autoplay.is_empty() {
+                    errors.push(format!(
+                        "scene {}: node {:?} `autoplay` requires an `atlas`",
+                        path.display(),
+                        node.id
+                    ));
+                }
+            } else {
+                let norm = normalize_asset_ref(atlas);
+                referenced.insert(norm);
+                if !animation.is_empty() {
+                    anim_uses.push(pite_assets::AnimationUse {
+                        scene: path.to_string_lossy().into_owned(),
+                        node: node.id.clone(),
+                        atlas: atlas.to_string(),
+                        animation: animation.to_string(),
+                    });
+                }
+                if !autoplay.is_empty() && autoplay != animation {
+                    anim_uses.push(pite_assets::AnimationUse {
+                        scene: path.to_string_lossy().into_owned(),
+                        node: node.id.clone(),
+                        atlas: atlas.to_string(),
+                        animation: autoplay.to_string(),
+                    });
+                }
             }
         }
         if node.type_name == "TileMap2D" {
@@ -521,6 +567,7 @@ fn check_scene_ref(
             warnings,
             cache,
             atlas_uses,
+            anim_uses,
             uid_registry,
             by_path,
             by_hash,
@@ -670,6 +717,7 @@ texture = "res://assets/gone.png"
             &mut warnings,
             &mut cache,
             &mut atlas_uses,
+            &mut Vec::new(),
             registry,
             by_path,
             by_hash,
@@ -887,6 +935,7 @@ texture = "res://assets/gone.png"
             &mut warnings,
             &mut cache,
             &mut atlas_uses,
+            &mut Vec::new(),
             &registry,
             &by_path,
             &by_hash,
@@ -927,6 +976,7 @@ texture = "res://assets/gone.png"
             &mut warnings,
             &mut cache,
             &mut atlas,
+            &mut Vec::new(),
             &pite_assets::UidRegistry::default(),
             &HashMap::new(),
             &HashMap::new(),
@@ -1012,6 +1062,7 @@ tiles = [[0, 0, "grass"], [1, 0, "dirt"]]
             &mut warnings,
             &mut cache,
             &mut atlas_uses,
+            &mut Vec::new(),
             &registry,
             &by_path,
             &by_hash,
@@ -1025,6 +1076,86 @@ tiles = [[0, 0, "grass"], [1, 0, "dirt"]]
         assert_eq!(atlas_uses.len(), 2);
         assert_eq!(atlas_uses[0].frame, "grass");
         assert_eq!(atlas_uses[1].frame, "dirt");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn animated_sprite_validation() {
+        let root = fixture_root(77);
+        std::fs::write(
+            root.join("assets").join("hero.atlas.json"),
+            r#"{"texture":"hero.png","size":[64,32],
+                "frames":{"idle1":{"x":0,"y":0,"w":32,"h":32}},
+                "animations":{"idle":{"frames":["idle1"],"fps":6.0}}}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("scenes").join("main.ptscn"),
+            r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "anim_spr"
+type = "AnimatedSprite2D"
+name = "Hero"
+parent = "root"
+
+[node.props]
+atlas = "res://assets/hero.atlas.json"
+animation = "idle"
+"#,
+        )
+        .unwrap();
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut cache = Vec::new();
+        let mut atlas_uses = Vec::new();
+        let mut anim_uses = Vec::new();
+        let mut visited = HashSet::new();
+        let mut referenced = HashSet::new();
+        let registry = pite_assets::UidRegistry::default();
+        let by_path: HashMap<&str, &pite_assets::ScannedFile> = HashMap::new();
+        let by_hash: HashMap<&str, &str> = HashMap::new();
+
+        check_scene_ref(
+            &root,
+            "res://scenes/main.ptscn",
+            &HashMap::new(),
+            &mut errors,
+            &mut warnings,
+            &mut cache,
+            &mut atlas_uses,
+            &mut anim_uses,
+            &registry,
+            &by_path,
+            &by_hash,
+            &mut visited,
+            &mut referenced,
+        );
+
+        assert!(errors.is_empty(), "got errors: {errors:?}");
+        assert_eq!(anim_uses.len(), 1);
+        assert_eq!(anim_uses[0].animation, "idle");
+        assert!(referenced.contains("res://assets/hero.atlas.json"));
+
+        let (report_errors, report_warnings) =
+            pite_assets::atlas_report(&root, &atlas_uses, &anim_uses);
+        assert!(
+            report_errors.is_empty(),
+            "got report errors: {report_errors:?}"
+        );
+        assert!(
+            report_warnings.is_empty(),
+            "got report warnings: {report_warnings:?}"
+        );
+
         let _ = std::fs::remove_dir_all(&root);
     }
 }

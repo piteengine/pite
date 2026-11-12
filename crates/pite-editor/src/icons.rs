@@ -35,6 +35,7 @@ pub enum Icon {
     Node,
     Node2D,
     Sprite2D,
+    AnimatedSprite2D,
     Camera2D,
     CollisionShape2D,
     Area2D,
@@ -77,6 +78,7 @@ impl Icon {
             Self::Node => regular::CIRCLE,
             Self::Node2D => regular::CUBE,
             Self::Sprite2D => regular::IMAGE,
+            Self::AnimatedSprite2D => regular::FILM_SLATE,
             Self::TileMap2D => regular::GRID_FOUR,
             Self::Camera2D => regular::CAMERA,
             Self::CollisionShape2D => regular::SHIELD,
@@ -96,6 +98,7 @@ pub fn node_type_icon(type_name: &str) -> Icon {
     match type_name {
         "Node2D" => Icon::Node2D,
         "Sprite2D" => Icon::Sprite2D,
+        "AnimatedSprite2D" => Icon::AnimatedSprite2D,
         "TileMap2D" => Icon::TileMap2D,
         "Camera2D" => Icon::Camera2D,
         "CollisionShape2D" => Icon::CollisionShape2D,
@@ -199,7 +202,13 @@ mod tests {
             assert_eq!(rgb(node_type_color(ty)), (120, 210, 140), "{ty}");
         }
         // Remaining 2D types are blue.
-        for ty in ["Node2D", "Sprite2D", "Camera2D", "TileMap2D"] {
+        for ty in [
+            "Node2D",
+            "Sprite2D",
+            "AnimatedSprite2D",
+            "Camera2D",
+            "TileMap2D",
+        ] {
             assert_eq!(rgb(node_type_color(ty)), (115, 175, 235), "{ty}");
         }
         // Timer is gold; `Node` and unknown types fall back to silver.

@@ -188,6 +188,7 @@ fn physics_role(type_name: &str) -> Option<PhysicsRole> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RenderRole {
     Sprite,
+    AnimatedSprite,
     Label,
     Button,
     TileMap,
@@ -196,6 +197,7 @@ enum RenderRole {
 fn render_role(type_name: &str) -> Option<RenderRole> {
     match type_name {
         "Sprite2D" => Some(RenderRole::Sprite),
+        "AnimatedSprite2D" => Some(RenderRole::AnimatedSprite),
         "Label" => Some(RenderRole::Label),
         "Button" => Some(RenderRole::Button),
         "TileMap2D" => Some(RenderRole::TileMap),
@@ -211,6 +213,14 @@ enum NodeDraw {
         texture: String,
         atlas: Option<String>,
         frame: Option<String>,
+        pos: (f64, f64),
+        rotation: f32,
+    },
+    AnimatedSprite {
+        id: String,
+        atlas: String,
+        animation: String,
+        frame: i64,
         pos: (f64, f64),
         rotation: f32,
     },
@@ -247,6 +257,25 @@ fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 texture: prop("texture").unwrap_or_default(),
                 atlas: prop("atlas"),
                 frame: prop("frame"),
+                pos,
+                rotation: prop_num(node, "rotation"),
+            })
+        }
+        RenderRole::AnimatedSprite => {
+            let prop_str = |key: &str| match node.props.get(key) {
+                Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                _ => String::new(),
+            };
+            let frame = match node.props.get("frame") {
+                Some(PropValue::Int(i)) => *i,
+                Some(PropValue::Num(n)) => *n as i64,
+                _ => 0,
+            };
+            Some(NodeDraw::AnimatedSprite {
+                id: node.id.to_string(),
+                atlas: prop_str("atlas"),
+                animation: prop_str("animation"),
+                frame,
                 pos,
                 rotation: prop_num(node, "rotation"),
             })
@@ -310,6 +339,13 @@ const ENGINE_SIGNALS: &[(&str, &[(&str, &[&str])])] = &[
     ("Button", &[("pressed", &[])]),
     ("Timer", &[("timeout", &[])]),
     (
+        "AnimatedSprite2D",
+        &[
+            ("animation_finished", &["str"]),
+            ("animation_looped", &["str"]),
+        ],
+    ),
+    (
         "Area2D",
         &[
             ("body_entered", &["str"]),
@@ -337,6 +373,8 @@ pub struct GameSession {
     pub pause_on_error: bool,
     pub last_error: Option<pite_script::ScriptError>,
     pub dirty_assets: HashSet<PathBuf>,
+    animation_times: HashMap<String, f64>,
+    atlas_cache: HashMap<PathBuf, pite_render::atlas::Atlas>,
 }
 
 impl GameSession {
@@ -362,6 +400,8 @@ impl GameSession {
             pause_on_error: false,
             last_error: None,
             dirty_assets: HashSet::new(),
+            animation_times: HashMap::new(),
+            atlas_cache: HashMap::new(),
         };
         pite_script::set_current_host(session.host.clone());
         pite_script::set_current_physics(Some(session.physics.clone()));
@@ -497,6 +537,7 @@ impl GameSession {
     pub fn draw_into(&mut self, r: &mut dyn Renderer2D) -> Result<()> {
         if !self.dirty_assets.is_empty() {
             for p in self.dirty_assets.drain() {
+                self.atlas_cache.remove(&p);
                 r.reload_asset(&p.to_string_lossy());
             }
         }
@@ -546,6 +587,52 @@ impl GameSession {
                                 let resolved = self.resolve_path(&texture);
                                 r.draw_sprite(
                                     &resolved.to_string_lossy(),
+                                    pos.0,
+                                    pos.1,
+                                    rotation as f64,
+                                )?;
+                            }
+                        }
+                    }
+                }
+                NodeDraw::AnimatedSprite {
+                    id,
+                    atlas,
+                    animation,
+                    frame,
+                    pos,
+                    rotation,
+                } => {
+                    if atlas.is_empty() {
+                        continue;
+                    }
+                    let sidecar = self.resolve_path(&atlas);
+                    let atlas_obj = match self.atlas_cache.entry(sidecar.clone()) {
+                        std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(e) => {
+                            match pite_render::atlas::load_atlas(&sidecar) {
+                                Ok(a) => e.insert(a),
+                                Err(e) => {
+                                    tracing::error!(node = %id, "cannot load atlas {}: {e:#}", sidecar.display());
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+                    let anim_name = if !animation.is_empty() {
+                        Some(animation.as_str())
+                    } else {
+                        atlas_obj.animation_names().into_iter().next()
+                    };
+                    if let Some(anim_name) = anim_name {
+                        if let Ok(anim) = atlas_obj.animation(anim_name) {
+                            if !anim.frames.is_empty() {
+                                let idx = (frame.max(0) as usize) % anim.frames.len();
+                                let frame_name = &anim.frames[idx];
+                                let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
+                                r.draw_sprite_frame(
+                                    &sheet.to_string_lossy(),
+                                    Some(frame_name),
                                     pos.0,
                                     pos.1,
                                     rotation as f64,
@@ -679,6 +766,36 @@ impl GameSession {
                 }
             }
         }
+
+        let anim_sprites: Vec<(NodeId, String)> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter(|n| n.type_name == "AnimatedSprite2D")
+                .filter_map(|n| {
+                    if let Some(PropValue::Str(autoplay)) = n.props.get("autoplay") {
+                        if !autoplay.is_empty() {
+                            return Some((n.id.clone(), autoplay.clone()));
+                        }
+                    }
+                    None
+                })
+                .collect()
+        });
+        self.host.with_tree_mut(|tree| {
+            for (id, autoplay) in anim_sprites {
+                if let Some(node) = tree.get_mut(&id) {
+                    let anim_empty = match node.props.get("animation") {
+                        Some(PropValue::Str(s)) => s.is_empty(),
+                        _ => true,
+                    };
+                    if anim_empty {
+                        node.props
+                            .insert("animation".to_string(), PropValue::Str(autoplay.clone()));
+                    }
+                    node.props
+                        .insert("playing".to_string(), PropValue::Bool(true));
+                }
+            }
+        });
 
         self.rebuild_physics();
 
@@ -1170,6 +1287,135 @@ impl GameSession {
                 slot.errored = true;
                 if self.pause_on_error && self.last_error.is_none() {
                     self.last_error = slot.backend.last_script_error();
+                }
+            }
+        }
+
+        self.tick_animations(delta);
+    }
+
+    fn tick_animations(&mut self, delta: f64) {
+        let nodes: Vec<(String, String, String, i64, f64, Option<bool>)> =
+            self.host.with_tree(|tree| {
+                tree.iter()
+                    .filter(|n| n.type_name == "AnimatedSprite2D")
+                    .filter_map(|n| {
+                        let playing = match n.props.get("playing") {
+                            Some(PropValue::Bool(b)) => *b,
+                            _ => false,
+                        };
+                        if !playing {
+                            return None;
+                        }
+                        let atlas = match n.props.get("atlas") {
+                            Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                            _ => return None,
+                        };
+                        let animation = match n.props.get("animation") {
+                            Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                            _ => match n.props.get("autoplay") {
+                                Some(PropValue::Str(s)) if !s.is_empty() => s.clone(),
+                                _ => return None,
+                            },
+                        };
+                        let frame = match n.props.get("frame") {
+                            Some(PropValue::Int(i)) => *i,
+                            Some(PropValue::Num(f)) => *f as i64,
+                            _ => 0,
+                        };
+                        let speed_scale = match n.props.get("speed_scale") {
+                            Some(PropValue::Num(f)) => *f,
+                            Some(PropValue::Int(i)) => *i as f64,
+                            _ => 1.0,
+                        };
+                        let loop_override = match n.props.get("_loop_override") {
+                            Some(PropValue::Bool(b)) => Some(*b),
+                            _ => None,
+                        };
+                        Some((
+                            n.id.to_string(),
+                            atlas,
+                            animation,
+                            frame,
+                            speed_scale,
+                            loop_override,
+                        ))
+                    })
+                    .collect()
+            });
+
+        for (id, atlas, animation, mut frame, speed_scale, loop_override) in nodes {
+            if speed_scale == 0.0 {
+                continue;
+            }
+            let sidecar = self.resolve_path(&atlas);
+            let atlas_obj = match self.atlas_cache.entry(sidecar.clone()) {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    match pite_render::atlas::load_atlas(&sidecar) {
+                        Ok(a) => e.insert(a),
+                        Err(_) => continue,
+                    }
+                }
+            };
+
+            let (frames_len, fps, looping) = match atlas_obj.animation(&animation) {
+                Ok(a) => (a.frames.len() as i64, a.fps, a.looping),
+                Err(_) => continue,
+            };
+
+            if frames_len == 0 || fps <= 0.0 {
+                continue;
+            }
+
+            let is_looping = loop_override.unwrap_or(looping);
+            let frame_duration = 1.0 / (fps as f64 * speed_scale.abs());
+            let elapsed = self.animation_times.entry(id.clone()).or_insert(0.0);
+            *elapsed += delta;
+
+            let mut stopped = false;
+            let mut looped = false;
+
+            while *elapsed >= frame_duration {
+                *elapsed -= frame_duration;
+                if speed_scale >= 0.0 {
+                    frame += 1;
+                    if frame >= frames_len {
+                        if is_looping {
+                            frame = 0;
+                            looped = true;
+                        } else {
+                            frame = frames_len - 1;
+                            stopped = true;
+                            *elapsed = 0.0;
+                            break;
+                        }
+                    }
+                } else {
+                    frame -= 1;
+                    if frame < 0 {
+                        if is_looping {
+                            frame = frames_len - 1;
+                            looped = true;
+                        } else {
+                            frame = 0;
+                            stopped = true;
+                            *elapsed = 0.0;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            self.host.set_prop(&id, "frame", PropValue::Int(frame));
+            if stopped {
+                self.host.set_prop(&id, "playing", PropValue::Bool(false));
+                if let Err(e) = pite_script::fire_animation_finished(&self.host, &id, &animation) {
+                    tracing::error!(node = %id, "animation_finished error: {e:#}");
+                }
+            } else if looped {
+                if let Err(e) = pite_script::fire_animation_looped(&self.host, &id, &animation) {
+                    tracing::error!(node = %id, "animation_looped error: {e:#}");
                 }
             }
         }
@@ -2784,6 +3030,199 @@ class GameTimer(pite.Timer):
                 collected,
                 "Gem collision should have fired for moving player"
             );
+        });
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn animated_sprite_playback_and_signals_e2e() {
+        let _guard = SERIAL.lock().unwrap();
+
+        let dir = std::env::temp_dir().join(format!("pite-anim-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenes")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("pite.toml"), "[project]\nname = \"anim-test\"\n").unwrap();
+
+        let atlas = r#"{
+  "texture": "res://assets/sheet.png",
+  "size": [64, 32],
+  "frames": {
+    "f1": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "f2": { "x": 32, "y": 0, "w": 32, "h": 32 }
+  },
+  "animations": {
+    "walk": { "frames": ["f1", "f2"], "fps": 10.0, "loop": true },
+    "attack": { "frames": ["f1", "f2"], "fps": 10.0, "loop": false }
+  }
+}"#;
+        std::fs::write(dir.join("assets").join("sheet.atlas.json"), atlas).unwrap();
+
+        let script = r#"import pite
+
+class Hero(pite.AnimatedSprite2D):
+    def _ready(self):
+        self.finished_name = ""
+        self.looped_name = ""
+        self.get_node(".").animation_finished.connect(self.on_finished)
+        self.get_node(".").animation_looped.connect(self.on_looped)
+
+    def on_finished(self, name):
+        self.finished_name = name
+
+    def on_looped(self, name):
+        self.looped_name = name
+"#;
+        std::fs::write(dir.join("scripts").join("hero.py"), script).unwrap();
+
+        let scene = r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "hero"
+type = "AnimatedSprite2D"
+name = "Hero"
+parent = "root"
+
+[node.props]
+atlas = "res://assets/sheet.atlas.json"
+autoplay = "walk"
+
+[node.script]
+path = "res://scripts/hero.py"
+class = "Hero"
+"#;
+        std::fs::write(dir.join("scenes").join("main.ptscn"), scene).unwrap();
+
+        let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+
+        // Autoplay should have set animation = "walk" and playing = true
+        let (anim, playing, frame) = session.host.with_tree(|t| {
+            let n = t.get(&NodeId::from("hero".to_string())).unwrap();
+            let anim = match n.props.get("animation") {
+                Some(PropValue::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let playing = match n.props.get("playing") {
+                Some(PropValue::Bool(b)) => *b,
+                _ => false,
+            };
+            let frame = match n.props.get("frame") {
+                Some(PropValue::Int(i)) => *i,
+                _ => -1,
+            };
+            (anim, playing, frame)
+        });
+        assert_eq!(anim, "walk");
+        assert!(playing);
+        assert_eq!(frame, 0);
+
+        // Update by 0.1s (1 frame duration at 10 FPS)
+        session.update(0.1);
+        let frame1 = session.host.with_tree(|t| {
+            let n = t.get(&NodeId::from("hero".to_string())).unwrap();
+            match n.props.get("frame") {
+                Some(PropValue::Int(i)) => *i,
+                _ => -1,
+            }
+        });
+        assert_eq!(frame1, 1, "frame should advance to 1");
+
+        // Update by 0.1s: walk is looping, so wraps to 0 and fires animation_looped
+        session.update(0.1);
+        let frame2 = session.host.with_tree(|t| {
+            let n = t.get(&NodeId::from("hero".to_string())).unwrap();
+            match n.props.get("frame") {
+                Some(PropValue::Int(i)) => *i,
+                _ => -1,
+            }
+        });
+        assert_eq!(frame2, 0, "looping animation should wrap to 0");
+
+        use pite_script::pyo3::{self, types::PyAnyMethods};
+        pyo3::Python::attach(|py| {
+            let inst = session.host.lookup_instance(py, "hero").unwrap();
+            let looped_name: String = inst
+                .bind(py)
+                .getattr("looped_name")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(
+                looped_name, "walk",
+                "animation_looped signal should have fired with 'walk'"
+            );
+
+            // Test play("attack") via Python method call
+            inst.bind(py).call_method1("play", ("attack",)).unwrap();
+        });
+
+        let (anim_attack, playing_attack, frame_attack) = session.host.with_tree(|t| {
+            let n = t.get(&NodeId::from("hero".to_string())).unwrap();
+            let anim = match n.props.get("animation") {
+                Some(PropValue::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let playing = match n.props.get("playing") {
+                Some(PropValue::Bool(b)) => *b,
+                _ => false,
+            };
+            let frame = match n.props.get("frame") {
+                Some(PropValue::Int(i)) => *i,
+                _ => -1,
+            };
+            (anim, playing, frame)
+        });
+        assert_eq!(anim_attack, "attack");
+        assert!(playing_attack);
+        assert_eq!(frame_attack, 0);
+
+        // Advance 0.1s -> frame 1
+        session.update(0.1);
+        // Advance 0.1s -> attack is non-looping, so stops on frame 1 and fires animation_finished
+        session.update(0.1);
+
+        let (playing_after, frame_after) = session.host.with_tree(|t| {
+            let n = t.get(&NodeId::from("hero".to_string())).unwrap();
+            let playing = match n.props.get("playing") {
+                Some(PropValue::Bool(b)) => *b,
+                _ => false,
+            };
+            let frame = match n.props.get("frame") {
+                Some(PropValue::Int(i)) => *i,
+                _ => -1,
+            };
+            (playing, frame)
+        });
+        assert!(!playing_after, "non-looping animation should stop playing");
+        assert_eq!(frame_after, 1, "should remain on final frame");
+
+        pyo3::Python::attach(|py| {
+            let inst = session.host.lookup_instance(py, "hero").unwrap();
+            let finished_name: String = inst
+                .bind(py)
+                .getattr("finished_name")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(
+                finished_name, "attack",
+                "animation_finished signal should have fired with 'attack'"
+            );
+            let is_p: bool = inst
+                .bind(py)
+                .call_method0("is_playing")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(!is_p, "is_playing() should be false");
         });
 
         std::fs::remove_dir_all(&dir).ok();

@@ -44,6 +44,7 @@ All 2D spatial objects inherit from `pite.Node2D`:
 ### Visual Elements
 
 - **`Sprite2D`**: Inherits `Node2D`. Adds `texture: str` (`res://` path to image), `atlas: str` (`res://` path to `.atlas.json`), and `frame: str` (active frame name within the atlas).
+- **`AnimatedSprite2D`**: Inherits `Node2D`. Plays 2D flipbook frame sequences defined in an atlas sidecar (`.atlas.json`). Properties include `atlas: str`, `animation: str`, `frame: int`, `speed_scale: float`, `playing: bool`, and `autoplay: str`. Methods: `play(animation=None, loop_override=None)`, `pause()`, `stop()`, and `is_playing() -> bool`. Signals: `animation_finished(anim_name: str)` and `animation_looped(anim_name: str)`.
 - **`Camera2D`**: Inherits `Node2D`. Adds `zoom: float` (default `1.0`). Centers the game viewport around the camera's global position.
 
 ### User Interface Elements

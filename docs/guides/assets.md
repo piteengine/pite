@@ -85,6 +85,13 @@ A Pite sprite sheet consists of a PNG image paired with a sidecar JSON file name
     "frames": {
         "player": { "x": 0, "y": 0, "w": 64, "h": 64 },
         "enemy": { "x": 64, "y": 0, "w": 64, "h": 64 }
+    },
+    "animations": {
+        "walk": {
+            "frames": ["player", "enemy"],
+            "fps": 8.0,
+            "loop": true
+        }
     }
 }
 ```
@@ -103,6 +110,21 @@ parent = "root"
 [node.props]
 atlas = "res://assets/sheet.atlas.json"
 frame = "player"
+position = [200.0, 300.0]
+```
+
+Or play 2D flipbook frame sequences using an `AnimatedSprite2D` node:
+
+```toml title="scenes/main.ptscn"
+[[node]]
+id = "player"
+type = "AnimatedSprite2D"
+name = "Player"
+parent = "root"
+
+[node.props]
+atlas = "res://assets/sheet.atlas.json"
+autoplay = "walk"
 position = [200.0, 300.0]
 ```
 
