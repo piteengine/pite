@@ -29,7 +29,7 @@ bash scripts/check-examples.sh
 - **Deps**: exports drop `site-packages`; third-party imports die in an export unless vendored (`pite vendor add pkg==ver` → project `vendor/`, pinned in `[vendor]`). `pite check` warns per offending import; non-vendored sibling modules need `[export] include` to ship.
 - **Scripts**: one file = one class inheriting `pite.*`, `snake_case`. Missing `_ready`/`_process` is a no-op, never an error. Cross-node calls go through `get_node("../Name")`; a miss raises `KeyError`. Signals are typed (`pite.signal(int)`); `Button.pressed` and `Timer.timeout` (fires each `wait_time` seconds, looping; non-positive never fires) are engine-owned — just `connect`, don't declare.
 - **Logging**: `tracing` everywhere — never `println!`/`log::` in engine code.
-- **Visuals**: `DESIGN.md` + `palette.json` are the single source of truth (teal `#0b9387`, dark-only editor in `pite-editor/src/theme.rs`). Don't invent hexes.
+- **Visuals**: `DESIGN.md` + `assets/palette.json` are the single source of truth (teal `#0b9387`, dark-only editor in `pite-editor/src/theme.rs`). Don't invent hexes.
 - **LSP**: pinned pyright server; live test is env-gated (`PITE_LSP_SMOKE=1`), don't run it unconditionally.
 
 ## Conventions

@@ -8,7 +8,7 @@ This page documents brand identity, color tokens, logo usage, and UI theming for
 
 ## Logo
 
-![Pite Logo](../images/logo.svg)
+![Pite Logo](../images/logo.svg){ width="100" height="100" }
 
 Main mark is a hexagonal icon on a 512×512 grid, scaled to fill the viewport edge-to-edge vertically (no top/bottom padding). Single path, `fill-rule="evenodd"`, no strokes, no gradients. It recolors cleanly via the `fill` attribute, which is how all variants are derived.
 
@@ -35,7 +35,7 @@ Main mark is a hexagonal icon on a 512×512 grid, scaled to fill the viewport ed
 
 ## Core Palette and Pite Teal
 
-Canonical tokens: [`palette.json`](palette.json) (plus `usage` allow lists).
+Canonical tokens: [`palette.json`](https://github.com/piteengine/pite/blob/main/assets/palette.json) (plus `usage` allow lists).
 The table mirrors it — do not add new hexes here, update `palette.json` first.
 
 | Name       | Hex       | RGB           | Role                                                           |

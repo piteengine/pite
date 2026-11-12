@@ -2,9 +2,7 @@
 title: Home
 ---
 
-# Pite
-
-[![GitHub Release](https://img.shields.io/github/v/release/piteengine/pite?style=flat-square&label=%20&color=0b9387)](https://github.com/piteengine/pite/releases/latest)
+# Pite [![GitHub Release](https://img.shields.io/github/v/release/piteengine/pite?style=flat-square&label=%20&color=0b9387)](https://github.com/piteengine/pite/releases/latest)
 
 **A game engine that's handy to use, to change, to own.**
 

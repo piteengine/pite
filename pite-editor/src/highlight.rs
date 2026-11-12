@@ -3,7 +3,7 @@
 //!
 //! The `TextEdit` layouter calls [`layout`]; tokenizers are plain byte
 //! scans (cuts only land on ASCII bytes, so multibyte text is never split).
-//! Colors come from `palette.json` via [`crate::theme`]: keywords are
+//! Colors come from `assets/palette.json` via [`crate::theme`]: keywords are
 //! `light`, strings `veryLight`, numbers `primary`, comments `FAINT`.
 
 use std::sync::Arc;
