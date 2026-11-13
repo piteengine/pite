@@ -4,11 +4,11 @@
 
 .md-banner {
     background-color: var(--md-primary-fg-color--dark);
-    color: var(--md-default-bg-color);
+    color: var(--md-primary-bg-color);
 }
 
 .md-banner__a {
-    color: var(--md-default-bg-color) !important;
+    color: var(--md-primary-bg-color) !important;
 }
 
 .md-nav--primary .md-nav__item .md-nav__link--active {
