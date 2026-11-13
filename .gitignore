@@ -11,3 +11,4 @@ examples/*/dist/
 /site
 repomix*
 /docs/reference/nodes
+/crates/pite-project/templates
