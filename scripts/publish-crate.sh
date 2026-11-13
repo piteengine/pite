@@ -48,7 +48,7 @@ fi
 
 for attempt in $(seq 1 6); do
   set +e
-  out=$(cargo publish -p "$crate" 2>&1)
+  out=$(cargo publish -p "$crate" --allow-dirty 2>&1)
   status=$?
   set -e
   echo "$out"
