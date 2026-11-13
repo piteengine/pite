@@ -4,35 +4,40 @@ Provide a concise summary of the purpose, changes, and architectural rationale o
 
 ## Related Issues
 
-Closes #
-Fixes #
+- Closes #
+- Fixes #
 
 ## Type of Change
 
-- [ ] `feat`: A new feature or engine capability
-- [ ] `fix`: A bug fix or patch
-- [ ] `docs`: Documentation updates or additions
-- [ ] `style`: Formatting, whitespace, or non-functional styling
-- [ ] `refactor`: Internal code refactoring with no behavior change
-- [ ] `perf`: Performance improvement
-- [ ] `test`: New tests or test fixture improvements
-- [ ] `chore`: Maintenance, CI, dependencies, or internal tooling
+Select item that applies and remove others
+
+- `feat`: A new feature or engine capability
+- `fix`: A bug fix or patch
+- `docs`: Documentation updates or additions
+- `style`: Formatting, whitespace, or non-functional styling
+- `refactor`: Internal code refactoring with no behavior change
+- `perf`: Performance improvement
+- `test`: New tests or test fixture improvements
+- `chore`: Maintenance, CI, dependencies, or internal tooling
 
 ## Subsystems Affected
 
-- [ ] Editor (`pite-editor`)
-- [ ] Core & Scene Tree (`pite-core`, `pite-scene`)
-- [ ] Scripting & Python Bridge (`pite-script`)
-- [ ] Physics (`pite-physics`)
-- [ ] Render (`pite-render`)
-- [ ] Audio (`pite-audio`)
-- [ ] Assets & Manifest (`pite-assets`, `pite-project`)
-- [ ] Export & Player (`pite-export`, `pite-player`, `pite-cli`)
-- [ ] Documentation & Governance
+Select item that applies and remove others
+
+- Editor (`pite-editor`)
+- Core & Scene Tree (`pite-core`, `pite-scene`)
+- Scripting & Python Bridge (`pite-script`)
+- Physics (`pite-physics`)
+- Render (`pite-render`)
+- Audio (`pite-audio`)
+- Assets & Manifest (`pite-assets`, `pite-project`)
+- Export & Player (`pite-export`, `pite-player`, `pite-cli`)
+- Runtime (`pite-runtime`)
+- Documentation & Governance
 
 ## Verification and Testing
 
-Commands executed locally:
+Execute these command locally, then fill checklist below:
 
 ```sh
 cargo fmt --all -- --check
@@ -46,6 +51,8 @@ bash scripts/check-examples.sh
 - [ ] Clean build with no compiler warnings
 
 ## Quality and Safety Checklist
+
+Fill checklist before mark PR as ready:
 
 - [ ] Commits adhere to Conventional Commits specification
 - [ ] Zero credentials, secrets, or platform tokens committed
