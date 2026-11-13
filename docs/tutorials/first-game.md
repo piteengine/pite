@@ -78,7 +78,7 @@ Inspect the project settings and design resolution:
     ```toml title="pite.toml" hl_lines="6"
     [project]
     name = "gem-collector"
-    pite_version = "0.3.0"
+    pite_version = "0.4.0"
     main_scene = "res://scenes/main.ptscn"
     python = "3.12"
     author = "Your Name"

@@ -35,7 +35,7 @@ The root `pite.toml` file declares project identity, display resolution, and bui
 ```toml title="pite.toml"
 [project]
 name = "my-game"
-pite_version = "0.3.0"
+pite_version = "0.4.0"
 main_scene = "res://scenes/main.ptscn"
 python = "3.12"
 window_width = 1280

@@ -4,6 +4,8 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+## v0.4.0 - 2026-11-13
+
 - **Enhanced `pite check` CLI Diagnostics**:
     - Redesigned terminal report with structured What / Why / Fix diagnostic cards for all errors and warnings.
     - Standard 16-color ANSI output with bold red (`✖ ERROR`), bold yellow (`▲ WARN`), bold green (`✔ Checked`), and bold cyan locations.

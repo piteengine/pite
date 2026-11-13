@@ -9,7 +9,7 @@ Every Pite project is defined by a `pite.toml` manifest located in its root dire
 ```toml
 [project]
 name = "my-game"
-pite_version = "0.3.0"
+pite_version = "0.4.0"
 main_scene = "res://scenes/main.ptscn"
 python = "3.12"
 author = ""

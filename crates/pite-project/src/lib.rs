@@ -85,7 +85,7 @@ fn default_name() -> String {
     "my-game".to_string()
 }
 fn default_version() -> String {
-    "0.3.0".to_string()
+    "0.4.0".to_string()
 }
 fn default_main_scene() -> String {
     "res://scenes/main.ptscn".to_string()
@@ -261,7 +261,7 @@ pub fn to_res_path(project_dir: &Path, path: &Path) -> Option<String> {
 
 pub const TEMPLATE_PITE_TOML: &str = r#"[project]
 name = "TEMPLATE_NAME"
-pite_version = "0.3.0"
+pite_version = "0.4.0"
 main_scene = "res://scenes/main.ptscn"
 python = "3.12"
 author = ""
@@ -388,7 +388,7 @@ mod tests {
     fn old_manifest_parses_untouched() {
         let manifest = load_text("[project]\nname = \"old\"\n");
         assert_eq!(manifest.project.name, "old");
-        assert_eq!(manifest.project.pite_version, "0.3.0");
+        assert_eq!(manifest.project.pite_version, "0.4.0");
         assert_eq!(manifest.project.main_scene, "res://scenes/main.ptscn");
         assert_eq!(manifest.project.python, "3.12");
         assert_eq!(manifest.project.author, "");

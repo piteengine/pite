@@ -124,17 +124,17 @@ Pite is built to be handy to use, to change, and to own. It unites Python script
 
 ## Status
 
-**v0.3 is out:**
+**v0.4 is out:**
 
-- 2D physics subsystem powered by Rapier2D: StaticBody2D, CharacterBody2D (with `move_and_slide`), RigidBody2D, Area2D triggers, CollisionShape2D (`box`, `circle`, `capsule`), and raycasting
-- Python API redesign: `Vec2` math class with tuple unpacking, direct handle mutations, attribute-based input (`pite.held.<key>`, `pite.pressed.<key>`), declarative node descriptors (`pite.child`, `pite.node`), proxy caching, and hybrid signal callbacks
-- Hot reload reliability: continuous editor idle reload, scene reload isolation, Python state and physics velocity preservation, and asset cache invalidation
-- Audio support expanded: pure-Rust Symphonia decoding for Ogg Vorbis, MP3, FLAC, and multi-format WAV
-- Scene extension `.ptscn` (was `.pitescene`)
-- Automatic player download fallback for `pite export` with standalone and multi-platform release archives
-- MacOS cross-compilation and export support
+- 2D flipbook animations (`AnimatedSprite2D`) with `.atlas.json` sprite sheet sequencing, fps/loop timing, playback API, and animation signals
+- Multi-layer 2D tilemaps (`TileMap2D`) via `.ptmap` sidecars with Rapier2D greedy collider coalescing and frustum-culled GPU batch rendering
+- Enhanced `pite check` CLI diagnostics with structured What/Why/Fix cards, 16-color ANSI output, and schema v3 JSON reporting
+- Assets panel file management: creation dialogs, context menus, drag-and-drop file organization, and cross-panel asset assignments
+- Simultaneous scene and code saving on `Ctrl+S` triggering immediate hot reload
+- Schema-driven documentation, inspector descriptions, and build-time generated `pite.pyi` / `pite.py` stubs
+- UI hierarchy refactoring: `Control` extends `Node2D`, inheriting position and rotation transforms directly
 
-**Previous:** v0.2.0 (vendor dependencies, window scaling, editor gutter and completion), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`docs/changelog.md`](docs/changelog.md).
+**Previous:** v0.3.0 (2D physics with Rapier2D, Vec2 math, hot reload isolation, Symphonia audio), v0.2.0 (vendor dependencies, window scaling, editor gutter and completion), v0.1.1 (`Timer.timeout`), v0.1.0 (crates.io), and earlier milestones — see [`docs/changelog.md`](docs/changelog.md).
 
 ## Workspace
 

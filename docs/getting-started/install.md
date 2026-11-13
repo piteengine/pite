@@ -52,16 +52,16 @@ The script identifies latest version, detects OS and architecture, downloads, ve
         You can install another version than the latest one with `PITE_VERSION` environment variable or positional `<tag>` argument:
 
         ```sh title="Terminal"
-        PITE_VERSION="v0.3.0" sh -c "$(curl -fsSL https://raw.githubusercontent.com/piteengine/pite/main/install.sh)"
+        PITE_VERSION="v0.4.0" sh -c "$(curl -fsSL https://raw.githubusercontent.com/piteengine/pite/main/install.sh)"
 
-        curl -fsSL https://raw.githubusercontent.com/piteengine/pite/main/install.sh | sh -s -- v0.3.0
+        curl -fsSL https://raw.githubusercontent.com/piteengine/pite/main/install.sh | sh -s -- v0.4.0
         ```
 
     === "Windows"
         You can install another version than the latest one with `-Tag` argument:
 
         ```pwsh title="PowerShell"
-        iex "& { $(irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1) } -Tag 'v0.3.0'"
+        iex "& { $(irm https://raw.githubusercontent.com/piteengine/pite/main/install.ps1) } -Tag 'v0.4.0'"
         ```
 
 ??? Tip "Installing to a specific path"

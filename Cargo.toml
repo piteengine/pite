@@ -4,7 +4,7 @@ members = ["crates/*"]
 exclude = ["examples"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -14,19 +14,19 @@ publish = false
 
 [workspace.dependencies]
 # internal
-pite-assets = { path = "crates/pite-assets", version = "0.3.0" }
-pite = { path = "crates/pite-cli", version = "0.3.0" }
-pite-core = { path = "crates/pite-core", version = "0.3.0" }
-pite-editor = { path = "crates/pite-editor", version = "0.3.0" }
-pite-project = { path = "crates/pite-project", version = "0.3.0" }
-pite-render = { path = "crates/pite-render", version = "0.3.0" }
-pite-runtime = { path = "crates/pite-runtime", version = "0.3.0" }
-pite-scene = { path = "crates/pite-scene", version = "0.3.0" }
-pite-script = { path = "crates/pite-script", version = "0.3.0" }
-pite-audio = { path = "crates/pite-audio", version = "0.3.0" }
-pite-export = { path = "crates/pite-export", version = "0.3.0" }
-pite-physics = { path = "crates/pite-physics", version = "0.3.0" }
-pite-player = { path = "crates/pite-player", version = "0.3.0" }
+pite-assets = { path = "crates/pite-assets", version = "0.4.0" }
+pite = { path = "crates/pite-cli", version = "0.4.0" }
+pite-core = { path = "crates/pite-core", version = "0.4.0" }
+pite-editor = { path = "crates/pite-editor", version = "0.4.0" }
+pite-project = { path = "crates/pite-project", version = "0.4.0" }
+pite-render = { path = "crates/pite-render", version = "0.4.0" }
+pite-runtime = { path = "crates/pite-runtime", version = "0.4.0" }
+pite-scene = { path = "crates/pite-scene", version = "0.4.0" }
+pite-script = { path = "crates/pite-script", version = "0.4.0" }
+pite-audio = { path = "crates/pite-audio", version = "0.4.0" }
+pite-export = { path = "crates/pite-export", version = "0.4.0" }
+pite-physics = { path = "crates/pite-physics", version = "0.4.0" }
+pite-player = { path = "crates/pite-player", version = "0.4.0" }
 
 # external
 anyhow = "1"

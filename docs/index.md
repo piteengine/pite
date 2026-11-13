@@ -96,4 +96,4 @@ class Player(pite.Node2D):
 
     For more details on Python bundling and runtime resolution, see the [Export Guide](guides/export).
 
-[^1]: Measured on the `minimal-2d` template with Pite v0.3.0. ~20 MB on Window, ~36 MB on macOS, ~52 MB on Linux. the difference comes from the *Python Standard Library* needing different dynamic linkers on each platform.
+[^1]: Measured on the `minimal-2d` template with Pite v0.4.0. ~20 MB on Window, ~36 MB on macOS, ~52 MB on Linux. the difference comes from the *Python Standard Library* needing different dynamic linkers on each platform.
