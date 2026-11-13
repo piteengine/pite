@@ -11,7 +11,45 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use clap::Subcommand;
 use sha2::{Digest, Sha256};
+
+#[derive(Debug, Subcommand)]
+pub enum VendorAction {
+    /// Download wheels (plus transitive deps) into vendor/ and pin them.
+    Add {
+        /// Package specification (`name` or `name==version`).
+        spec: String,
+        /// Keep the wheel file even for pure-Python packages.
+        #[arg(long, default_value_t = false)]
+        zipped: bool,
+        /// Unpack into vendor/ even without native modules.
+        #[arg(long, default_value_t = false)]
+        unpacked: bool,
+    },
+    /// Remove a vendored package and clean up its files from vendor/.
+    Remove {
+        /// Name of the package to remove.
+        name: String,
+    },
+    /// List all currently vendored packages and their pinned versions.
+    List,
+    /// Verify that all vendored packages match their pinned SHA-256 hashes.
+    Verify,
+}
+
+pub fn run(action: VendorAction) -> Result<()> {
+    match action {
+        VendorAction::Add {
+            spec,
+            zipped,
+            unpacked,
+        } => add(&spec, zipped, unpacked),
+        VendorAction::Remove { name } => remove(&name),
+        VendorAction::List => list(),
+        VendorAction::Verify => verify(),
+    }
+}
 
 /// Project-relative vendor directory.
 pub const VENDOR_DIR: &str = "vendor";
@@ -244,7 +282,7 @@ fn parse_spec(spec: &str) -> Result<String> {
     }
 }
 
-pub fn add(spec: &str, zipped: bool, unpacked: bool) -> Result<()> {
+fn add(spec: &str, zipped: bool, unpacked: bool) -> Result<()> {
     if zipped && unpacked {
         anyhow::bail!("--zipped and --unpacked conflict; pick one");
     }
@@ -390,7 +428,7 @@ pub fn vendor_provides(vendor_dir: &Path, module: &str) -> bool {
     false
 }
 
-pub fn remove(name: &str) -> Result<()> {
+fn remove(name: &str) -> Result<()> {
     let root = project_root()?;
     let mut manifest = pite_project::load_manifest(&root)?;
     let dist = normalize_dist(name);
@@ -433,7 +471,7 @@ fn remove_empty_parents(dir: &Path, stop: &Path) {
     }
 }
 
-pub fn list() -> Result<()> {
+fn list() -> Result<()> {
     let root = project_root()?;
     let manifest = pite_project::load_manifest(&root)?;
     let vendor_dir = root.join(VENDOR_DIR);
@@ -458,7 +496,7 @@ pub fn list() -> Result<()> {
     Ok(())
 }
 
-pub fn verify() -> Result<()> {
+fn verify() -> Result<()> {
     let root = project_root()?;
     let manifest = pite_project::load_manifest(&root)?;
     let vendor_dir = root.join(VENDOR_DIR);

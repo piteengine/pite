@@ -99,32 +99,8 @@ enum Command {
     /// Manage third-party vendored Python packages.
     Vendor {
         #[command(subcommand)]
-        action: VendorAction,
+        action: cmd_vendor::VendorAction,
     },
-}
-
-#[derive(Debug, Subcommand)]
-enum VendorAction {
-    /// Download wheels (plus transitive deps) into vendor/ and pin them.
-    Add {
-        /// Package specification (`name` or `name==version`).
-        spec: String,
-        /// Keep the wheel file even for pure-Python packages.
-        #[arg(long, default_value_t = false)]
-        zipped: bool,
-        /// Unpack into vendor/ even without native modules.
-        #[arg(long, default_value_t = false)]
-        unpacked: bool,
-    },
-    /// Remove a vendored package and clean up its files from vendor/.
-    Remove {
-        /// Name of the package to remove.
-        name: String,
-    },
-    /// List all currently vendored packages and their pinned versions.
-    List,
-    /// Verify that all vendored packages match their pinned SHA-256 hashes.
-    Verify,
 }
 
 fn main() -> Result<()> {
@@ -177,15 +153,6 @@ fn main() -> Result<()> {
             no_bundle_python,
         ),
         Some(Command::Toolchain { action }) => cmd_toolchain::run(action),
-        Some(Command::Vendor { action }) => match action {
-            VendorAction::Add {
-                spec,
-                zipped,
-                unpacked,
-            } => cmd_vendor::add(&spec, zipped, unpacked),
-            VendorAction::Remove { name } => cmd_vendor::remove(&name),
-            VendorAction::List => cmd_vendor::list(),
-            VendorAction::Verify => cmd_vendor::verify(),
-        },
+        Some(Command::Vendor { action }) => cmd_vendor::run(action),
     }
 }
