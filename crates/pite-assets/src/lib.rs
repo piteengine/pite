@@ -632,6 +632,43 @@ pub fn reimport_project(root: &Path) -> Result<(UidRegistry, ReimportReport)> {
     ))
 }
 
+/// Extract every `pite.play("...")` / `pite.play('...')` literal from
+/// Python source.
+///
+/// A byte scan, not a parser: it strips line comments (`#` to EOL) and
+/// then looks for `play("` or `play('` preceded by a non-identifier
+/// character, so `x = display("...")` is correctly *not* matched. The
+/// close quote must be on the same line. Anything dynamic — f-strings,
+/// concatenation, variables — is out of scope, so a miss here is safe
+/// noise, not a bug: both callers use this to verify that literal
+/// references exist, not to prove the set is complete.
+pub fn played_assets(text: &str) -> Vec<&str> {
+    // body — exact same code as before
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        for marker in ["play(\"", "play('"] {
+            let mut rest = line;
+            while let Some(pos) = rest.find(marker) {
+                let before = &rest[..pos];
+                if before.ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                    rest = &rest[pos + marker.len()..];
+                    continue;
+                }
+                let quote = marker.as_bytes()[marker.len() - 1] as char;
+                rest = &rest[pos + marker.len()..];
+                if let Some(end) = rest.find(quote) {
+                    out.push(&rest[..end]);
+                    rest = &rest[end + 1..];
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -937,5 +974,16 @@ mod tests {
         );
 
         cleanup(&root);
+    }
+
+    #[test]
+    fn played_assets_extracts_play_literals_and_strips_comments() {
+        let src = r#"
+    pite.play("res://a.wav")
+    pite.play('res://b.ogg')
+    # pite.play("res://commented.wav")
+    x = display("res://not_play.wav")
+    "#;
+        assert_eq!(played_assets(src), vec!["res://a.wav", "res://b.ogg"]);
     }
 }

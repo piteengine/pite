@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use pite_assets::played_assets;
 use pite_render::atlas::{sheet_for_sidecar, SIDECAR_EXT};
 
 pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "windows", "macos"];
@@ -547,32 +548,6 @@ fn atlas_sheet(atlas: &Path) -> Option<PathBuf> {
         .to_str()?
         .ends_with(SIDECAR_EXT)
         .then(|| sheet_for_sidecar(atlas))
-}
-
-fn played_assets(text: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let line = line.split('#').next().unwrap_or("");
-        for marker in ["play(\"", "play('"] {
-            let mut rest = line;
-            while let Some(pos) = rest.find(marker) {
-                let before = &rest[..pos];
-                if before.ends_with(|c: char| c.is_alphanumeric() || c == '_') {
-                    rest = &rest[pos + marker.len()..];
-                    continue;
-                }
-                let quote = marker.as_bytes()[marker.len() - 1] as char;
-                rest = &rest[pos + marker.len()..];
-                if let Some(end) = rest.find(quote) {
-                    out.push(&rest[..end]);
-                    rest = &rest[end + 1..];
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]

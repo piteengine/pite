@@ -1180,7 +1180,7 @@ fn check_scene_ref(
                         node.id
                     ));
                 }
-                for asset in played_assets(&text) {
+                for asset in pite_assets::played_assets(&text) {
                     referenced.insert(normalize_asset_ref(asset));
                     let asset_path = if let Some(rel) = asset.strip_prefix("res://") {
                         root.join(rel)
@@ -1509,32 +1509,6 @@ fn script_imports(text: &str) -> Vec<&str> {
             let top = module.split('.').next().unwrap_or("");
             if !top.is_empty() && !out.contains(&top) {
                 out.push(top);
-            }
-        }
-    }
-    out
-}
-
-fn played_assets(text: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let line = line.split('#').next().unwrap_or("");
-        for marker in ["play(\"", "play('"] {
-            let mut rest = line;
-            while let Some(pos) = rest.find(marker) {
-                let before = &rest[..pos];
-                if before.ends_with(|c: char| c.is_alphanumeric() || c == '_') {
-                    rest = &rest[pos + marker.len()..];
-                    continue;
-                }
-                let quote = marker.as_bytes()[marker.len() - 1] as char;
-                rest = &rest[pos + marker.len()..];
-                if let Some(end) = rest.find(quote) {
-                    out.push(&rest[..end]);
-                    rest = &rest[end + 1..];
-                } else {
-                    break;
-                }
             }
         }
     }
