@@ -66,3 +66,11 @@ runs:
             echo "DYLD_LIBRARY_PATH=$LIBDIR" >> "$GITHUB_ENV"
           fi
         fi
+
+    - name: Generate starter templates
+      shell: bash
+      run: |
+        PYTHON_BIN="$(which python3.12 2>/dev/null || which python3 2>/dev/null || which python 2>/dev/null || true)"
+        if [ -f scripts/package-templates.py ] && [ -n "$PYTHON_BIN" ]; then
+          "$PYTHON_BIN" scripts/package-templates.py
+        fi

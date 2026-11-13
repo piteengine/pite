@@ -42,6 +42,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ -f scripts/package-templates.py ]; then
+  python3 scripts/package-templates.py
+fi
+
 for attempt in $(seq 1 6); do
   set +e
   out=$(cargo publish -p "$crate" 2>&1)

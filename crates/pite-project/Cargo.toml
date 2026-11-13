@@ -12,6 +12,14 @@ keywords = ["game-engine", "manifest", "gamedev"]
 categories = ["game-engines", "config"]
 readme = "README.md"
 publish = true
+include = [
+    "src/**/*",
+    "templates/*.zip",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE*",
+    "build.rs",
+]
 
 [dependencies]
 anyhow.workspace = true
