@@ -11,18 +11,7 @@ pub fn run(
     skip_python_check: bool,
     no_bundle_python: bool,
 ) -> Result<()> {
-    let cwd = std::env::current_dir()?;
-    let start = match path {
-        Some(p) => {
-            let pb = PathBuf::from(p);
-            if pb.is_absolute() {
-                pb
-            } else {
-                cwd.join(pb)
-            }
-        }
-        None => cwd,
-    };
+    let start = crate::resolve_start_dir(path)?;
     let root = pite_project::find_project_root(&start).ok_or_else(|| {
         anyhow::anyhow!(
             "no {} found above {}; run inside a project or pass --path",

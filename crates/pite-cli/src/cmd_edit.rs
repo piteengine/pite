@@ -2,9 +2,6 @@
 use anyhow::Result;
 
 pub fn run(scene: Option<&str>) -> Result<()> {
-    let path = match scene {
-        Some(s) if !s.is_empty() => pite_runtime::resolve_scene_arg(s)?,
-        _ => pite_runtime::resolve_default_scene()?,
-    };
+    let path = crate::resolve_scene(scene)?;
     pite_editor::launch(&path)
 }

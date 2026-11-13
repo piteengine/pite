@@ -760,24 +760,13 @@ pub fn run(
         COLOR_DISABLED
     };
 
-    let cwd = std::env::current_dir()?;
-    let start = match path {
-        Some(p) => {
-            let pb = PathBuf::from(p);
-            if pb.is_absolute() {
-                pb
-            } else {
-                cwd.join(pb)
-            }
-        }
-        None => cwd,
-    };
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     let mut cache: Vec<String> = Vec::new();
     let mut atlas_uses: Vec<pite_assets::AtlasUse> = Vec::new();
     let mut anim_uses: Vec<pite_assets::AnimationUse> = Vec::new();
 
+    let start = crate::resolve_start_dir(path)?;
     let root = match pite_project::find_project_root(&start) {
         Some(root) => root,
         None => {

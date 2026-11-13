@@ -14,6 +14,8 @@ mod cmd_run;
 mod cmd_toolchain;
 mod cmd_vendor;
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 
@@ -155,4 +157,26 @@ fn main() -> Result<()> {
         Some(Command::Toolchain { action }) => cmd_toolchain::run(action),
         Some(Command::Vendor { action }) => cmd_vendor::run(action),
     }
+}
+
+pub(crate) fn resolve_scene(scene: Option<&str>) -> Result<PathBuf> {
+    match scene {
+        Some(s) if !s.is_empty() => pite_runtime::resolve_scene_arg(s),
+        _ => pite_runtime::resolve_default_scene(),
+    }
+}
+
+pub(crate) fn resolve_start_dir(path: Option<&str>) -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    Ok(match path {
+        Some(p) => {
+            let pb = PathBuf::from(p);
+            if pb.is_absolute() {
+                pb
+            } else {
+                cwd.join(pb)
+            }
+        }
+        None => cwd,
+    })
 }
