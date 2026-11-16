@@ -602,6 +602,13 @@ fn upload(
     tex
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+struct SpriteSortKey {
+    z_index: i32,
+    texture_id: u32,
+    order: u32,
+}
+
 /// Shared vertex-build half of `end_frame`: sorts sprites by z-index and submission order,
 /// batching consecutive sprites that share a texture. Sizes are resolved by the caller (which
 /// owns the texture cache) so both the surface and offscreen paths share it.
@@ -612,17 +619,21 @@ fn build_groups(
     zoom: f64,
     size: (u32, u32),
 ) -> (Vec<SpriteBatch>, Vec<SpriteInstance>) {
-    // Pack 64-bit sort key: upper 32 bits = z_index (offset to unsigned monotonic),
-    // lower 32 bits = submission order. Sort compact 16-byte pairs to avoid moving
-    // large QueuedSprite structs in memory.
-    let mut sort_keys: Vec<(u64, u32)> = sprites
+    // Sort key: (z_index, texture_id, order).
+    // Groups same-texture sprites within each z-index into unified batches,
+    // minimizing draw calls and bind-group switches while preserving layer ordering.
+    let mut sort_keys: Vec<(SpriteSortKey, u32)> = sprites
         .iter()
         .enumerate()
         .map(|(idx, s)| {
-            let z_u32 = (s.z_index as i64 - i32::MIN as i64) as u64;
-            let order_u32 = (s.order as u64) & 0xffff_ffff;
-            let key = (z_u32 << 32) | order_u32;
-            (key, idx as u32)
+            (
+                SpriteSortKey {
+                    z_index: s.z_index,
+                    texture_id: s.texture_id,
+                    order: (s.order & 0xffff_ffff) as u32,
+                },
+                idx as u32,
+            )
         })
         .collect();
     sort_keys.sort_unstable_by_key(|&(key, _)| key);
@@ -2174,13 +2185,19 @@ mod atlas_draw_tests {
         ];
         let sizes = [(16, 16), (16, 16)];
 
-        let (batches, _) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        let (batches, instances) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
 
-        assert_eq!(batches.len(), 4);
+        // Grouping by texture within z_index reduces batches from 4 to 3:
+        // z = -1: [tex_b (inst 0)]
+        // z =  0: [tex_a (inst 1, 2)], [tex_b (inst 3)]
+        assert_eq!(batches.len(), 3);
         assert_eq!(batches[0].texture_id, 1);
+        assert_eq!(batches[0].instance_range, 0..1);
         assert_eq!(batches[1].texture_id, 0);
+        assert_eq!(batches[1].instance_range, 1..3);
         assert_eq!(batches[2].texture_id, 1);
-        assert_eq!(batches[3].texture_id, 0);
+        assert_eq!(batches[2].instance_range, 3..4);
+        assert_eq!(instances.len(), 4);
     }
 
     #[test]
