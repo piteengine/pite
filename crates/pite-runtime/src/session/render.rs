@@ -40,6 +40,7 @@ pub(crate) enum NodeDraw {
         frame: Option<String>,
         pos: (f64, f64),
         rotation: f32,
+        z_index: i32,
     },
     AnimatedSprite {
         id: String,
@@ -48,12 +49,14 @@ pub(crate) enum NodeDraw {
         frame: i64,
         pos: (f64, f64),
         rotation: f32,
+        z_index: i32,
     },
     Text {
         text: String,
         size: f32,
         color: [u8; 4],
         pos: (f64, f64),
+        z_index: i32,
     },
     Button {
         text: String,
@@ -61,16 +64,23 @@ pub(crate) enum NodeDraw {
         color: [u8; 4],
         pos: (f64, f64),
         extent: (f64, f64),
+        z_index: i32,
     },
     TileMap {
         id: String,
         pos: (f64, f64),
+        z_index: i32,
     },
 }
 
 pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
     let role = render_role(&node.type_name)?;
     let pos = global_position(tree, &node.id);
+    let z_index = match node.props.get("z_index") {
+        Some(PropValue::Int(i)) => *i as i32,
+        Some(PropValue::Num(n)) => *n as i32,
+        _ => 0,
+    };
     match role {
         RenderRole::Sprite => {
             let prop = |key: &str| match node.props.get(key) {
@@ -84,6 +94,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 frame: prop("frame"),
                 pos,
                 rotation: prop_num(node, "rotation"),
+                z_index,
             })
         }
         RenderRole::AnimatedSprite => {
@@ -103,6 +114,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 frame,
                 pos,
                 rotation: prop_num(node, "rotation"),
+                z_index,
             })
         }
         RenderRole::Label => {
@@ -124,6 +136,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 size,
                 color,
                 pos,
+                z_index,
             })
         }
         RenderRole::Button => {
@@ -147,11 +160,13 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 color,
                 pos,
                 extent,
+                z_index,
             })
         }
         RenderRole::TileMap => Some(NodeDraw::TileMap {
             id: node.id.to_string(),
             pos,
+            z_index,
         }),
     }
 }
@@ -191,6 +206,7 @@ impl GameSession {
                     frame,
                     pos,
                     rotation,
+                    z_index,
                 } => {
                     let has_texture = !texture.is_empty();
                     let atlas = atlas.filter(|s| !s.is_empty());
@@ -202,12 +218,13 @@ impl GameSession {
                         (Some(atlas), Some(frame)) => {
                             let sidecar = self.resolve_path(&atlas);
                             let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                            r.draw_sprite_frame(
+                            r.draw_sprite_layered(
                                 &sheet.to_string_lossy(),
                                 Some(&frame),
                                 pos.0,
                                 pos.1,
                                 rotation as f64,
+                                z_index,
                             )?;
                         }
                         (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
@@ -215,11 +232,13 @@ impl GameSession {
                         (None, None) => {
                             if has_texture {
                                 let resolved = self.resolve_path(&texture);
-                                r.draw_sprite(
+                                r.draw_sprite_layered(
                                     &resolved.to_string_lossy(),
+                                    None,
                                     pos.0,
                                     pos.1,
                                     rotation as f64,
+                                    z_index,
                                 )?;
                             }
                         }
@@ -232,6 +251,7 @@ impl GameSession {
                     frame,
                     pos,
                     rotation,
+                    z_index,
                 } => {
                     if atlas.is_empty() {
                         continue;
@@ -260,12 +280,13 @@ impl GameSession {
                                 let idx = (frame.max(0) as usize) % anim.frames.len();
                                 let frame_name = &anim.frames[idx];
                                 let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                                r.draw_sprite_frame(
+                                r.draw_sprite_layered(
                                     &sheet.to_string_lossy(),
                                     Some(frame_name),
                                     pos.0,
                                     pos.1,
                                     rotation as f64,
+                                    z_index,
                                 )?;
                             }
                         }
@@ -276,8 +297,9 @@ impl GameSession {
                     size,
                     color,
                     pos,
+                    z_index,
                 } => {
-                    r.draw_text(&text, pos.0, pos.1, size, color)?;
+                    r.draw_text_layered(&text, pos.0, pos.1, size, color, z_index)?;
                 }
                 NodeDraw::Button {
                     text,
@@ -285,13 +307,21 @@ impl GameSession {
                     color,
                     pos,
                     extent: (w, h),
+                    z_index,
                 } => {
-                    r.draw_rect(pos.0, pos.1, w, h, color)?;
+                    r.draw_rect_layered(pos.0, pos.1, w, h, color, z_index)?;
                     if !text.is_empty() {
-                        r.draw_text(&text, pos.0, pos.1, size, [255, 255, 255, 255])?;
+                        r.draw_text_layered(
+                            &text,
+                            pos.0,
+                            pos.1,
+                            size,
+                            [255, 255, 255, 255],
+                            z_index,
+                        )?;
                     }
                 }
-                NodeDraw::TileMap { id, pos } => {
+                NodeDraw::TileMap { id, pos, z_index } => {
                     if let Some(doc) = self.host.get_tilemap_doc(&id) {
                         let sidecar = self.resolve_path(&doc.atlas);
                         let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
@@ -311,7 +341,7 @@ impl GameSession {
                         let min_row = ((min_y - pos.1) / tile_h).floor() as i32 - 1;
                         let max_row = ((max_y - pos.1) / tile_h).ceil() as i32 + 1;
 
-                        for layer in &doc.layers {
+                        for (layer_idx, layer) in doc.layers.iter().enumerate() {
                             if !layer.visible {
                                 continue;
                             }
@@ -323,7 +353,14 @@ impl GameSession {
                                 {
                                     let cx = pos.0 + (tile.0 as f64 + 0.5) * tile_w;
                                     let cy = pos.1 + (tile.1 as f64 + 0.5) * tile_h;
-                                    r.draw_sprite_frame(&sheet_str, Some(&tile.2), cx, cy, 0.0)?;
+                                    r.draw_sprite_layered(
+                                        &sheet_str,
+                                        Some(&tile.2),
+                                        cx,
+                                        cy,
+                                        0.0,
+                                        z_index + layer_idx as i32,
+                                    )?;
                                 }
                             }
                         }

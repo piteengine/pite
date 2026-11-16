@@ -28,4 +28,16 @@ pub static PROPS: &[PropSchema] = &[
         hint: PropHint::AngleDeg,
         read_only: false,
     },
+    PropSchema {
+        key: "z_index",
+        label: "Z Index",
+        doc: "Draw order index. Nodes with higher values are drawn on top. Ties fall back to tree order.",
+        default_value: DefaultPropVal::Int(0),
+        hint: PropHint::Int {
+            speed: 1.0,
+            min: -4096,
+            max: 4096,
+        },
+        read_only: false,
+    },
 ];

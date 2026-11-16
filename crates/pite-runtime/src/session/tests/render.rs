@@ -14,6 +14,7 @@ fn dogfood_scene() -> PathBuf {
 #[derive(Default)]
 struct RecordingRenderer {
     calls: Vec<(String, Option<String>, (f64, f64))>,
+    layered_calls: Vec<(String, Option<String>, (f64, f64), i32)>,
 }
 
 impl Renderer2D for RecordingRenderer {
@@ -23,6 +24,8 @@ impl Renderer2D for RecordingRenderer {
 
     fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, _rotation: f64) -> Result<()> {
         self.calls.push((texture.to_string(), None, (x, y)));
+        self.layered_calls
+            .push((texture.to_string(), None, (x, y), 0));
         Ok(())
     }
 
@@ -36,6 +39,28 @@ impl Renderer2D for RecordingRenderer {
     ) -> Result<()> {
         self.calls
             .push((texture.to_string(), frame.map(str::to_string), (x, y)));
+        self.layered_calls
+            .push((texture.to_string(), frame.map(str::to_string), (x, y), 0));
+        Ok(())
+    }
+
+    fn draw_sprite_layered(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        _rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.calls
+            .push((texture.to_string(), frame.map(str::to_string), (x, y)));
+        self.layered_calls.push((
+            texture.to_string(),
+            frame.map(str::to_string),
+            (x, y),
+            z_index,
+        ));
         Ok(())
     }
 
@@ -139,5 +164,54 @@ fn plain_texture_sprite_draws_without_mutual_exclusion_error() {
     session
         .draw_into(&mut recorder)
         .expect("plain texture sprite must draw cleanly without atlas collision");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn sprite_z_index_passes_to_renderer() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("pite-z-index-draw-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
+    std::fs::write(
+        dir.join("scenes").join("main.ptscn"),
+        r#"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "bg"
+type = "Sprite2D"
+name = "Background"
+parent = "root"
+
+[node.props]
+texture = "res://assets/bg.png"
+z_index = -10
+
+[[node]]
+id = "fg"
+type = "Sprite2D"
+name = "Foreground"
+parent = "root"
+
+[node.props]
+texture = "res://assets/fg.png"
+z_index = 25
+"#,
+    )
+    .unwrap();
+    let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+    let mut recorder = RecordingRenderer::default();
+    session.draw_into(&mut recorder).expect("scene draws");
+
+    assert_eq!(recorder.layered_calls.len(), 2);
+    assert_eq!(recorder.layered_calls[0].3, -10);
+    assert_eq!(recorder.layered_calls[1].3, 25);
     std::fs::remove_dir_all(&dir).ok();
 }

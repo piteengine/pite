@@ -33,8 +33,47 @@ pub trait Renderer2D {
         let _ = frame;
         self.draw_sprite(texture, x, y, rotation)
     }
+    /// Draw `texture`, optionally from one named atlas frame, at explicit
+    /// `z_index`. Higher z_index values draw on top. Ties fall back to
+    /// submission order.
+    fn draw_sprite_layered(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        let _ = z_index;
+        self.draw_sprite_frame(texture, frame, x, y, rotation)
+    }
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
+    fn draw_text_layered(
+        &mut self,
+        text: &str,
+        x: f64,
+        y: f64,
+        size: f32,
+        color: [u8; 4],
+        z_index: i32,
+    ) -> Result<()> {
+        let _ = z_index;
+        self.draw_text(text, x, y, size, color)
+    }
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
+    fn draw_rect_layered(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        color: [u8; 4],
+        z_index: i32,
+    ) -> Result<()> {
+        let _ = z_index;
+        self.draw_rect(x, y, w, h, color)
+    }
     fn end_frame(&mut self) -> Result<()>;
     fn set_camera(&mut self, _x: f64, _y: f64, _zoom: f64) {}
     fn reload_asset(&mut self, _path: &str) {}
@@ -119,7 +158,7 @@ pub fn screen_to_ndc(screen: (f32, f32), size: (u32, u32)) -> (f32, f32) {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct SpriteVertex {
     pos: [f32; 2],
     uv: [f32; 2],
@@ -209,6 +248,12 @@ struct GpuTexture {
     h: u32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SpriteBatch {
+    pub(crate) tex_key: String,
+    pub(crate) verts: Vec<SpriteVertex>,
+}
+
 struct QueuedSprite {
     tex_key: String,
     world: (f64, f64),
@@ -218,10 +263,12 @@ struct QueuedSprite {
     uv: [f32; 4],
     /// Radians, positive = clockwise on screen (y-down NDC).
     rotation: f32,
+    z_index: i32,
+    order: usize,
 }
 
 impl QueuedSprite {
-    fn plain(tex_key: String, world: (f64, f64)) -> Self {
+    fn plain(tex_key: String, world: (f64, f64), z_index: i32, order: usize) -> Self {
         Self {
             tex_key,
             world,
@@ -229,6 +276,8 @@ impl QueuedSprite {
             size_px: None,
             uv: FULL_UV,
             rotation: 0.0,
+            z_index,
+            order,
         }
     }
 }
@@ -367,22 +416,23 @@ fn upload(
     tex
 }
 
-/// Shared vertex-build half of `end_frame`: group queued sprites by texture
-/// key, preserving first-seen order. Sizes are resolved by the caller (which
+/// Shared vertex-build half of `end_frame`: sorts sprites by z-index and submission order,
+/// batching consecutive sprites that share a texture. Sizes are resolved by the caller (which
 /// owns the texture cache) so both the surface and offscreen paths share it.
 fn build_groups(
-    sprites: Vec<QueuedSprite>,
+    mut sprites: Vec<QueuedSprite>,
     sizes: &std::collections::HashMap<String, (u32, u32)>,
     cam: (f64, f64),
     zoom: f64,
     size: (u32, u32),
-) -> (
-    std::collections::HashMap<String, Vec<SpriteVertex>>,
-    Vec<String>,
-) {
-    let mut groups: std::collections::HashMap<String, Vec<SpriteVertex>> =
-        std::collections::HashMap::new();
-    let mut order: Vec<String> = Vec::new();
+) -> Vec<SpriteBatch> {
+    // Sort by z_index ascending (lower z renders first); ties preserve submission order.
+    sprites.sort_by(|a, b| match a.z_index.cmp(&b.z_index) {
+        std::cmp::Ordering::Equal => a.order.cmp(&b.order),
+        other => other,
+    });
+
+    let mut batches: Vec<SpriteBatch> = Vec::new();
     for sprite in sprites {
         let (tw, th) = sizes.get(&sprite.tex_key).copied().unwrap_or((8, 8));
         // Every size scales with zoom: positions already do, so a sprite
@@ -396,15 +446,19 @@ fn build_groups(
         let screen = world_to_screen(sprite.world, cam, zoom, size);
         let ndc = screen_to_ndc(screen, size);
         let quad = quad_for(ndc, w, h, size, sprite.uv, sprite.rotation);
-        if !groups.contains_key(&sprite.tex_key) {
-            order.push(sprite.tex_key.clone());
+
+        if let Some(last) = batches.last_mut() {
+            if last.tex_key == sprite.tex_key {
+                last.verts.extend_from_slice(&quad);
+                continue;
+            }
         }
-        groups
-            .entry(sprite.tex_key)
-            .or_default()
-            .extend_from_slice(&quad);
+        batches.push(SpriteBatch {
+            tex_key: sprite.tex_key,
+            verts: quad.to_vec(),
+        });
     }
-    (groups, order)
+    batches
 }
 
 /// Resolve a frame name to UV rect + pixel size, loading the sheet's sidecar
@@ -425,13 +479,12 @@ fn frame_uv(
     Ok((found.uv(atlas.size), (found.w, found.h)))
 }
 
-/// Encode one render pass drawing pre-built groups into `view`.
+/// Encode one render pass drawing pre-built batches into `view`.
 fn encode_groups(
     device: &wgpu::Device,
     pipeline: &wgpu::RenderPipeline,
     textures: &std::collections::HashMap<String, GpuTexture>,
-    groups: &std::collections::HashMap<String, Vec<SpriteVertex>>,
-    order: &[String],
+    batches: &[SpriteBatch],
     view: &wgpu::TextureView,
 ) -> wgpu::CommandBuffer {
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -458,21 +511,21 @@ fn encode_groups(
             multiview_mask: None,
         });
         pass.set_pipeline(pipeline);
-        for key in order {
-            let Some(verts) = groups.get(key) else {
+        for batch in batches {
+            if batch.verts.is_empty() {
                 continue;
-            };
-            let Some(tex) = textures.get(key) else {
+            }
+            let Some(tex) = textures.get(&batch.tex_key) else {
                 continue;
             };
             let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("pite verts"),
-                contents: bytemuck::cast_slice(verts),
+                contents: bytemuck::cast_slice(&batch.verts),
                 usage: wgpu::BufferUsages::VERTEX,
             });
             pass.set_bind_group(0, &tex.bind_group, &[]);
             pass.set_vertex_buffer(0, buf.slice(..));
-            pass.draw(0..verts.len() as u32, 0..1);
+            pass.draw(0..batch.verts.len() as u32, 0..1);
         }
     }
     encoder.finish()
@@ -492,6 +545,7 @@ struct SharedQueue {
     baked_order: std::collections::VecDeque<String>,
     atlas: text::TextAtlas,
     queue_list: Vec<QueuedSprite>,
+    order_counter: usize,
     sprite_atlases: std::collections::HashMap<String, Atlas>,
     cam: (f64, f64),
     zoom: f64,
@@ -516,6 +570,7 @@ impl SharedQueue {
             baked_order: std::collections::VecDeque::new(),
             atlas: text::TextAtlas::new()?,
             queue_list: Vec::new(),
+            order_counter: 0,
             sprite_atlases: std::collections::HashMap::new(),
             cam: (0.0, 0.0),
             zoom: 1.0,
@@ -525,6 +580,12 @@ impl SharedQueue {
     fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
         self.cam = (x, y);
         self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
+    }
+
+    fn next_order(&mut self) -> usize {
+        let o = self.order_counter;
+        self.order_counter += 1;
+        o
     }
 
     fn load_texture(&self, key: &str) -> GpuTexture {
@@ -583,9 +644,7 @@ impl SharedQueue {
     }
 
     fn queue_sprite(&mut self, texture: &str, world: (f64, f64), rotation: f32) {
-        let mut q = QueuedSprite::plain(texture.to_string(), world);
-        q.rotation = rotation;
-        self.queue_list.push(q);
+        let _ = self.queue_sprite_layered(texture, None, world, rotation, 0);
     }
 
     fn queue_sprite_frame(
@@ -595,23 +654,50 @@ impl SharedQueue {
         world: (f64, f64),
         rotation: f32,
     ) -> Result<()> {
-        let Some(frame) = frame else {
-            self.queue_sprite(texture, world, rotation);
-            return Ok(());
+        self.queue_sprite_layered(texture, frame, world, rotation, 0)
+    }
+
+    fn queue_sprite_layered(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        world: (f64, f64),
+        rotation: f32,
+        z_index: i32,
+    ) -> Result<()> {
+        let order = self.next_order();
+        let (uv, size_px) = match frame {
+            Some(frame_name) => {
+                let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame_name)?;
+                (uv, Some(size_px))
+            }
+            None => (FULL_UV, None),
         };
-        let (uv, size_px) = frame_uv(&mut self.sprite_atlases, texture, frame)?;
         self.queue_list.push(QueuedSprite {
             tex_key: texture.to_string(),
             world,
             size_world: None,
-            size_px: Some(size_px),
+            size_px,
             uv,
             rotation,
+            z_index,
+            order,
         });
         Ok(())
     }
 
     fn queue_rect(&mut self, world: (f64, f64), w: f64, h: f64, color: [u8; 4]) {
+        self.queue_rect_layered(world, w, h, color, 0);
+    }
+
+    fn queue_rect_layered(
+        &mut self,
+        world: (f64, f64),
+        w: f64,
+        h: f64,
+        color: [u8; 4],
+        z_index: i32,
+    ) {
         let key = format!(
             "rect\0{}\0{}\0{}\0{}",
             color[0], color[1], color[2], color[3]
@@ -627,13 +713,25 @@ impl SharedQueue {
             );
             text::lru_touch(&mut self.baked_order, &key, 64);
         }
+        let order = self.next_order();
         self.queue_list.push(QueuedSprite {
             size_world: Some((w.max(1.0), h.max(1.0))),
-            ..QueuedSprite::plain(key, world)
+            ..QueuedSprite::plain(key, world, z_index, order)
         });
     }
 
     fn draw_text_queued(&mut self, text: &str, world: (f64, f64), size: f32, color: [u8; 4]) {
+        self.draw_text_queued_layered(text, world, size, color, 0);
+    }
+
+    fn draw_text_queued_layered(
+        &mut self,
+        text: &str,
+        world: (f64, f64),
+        size: f32,
+        color: [u8; 4],
+        z_index: i32,
+    ) {
         if text.is_empty() {
             return;
         }
@@ -650,18 +748,15 @@ impl SharedQueue {
                 }
             }
         }
-        self.queue_list.push(QueuedSprite::plain(key, world));
+        let order = self.next_order();
+        self.queue_list
+            .push(QueuedSprite::plain(key, world, z_index, order));
     }
 
     /// Drain the queue, resolve every queued texture once, and build the
-    /// vertex groups plus the first-seen draw order for a `size`-sized target.
-    fn build(
-        &mut self,
-        size: (u32, u32),
-    ) -> (
-        std::collections::HashMap<String, Vec<SpriteVertex>>,
-        Vec<String>,
-    ) {
+    /// batches ordered by (z_index, order) for a `size`-sized target.
+    fn build(&mut self, size: (u32, u32)) -> Vec<SpriteBatch> {
+        self.order_counter = 0;
         let sprites = std::mem::take(&mut self.queue_list);
         for sprite in &sprites {
             self.texture_for(&sprite.tex_key);
@@ -762,6 +857,7 @@ impl WgpuRenderer {
 impl Renderer2D for WgpuRenderer {
     fn begin_frame(&mut self) -> Result<()> {
         self.shared.queue_list.clear();
+        self.shared.order_counter = 0;
         Ok(())
     }
 
@@ -782,8 +878,34 @@ impl Renderer2D for WgpuRenderer {
             .queue_sprite_frame(texture, frame, (x, y), rotation as f32)
     }
 
+    fn draw_sprite_layered(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.shared
+            .queue_sprite_layered(texture, frame, (x, y), rotation as f32, z_index)
+    }
+
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
         self.shared.queue_rect((x, y), w, h, color);
+        Ok(())
+    }
+
+    fn draw_rect_layered(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        color: [u8; 4],
+        z_index: i32,
+    ) -> Result<()> {
+        self.shared.queue_rect_layered((x, y), w, h, color, z_index);
         Ok(())
     }
 
@@ -792,9 +914,23 @@ impl Renderer2D for WgpuRenderer {
         Ok(())
     }
 
+    fn draw_text_layered(
+        &mut self,
+        text: &str,
+        x: f64,
+        y: f64,
+        size: f32,
+        color: [u8; 4],
+        z_index: i32,
+    ) -> Result<()> {
+        self.shared
+            .draw_text_queued_layered(text, (x, y), size, color, z_index);
+        Ok(())
+    }
+
     fn end_frame(&mut self) -> Result<()> {
         let size = (self.config.width, self.config.height);
-        let (groups, order) = self.shared.build(size);
+        let batches = self.shared.build(size);
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -812,8 +948,7 @@ impl Renderer2D for WgpuRenderer {
             &self.shared.device,
             &self.shared.pipeline,
             &self.shared.textures,
-            &groups,
-            &order,
+            &batches,
             &view,
         );
         self.shared.queue.submit(std::iter::once(cmd));
@@ -887,14 +1022,13 @@ impl OffscreenRenderer {
 
     fn render_queued_to_target(&mut self) -> wgpu::CommandBuffer {
         let size = (self.width, self.height);
-        let (groups, order) = self.shared.build(size);
+        let batches = self.shared.build(size);
         let view = self.target.create_view(&Default::default());
         encode_groups(
             &self.shared.device,
             &self.shared.pipeline,
             &self.shared.textures,
-            &groups,
-            &order,
+            &batches,
             &view,
         )
     }
@@ -903,56 +1037,11 @@ impl OffscreenRenderer {
         let (w, h) = (self.width, self.height);
         let padded_bytes_per_row: u32 = ((w * 4 + 255) / 256) * 256;
         let buffer_size: u64 = padded_bytes_per_row as u64 * h as u64;
+        let draw_cmd = self.render_queued_to_target();
         let mut encoder = self
             .shared
             .device
             .create_command_encoder(&Default::default());
-        let size = (w, h);
-        let (groups, order) = self.shared.build(size);
-        let view = self.target.create_view(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("pite offscreen pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.07,
-                            g: 0.07,
-                            b: 0.10,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.shared.pipeline);
-            for key in &order {
-                let Some(verts) = groups.get(key) else {
-                    continue;
-                };
-                let Some(tex) = self.shared.textures.get(key) else {
-                    continue;
-                };
-                let buf =
-                    self.shared
-                        .device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("pite offscreen verts"),
-                            contents: bytemuck::cast_slice(verts),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                pass.set_bind_group(0, &tex.bind_group, &[]);
-                pass.set_vertex_buffer(0, buf.slice(..));
-                pass.draw(0..verts.len() as u32, 0..1);
-            }
-        }
         let readback = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pite offscreen readback"),
             size: buffer_size,
@@ -980,7 +1069,7 @@ impl OffscreenRenderer {
                 depth_or_array_layers: 1,
             },
         );
-        self.shared.queue.submit(std::iter::once(encoder.finish()));
+        self.shared.queue.submit([draw_cmd, encoder.finish()]);
         let (tx, rx) = std::sync::mpsc::channel();
         readback.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
@@ -1013,6 +1102,7 @@ impl OffscreenRenderer {
 impl Renderer2D for OffscreenRenderer {
     fn begin_frame(&mut self) -> Result<()> {
         self.shared.queue_list.clear();
+        self.shared.order_counter = 0;
         Ok(())
     }
 
@@ -1033,13 +1123,53 @@ impl Renderer2D for OffscreenRenderer {
             .queue_sprite_frame(texture, frame, (x, y), rotation as f32)
     }
 
+    fn draw_sprite_layered(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.shared
+            .queue_sprite_layered(texture, frame, (x, y), rotation as f32, z_index)
+    }
+
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
         self.shared.queue_rect((x, y), w, h, color);
         Ok(())
     }
 
+    fn draw_rect_layered(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        color: [u8; 4],
+        z_index: i32,
+    ) -> Result<()> {
+        self.shared.queue_rect_layered((x, y), w, h, color, z_index);
+        Ok(())
+    }
+
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
         self.shared.draw_text_queued(text, (x, y), size, color);
+        Ok(())
+    }
+
+    fn draw_text_layered(
+        &mut self,
+        text: &str,
+        x: f64,
+        y: f64,
+        size: f32,
+        color: [u8; 4],
+        z_index: i32,
+    ) -> Result<()> {
+        self.shared
+            .draw_text_queued_layered(text, (x, y), size, color, z_index);
         Ok(())
     }
 
@@ -1532,6 +1662,8 @@ mod atlas_draw_tests {
             size_px: Some((frame.w, frame.h)),
             uv: frame.uv(atlas.size),
             rotation: 0.0,
+            z_index: 0,
+            order: 0,
         }
     }
 
@@ -1545,10 +1677,11 @@ mod atlas_draw_tests {
         ];
         let sizes: HashMap<String, (u32, u32)> =
             HashMap::from([("sheet.png".to_string(), atlas.size)]);
-        let (groups, order) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        let batches = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
 
-        assert_eq!(order, vec!["sheet.png".to_string()], "one sheet, one draw");
-        let verts = groups.get("sheet.png").expect("group exists");
+        assert_eq!(batches.len(), 1, "one sheet, one draw");
+        assert_eq!(batches[0].tex_key, "sheet.png");
+        let verts = &batches[0].verts;
         assert_eq!(verts.len(), 12, "two quads share the group");
 
         let player_uvs: Vec<[f32; 2]> = verts[..6].iter().map(|v| v.uv).collect();
@@ -1565,14 +1698,37 @@ mod atlas_draw_tests {
         let sprites = vec![queued(&atlas, player, (0.0, 0.0))];
         let sizes: HashMap<String, (u32, u32)> =
             HashMap::from([("sheet.png".to_string(), atlas.size)]);
-        let (groups, _) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
-        let verts = &groups["sheet.png"];
+        let batches = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        assert_eq!(batches.len(), 1);
+        let verts = &batches[0].verts;
         let width_ndc = verts[1].pos[0] - verts[0].pos[0];
         // 32px frame in a 200px-wide view, doubled because NDC spans both edges.
         assert!(
             (width_ndc - 2.0 * 32.0 / 200.0).abs() < 1e-6,
             "got {width_ndc}"
         );
+    }
+
+    #[test]
+    fn z_index_and_consecutive_batching_preserves_draw_order() {
+        let sprites = vec![
+            QueuedSprite::plain("tex_a".to_string(), (0.0, 0.0), 0, 0),
+            QueuedSprite::plain("tex_b".to_string(), (10.0, 0.0), 0, 1),
+            QueuedSprite::plain("tex_a".to_string(), (20.0, 0.0), 0, 2),
+            QueuedSprite::plain("tex_b".to_string(), (-10.0, 0.0), -1, 3),
+        ];
+        let sizes: HashMap<String, (u32, u32)> = HashMap::from([
+            ("tex_a".to_string(), (16, 16)),
+            ("tex_b".to_string(), (16, 16)),
+        ]);
+
+        let batches = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+
+        assert_eq!(batches.len(), 4);
+        assert_eq!(batches[0].tex_key, "tex_b");
+        assert_eq!(batches[1].tex_key, "tex_a");
+        assert_eq!(batches[2].tex_key, "tex_b");
+        assert_eq!(batches[3].tex_key, "tex_a");
     }
 
     #[test]

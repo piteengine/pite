@@ -280,7 +280,7 @@ mod tests {
         let keys: Vec<&str> = all_props("Sprite2D").iter().map(|p| p.key).collect();
         assert_eq!(
             keys,
-            vec!["texture", "atlas", "frame", "position", "rotation"]
+            vec!["texture", "atlas", "frame", "position", "rotation", "z_index"]
         );
 
         // AnimatedSprite2D → Node2D → Node
@@ -298,7 +298,8 @@ mod tests {
                 "playing",
                 "autoplay",
                 "position",
-                "rotation"
+                "rotation",
+                "z_index"
             ]
         );
 
@@ -315,7 +316,8 @@ mod tests {
                 "disabled",
                 "font_size",
                 "position",
-                "rotation"
+                "rotation",
+                "z_index"
             ]
         );
         // Button's own color default wins over Control's white.
@@ -339,7 +341,8 @@ mod tests {
                 "collision_layer",
                 "collision_mask",
                 "position",
-                "rotation"
+                "rotation",
+                "z_index"
             ]
         );
 
