@@ -606,23 +606,33 @@ fn upload(
 /// batching consecutive sprites that share a texture. Sizes are resolved by the caller (which
 /// owns the texture cache) so both the surface and offscreen paths share it.
 fn build_groups(
-    mut sprites: Vec<QueuedSprite>,
+    sprites: Vec<QueuedSprite>,
     sizes: &[(u32, u32)],
     cam: (f64, f64),
     zoom: f64,
     size: (u32, u32),
 ) -> (Vec<SpriteBatch>, Vec<SpriteInstance>) {
-    // Sort by z_index ascending (lower z renders first); ties preserve submission order.
-    sprites.sort_by(|a, b| match a.z_index.cmp(&b.z_index) {
-        std::cmp::Ordering::Equal => a.order.cmp(&b.order),
-        other => other,
-    });
+    // Pack 64-bit sort key: upper 32 bits = z_index (offset to unsigned monotonic),
+    // lower 32 bits = submission order. Sort compact 16-byte pairs to avoid moving
+    // large QueuedSprite structs in memory.
+    let mut sort_keys: Vec<(u64, u32)> = sprites
+        .iter()
+        .enumerate()
+        .map(|(idx, s)| {
+            let z_u32 = (s.z_index as i64 - i32::MIN as i64) as u64;
+            let order_u32 = (s.order as u64) & 0xffff_ffff;
+            let key = (z_u32 << 32) | order_u32;
+            (key, idx as u32)
+        })
+        .collect();
+    sort_keys.sort_unstable_by_key(|&(key, _)| key);
 
     let inv_viewport = [2.0 / size.0 as f32, 2.0 / size.1 as f32];
     let mut batches: Vec<SpriteBatch> = Vec::new();
     let mut instances: Vec<SpriteInstance> = Vec::with_capacity(sprites.len());
 
-    for sprite in sprites {
+    for &(_, idx) in &sort_keys {
+        let sprite = &sprites[idx as usize];
         let (tw, th) = sizes
             .get(sprite.texture_id as usize)
             .copied()
