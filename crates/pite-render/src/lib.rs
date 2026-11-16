@@ -45,7 +45,30 @@ pub trait Renderer2D {
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
-        let _ = z_index;
+        self.draw_sprite_tinted(
+            texture,
+            frame,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+    /// Draw `texture`, optionally from one named atlas frame, at explicit
+    /// `z_index` and modulated by `color` (RGBA). Higher z_index values draw
+    /// on top. Ties fall back to submission order.
+    fn draw_sprite_tinted(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        let _ = (z_index, color);
         self.draw_sprite_frame(texture, frame, x, y, rotation)
     }
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
@@ -89,6 +112,19 @@ impl Renderer2D for NoopRenderer {
     }
 
     fn draw_sprite(&mut self, _texture: &str, _x: f64, _y: f64, _rotation: f64) -> Result<()> {
+        Ok(())
+    }
+
+    fn draw_sprite_tinted(
+        &mut self,
+        _texture: &str,
+        _frame: Option<&str>,
+        _x: f64,
+        _y: f64,
+        _rotation: f64,
+        _z_index: i32,
+        _color: [u8; 4],
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -159,12 +195,52 @@ pub fn screen_to_ndc(screen: (f32, f32), size: (u32, u32)) -> (f32, f32) {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-struct SpriteVertex {
-    pos: [f32; 2],
-    uv: [f32; 2],
+pub(crate) struct UnitQuadVertex {
+    pub(crate) pos: [f32; 2],
+    pub(crate) uv: [f32; 2],
 }
 
-fn quad_for(
+pub(crate) const UNIT_QUAD_VERTS: [UnitQuadVertex; 4] = [
+    UnitQuadVertex {
+        pos: [-0.5, -0.5],
+        uv: [0.0, 0.0],
+    },
+    UnitQuadVertex {
+        pos: [0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    UnitQuadVertex {
+        pos: [0.5, 0.5],
+        uv: [1.0, 1.0],
+    },
+    UnitQuadVertex {
+        pos: [-0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
+];
+
+pub(crate) const QUAD_INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct SpriteInstance {
+    pub(crate) center_ndc: [f32; 2],
+    pub(crate) size_px: [f32; 2],
+    pub(crate) inv_viewport: [f32; 2],
+    pub(crate) uv_rect: [f32; 4],
+    pub(crate) rotation: f32,
+    pub(crate) color: [u8; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct SpriteVertex {
+    pub(crate) pos: [f32; 2],
+    pub(crate) uv: [f32; 2],
+}
+
+#[allow(dead_code)]
+pub(crate) fn quad_for(
     center_ndc: (f32, f32),
     w_px: f32,
     h_px: f32,
@@ -209,32 +285,52 @@ fn quad_for(
         pos: corner(-hw, hh),
         uv: [uv[0], uv[3]],
     };
-    // The pipeline is TriangleList, so a quad is two whole triangles. Four
-    // vertices would draw one triangle, drop the other, and bridge into the
-    // next quad in the same batch.
     [tl, tr, br, tl, br, bl]
 }
 
 const SPRITE_SHADER: &str = r#"
+struct VertexInput {
+    @location(0) quad_pos: vec2<f32>,
+    @location(1) unit_uv: vec2<f32>,
+};
+
+struct InstanceInput {
+    @location(2) center_ndc: vec2<f32>,
+    @location(3) size_px: vec2<f32>,
+    @location(4) inv_viewport: vec2<f32>,
+    @location(5) uv_rect: vec4<f32>,
+    @location(6) rotation: f32,
+    @location(7) color: vec4<f32>,
+};
+
 struct VertexOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
 };
 
 @group(0) @binding(0) var sprite_tex: texture_2d<f32>;
 @group(0) @binding(1) var sprite_smp: sampler;
 
 @vertex
-fn vs(@location(0) p: vec2<f32>, @location(1) uv: vec2<f32>) -> VertexOut {
+fn vs(vert: VertexInput, inst: InstanceInput) -> VertexOut {
     var out: VertexOut;
-    out.pos = vec4<f32>(p, 0.0, 1.0);
-    out.uv = uv;
+    let d_px = vert.quad_pos * inst.size_px;
+    let cos_r = cos(inst.rotation);
+    let sin_r = sin(inst.rotation);
+    let rot_x = d_px.x * cos_r - d_px.y * sin_r;
+    let rot_y = d_px.x * sin_r + d_px.y * cos_r;
+    let ndc_x = inst.center_ndc.x + rot_x * inst.inv_viewport.x;
+    let ndc_y = inst.center_ndc.y - rot_y * inst.inv_viewport.y;
+    out.pos = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    out.uv = inst.uv_rect.xy + vert.unit_uv * (inst.uv_rect.zw - inst.uv_rect.xy);
+    out.color = inst.color;
     return out;
 }
 
 @fragment
 fn fs(in: VertexOut) -> @location(0) vec4<f32> {
-    return textureSample(sprite_tex, sprite_smp, in.uv);
+    return textureSample(sprite_tex, sprite_smp, in.uv) * in.color;
 }
 "#;
 
@@ -251,7 +347,7 @@ struct GpuTexture {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SpriteBatch {
     pub(crate) tex_key: String,
-    pub(crate) verts: Vec<SpriteVertex>,
+    pub(crate) instance_range: std::ops::Range<u32>,
 }
 
 struct QueuedSprite {
@@ -263,6 +359,7 @@ struct QueuedSprite {
     uv: [f32; 4],
     /// Radians, positive = clockwise on screen (y-down NDC).
     rotation: f32,
+    color: [u8; 4],
     z_index: i32,
     order: usize,
 }
@@ -276,6 +373,7 @@ impl QueuedSprite {
             size_px: None,
             uv: FULL_UV,
             rotation: 0.0,
+            color: [255, 255, 255, 255],
             z_index,
             order,
         }
@@ -322,11 +420,60 @@ fn create_sprite_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs"),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<SpriteVertex>() as u64,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
-            })],
+            buffers: &[
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<UnitQuadVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1,
+                        },
+                    ],
+                }),
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<SpriteInstance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 2,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 3,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 16,
+                            shader_location: 4,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x4,
+                            offset: 24,
+                            shader_location: 5,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: 40,
+                            shader_location: 6,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Unorm8x4,
+                            offset: 44,
+                            shader_location: 7,
+                        },
+                    ],
+                }),
+            ],
             compilation_options: Default::default(),
         },
         primitive: wgpu::PrimitiveState::default(),
@@ -425,14 +572,17 @@ fn build_groups(
     cam: (f64, f64),
     zoom: f64,
     size: (u32, u32),
-) -> Vec<SpriteBatch> {
+) -> (Vec<SpriteBatch>, Vec<SpriteInstance>) {
     // Sort by z_index ascending (lower z renders first); ties preserve submission order.
     sprites.sort_by(|a, b| match a.z_index.cmp(&b.z_index) {
         std::cmp::Ordering::Equal => a.order.cmp(&b.order),
         other => other,
     });
 
+    let inv_viewport = [2.0 / size.0 as f32, 2.0 / size.1 as f32];
     let mut batches: Vec<SpriteBatch> = Vec::new();
+    let mut instances: Vec<SpriteInstance> = Vec::with_capacity(sprites.len());
+
     for sprite in sprites {
         let (tw, th) = sizes.get(&sprite.tex_key).copied().unwrap_or((8, 8));
         // Every size scales with zoom: positions already do, so a sprite
@@ -445,20 +595,31 @@ fn build_groups(
         };
         let screen = world_to_screen(sprite.world, cam, zoom, size);
         let ndc = screen_to_ndc(screen, size);
-        let quad = quad_for(ndc, w, h, size, sprite.uv, sprite.rotation);
+
+        let instance = SpriteInstance {
+            center_ndc: [ndc.0, ndc.1],
+            size_px: [w, h],
+            inv_viewport,
+            uv_rect: sprite.uv,
+            rotation: sprite.rotation,
+            color: sprite.color,
+        };
 
         if let Some(last) = batches.last_mut() {
             if last.tex_key == sprite.tex_key {
-                last.verts.extend_from_slice(&quad);
+                instances.push(instance);
+                last.instance_range.end += 1;
                 continue;
             }
         }
+        let start = instances.len() as u32;
+        instances.push(instance);
         batches.push(SpriteBatch {
             tex_key: sprite.tex_key,
-            verts: quad.to_vec(),
+            instance_range: start..start + 1,
         });
     }
-    batches
+    (batches, instances)
 }
 
 /// Resolve a frame name to UV rect + pixel size, loading the sheet's sidecar
@@ -481,13 +642,11 @@ fn frame_uv(
 
 /// Encode one render pass drawing pre-built batches into `view`.
 fn encode_groups(
-    device: &wgpu::Device,
-    pipeline: &wgpu::RenderPipeline,
-    textures: &std::collections::HashMap<String, GpuTexture>,
+    shared: &SharedQueue,
     batches: &[SpriteBatch],
     view: &wgpu::TextureView,
 ) -> wgpu::CommandBuffer {
-    let mut encoder = device.create_command_encoder(&Default::default());
+    let mut encoder = shared.device.create_command_encoder(&Default::default());
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("pite pass"),
@@ -510,22 +669,19 @@ fn encode_groups(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(pipeline);
+        pass.set_pipeline(&shared.pipeline);
+        pass.set_vertex_buffer(0, shared.quad_vbuf.slice(..));
+        pass.set_index_buffer(shared.quad_ibuf.slice(..), wgpu::IndexFormat::Uint16);
+        pass.set_vertex_buffer(1, shared.instance_buf.slice(..));
         for batch in batches {
-            if batch.verts.is_empty() {
+            if batch.instance_range.is_empty() {
                 continue;
             }
-            let Some(tex) = textures.get(&batch.tex_key) else {
+            let Some(tex) = shared.textures.get(&batch.tex_key) else {
                 continue;
             };
-            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("pite verts"),
-                contents: bytemuck::cast_slice(&batch.verts),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
             pass.set_bind_group(0, &tex.bind_group, &[]);
-            pass.set_vertex_buffer(0, buf.slice(..));
-            pass.draw(0..batch.verts.len() as u32, 0..1);
+            pass.draw_indexed(0..6, 0, batch.instance_range.clone());
         }
     }
     encoder.finish()
@@ -549,6 +705,10 @@ struct SharedQueue {
     sprite_atlases: std::collections::HashMap<String, Atlas>,
     cam: (f64, f64),
     zoom: f64,
+    quad_vbuf: wgpu::Buffer,
+    quad_ibuf: wgpu::Buffer,
+    instance_buf: wgpu::Buffer,
+    instance_buf_capacity: usize,
 }
 
 impl SharedQueue {
@@ -559,6 +719,23 @@ impl SharedQueue {
         sampler: wgpu::Sampler,
         tex_layout: wgpu::BindGroupLayout,
     ) -> Result<Self> {
+        let quad_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite unit quad vbuf"),
+            contents: bytemuck::cast_slice(&UNIT_QUAD_VERTS),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let quad_ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite quad ibuf"),
+            contents: bytemuck::cast_slice(&QUAD_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        const DEFAULT_INSTANCE_CAPACITY: usize = 1024 * 1024; // 1 MB
+        let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pite instance buffer"),
+            size: DEFAULT_INSTANCE_CAPACITY as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Ok(Self {
             device,
             queue,
@@ -574,7 +751,30 @@ impl SharedQueue {
             sprite_atlases: std::collections::HashMap::new(),
             cam: (0.0, 0.0),
             zoom: 1.0,
+            quad_vbuf,
+            quad_ibuf,
+            instance_buf,
+            instance_buf_capacity: DEFAULT_INSTANCE_CAPACITY,
         })
+    }
+
+    fn upload_instances(&mut self, instances: &[SpriteInstance]) {
+        if instances.is_empty() {
+            return;
+        }
+        let required_bytes = std::mem::size_of_val(instances);
+        if required_bytes > self.instance_buf_capacity {
+            let new_cap = (required_bytes * 2).max(self.instance_buf_capacity * 2);
+            self.instance_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("pite instance buffer"),
+                size: new_cap as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.instance_buf_capacity = new_cap;
+        }
+        self.queue
+            .write_buffer(&self.instance_buf, 0, bytemuck::cast_slice(instances));
     }
 
     fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
@@ -644,7 +844,7 @@ impl SharedQueue {
     }
 
     fn queue_sprite(&mut self, texture: &str, world: (f64, f64), rotation: f32) {
-        let _ = self.queue_sprite_layered(texture, None, world, rotation, 0);
+        let _ = self.queue_sprite_tinted(texture, None, world, rotation, 0, [255, 255, 255, 255]);
     }
 
     fn queue_sprite_frame(
@@ -654,9 +854,10 @@ impl SharedQueue {
         world: (f64, f64),
         rotation: f32,
     ) -> Result<()> {
-        self.queue_sprite_layered(texture, frame, world, rotation, 0)
+        self.queue_sprite_tinted(texture, frame, world, rotation, 0, [255, 255, 255, 255])
     }
 
+    #[allow(dead_code)]
     fn queue_sprite_layered(
         &mut self,
         texture: &str,
@@ -664,6 +865,25 @@ impl SharedQueue {
         world: (f64, f64),
         rotation: f32,
         z_index: i32,
+    ) -> Result<()> {
+        self.queue_sprite_tinted(
+            texture,
+            frame,
+            world,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+
+    fn queue_sprite_tinted(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        world: (f64, f64),
+        rotation: f32,
+        z_index: i32,
+        color: [u8; 4],
     ) -> Result<()> {
         let order = self.next_order();
         let (uv, size_px) = match frame {
@@ -680,6 +900,7 @@ impl SharedQueue {
             size_px,
             uv,
             rotation,
+            color,
             z_index,
             order,
         });
@@ -698,25 +919,22 @@ impl SharedQueue {
         color: [u8; 4],
         z_index: i32,
     ) {
-        let key = format!(
-            "rect\0{}\0{}\0{}\0{}",
-            color[0], color[1], color[2], color[3]
-        );
-        if !self.baked.contains_key(&key) {
+        let key = "__pite_white_1x1";
+        if !self.baked.contains_key(key) {
             self.baked.insert(
-                key.clone(),
+                key.to_string(),
                 text::BakedText {
-                    rgba: vec![color[0], color[1], color[2], color[3]],
+                    rgba: vec![255, 255, 255, 255],
                     w: 1,
                     h: 1,
                 },
             );
-            text::lru_touch(&mut self.baked_order, &key, 64);
         }
         let order = self.next_order();
         self.queue_list.push(QueuedSprite {
             size_world: Some((w.max(1.0), h.max(1.0))),
-            ..QueuedSprite::plain(key, world, z_index, order)
+            color,
+            ..QueuedSprite::plain(key.to_string(), world, z_index, order)
         });
     }
 
@@ -766,7 +984,9 @@ impl SharedQueue {
             .iter()
             .map(|(k, t)| (k.clone(), (t.w, t.h)))
             .collect();
-        build_groups(sprites, &sizes, self.cam, self.zoom, size)
+        let (batches, instances) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        self.upload_instances(&instances);
+        batches
     }
 
     fn reload_asset(&mut self, path: &str) {
@@ -887,8 +1107,29 @@ impl Renderer2D for WgpuRenderer {
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
+        self.draw_sprite_tinted(
+            texture,
+            frame,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+
+    fn draw_sprite_tinted(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
         self.shared
-            .queue_sprite_layered(texture, frame, (x, y), rotation as f32, z_index)
+            .queue_sprite_tinted(texture, frame, (x, y), rotation as f32, z_index, color)
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
@@ -944,13 +1185,7 @@ impl Renderer2D for WgpuRenderer {
             other => anyhow::bail!("surface failed: {other:?}"),
         };
         let view = frame.texture.create_view(&Default::default());
-        let cmd = encode_groups(
-            &self.shared.device,
-            &self.shared.pipeline,
-            &self.shared.textures,
-            &batches,
-            &view,
-        );
+        let cmd = encode_groups(&self.shared, &batches, &view);
         self.shared.queue.submit(std::iter::once(cmd));
         self.shared.queue.present(frame);
         Ok(())
@@ -1024,13 +1259,7 @@ impl OffscreenRenderer {
         let size = (self.width, self.height);
         let batches = self.shared.build(size);
         let view = self.target.create_view(&Default::default());
-        encode_groups(
-            &self.shared.device,
-            &self.shared.pipeline,
-            &self.shared.textures,
-            &batches,
-            &view,
-        )
+        encode_groups(&self.shared, &batches, &view)
     }
 
     pub fn render_to_rgba(&mut self) -> Result<Vec<u8>> {
@@ -1132,8 +1361,29 @@ impl Renderer2D for OffscreenRenderer {
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
+        self.draw_sprite_tinted(
+            texture,
+            frame,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+
+    fn draw_sprite_tinted(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
         self.shared
-            .queue_sprite_layered(texture, frame, (x, y), rotation as f32, z_index)
+            .queue_sprite_tinted(texture, frame, (x, y), rotation as f32, z_index, color)
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
@@ -1306,35 +1556,27 @@ mod tests {
             view_formats: &[],
         });
         let target_view = target.create_view(&Default::default());
-        let quad = [
-            SpriteVertex {
-                pos: [-1.0, 1.0],
-                uv: [0.0, 0.0],
-            },
-            SpriteVertex {
-                pos: [1.0, 1.0],
-                uv: [1.0, 0.0],
-            },
-            SpriteVertex {
-                pos: [1.0, -1.0],
-                uv: [1.0, 1.0],
-            },
-            SpriteVertex {
-                pos: [-1.0, 1.0],
-                uv: [0.0, 0.0],
-            },
-            SpriteVertex {
-                pos: [1.0, -1.0],
-                uv: [1.0, 1.0],
-            },
-            SpriteVertex {
-                pos: [-1.0, -1.0],
-                uv: [0.0, 1.0],
-            },
-        ];
-        let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("pite test verts"),
-            contents: bytemuck::cast_slice(&quad),
+        let quad_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test quad vbuf"),
+            contents: bytemuck::cast_slice(&UNIT_QUAD_VERTS),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let quad_ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test quad ibuf"),
+            contents: bytemuck::cast_slice(&QUAD_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let instance = SpriteInstance {
+            center_ndc: [0.0, 0.0],
+            size_px: [64.0, 64.0],
+            inv_viewport: [2.0 / 64.0, 2.0 / 64.0],
+            uv_rect: FULL_UV,
+            rotation: 0.0,
+            color: [255, 255, 255, 255],
+        };
+        let inst_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test inst buf"),
+            contents: bytemuck::cast_slice(&[instance]),
             usage: wgpu::BufferUsages::VERTEX,
         });
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -1362,8 +1604,10 @@ mod tests {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &sprite_bg, &[]);
-            pass.set_vertex_buffer(0, vbuf.slice(..));
-            pass.draw(0..4, 0..1);
+            pass.set_vertex_buffer(0, quad_vbuf.slice(..));
+            pass.set_vertex_buffer(1, inst_buf.slice(..));
+            pass.set_index_buffer(quad_ibuf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..1);
         }
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pite test readback"),
@@ -1456,6 +1700,36 @@ mod tests {
     }
 
     #[test]
+    fn offscreen_sprite_modulate_tints_color() {
+        let Ok(mut r) = OffscreenRenderer::new_offscreen(64, 64) else {
+            eprintln!("SKIP: no GPU adapter on this machine");
+            return;
+        };
+        // Draw with pure red tint [255, 0, 0, 255]. Green sprite should have green eliminated!
+        r.draw_sprite_tinted(
+            "../../examples/minimal-2d/assets/sheet.png",
+            Some("player"),
+            0.0,
+            0.0,
+            0.0,
+            0,
+            [255, 0, 0, 255],
+        )
+        .expect("queue sprite tinted");
+        let rgba = r.render_to_rgba().expect("offscreen readback");
+        let seen: std::collections::HashSet<[u8; 4]> = rgba
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2], c[3]])
+            .collect();
+        // Authored green was [74, 222, 128, 255]. Modulated by [255, 0, 0, 255] -> green & blue become 0!
+        assert!(
+            seen.contains(&[74, 0, 0, 255]),
+            "red-modulated sprite should produce [74, 0, 0, 255], saw {:?}",
+            seen
+        );
+    }
+
+    #[test]
     fn offscreen_sprite_covers_its_whole_texture_rect() {
         let Ok(mut r) = OffscreenRenderer::new_offscreen(200, 200) else {
             eprintln!("SKIP: no GPU adapter on this machine");
@@ -1531,35 +1805,27 @@ mod tests {
             view_formats: &[],
         });
         let target_view = target.create_view(&Default::default());
-        let quad = [
-            SpriteVertex {
-                pos: [-1.0, 1.0],
-                uv: [0.0, 0.0],
-            },
-            SpriteVertex {
-                pos: [1.0, 1.0],
-                uv: [1.0, 0.0],
-            },
-            SpriteVertex {
-                pos: [1.0, -1.0],
-                uv: [1.0, 1.0],
-            },
-            SpriteVertex {
-                pos: [-1.0, 1.0],
-                uv: [0.0, 0.0],
-            },
-            SpriteVertex {
-                pos: [1.0, -1.0],
-                uv: [1.0, 1.0],
-            },
-            SpriteVertex {
-                pos: [-1.0, -1.0],
-                uv: [0.0, 1.0],
-            },
-        ];
-        let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("pite text test verts"),
-            contents: bytemuck::cast_slice(&quad),
+        let quad_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test text quad vbuf"),
+            contents: bytemuck::cast_slice(&UNIT_QUAD_VERTS),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let quad_ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test text quad ibuf"),
+            contents: bytemuck::cast_slice(&QUAD_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let instance = SpriteInstance {
+            center_ndc: [0.0, 0.0],
+            size_px: [64.0, 64.0],
+            inv_viewport: [2.0 / 64.0, 2.0 / 64.0],
+            uv_rect: FULL_UV,
+            rotation: 0.0,
+            color: [255, 255, 255, 255],
+        };
+        let inst_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pite test text inst buf"),
+            contents: bytemuck::cast_slice(&[instance]),
             usage: wgpu::BufferUsages::VERTEX,
         });
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -1587,8 +1853,10 @@ mod tests {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &glyph_bg, &[]);
-            pass.set_vertex_buffer(0, vbuf.slice(..));
-            pass.draw(0..4, 0..1);
+            pass.set_vertex_buffer(0, quad_vbuf.slice(..));
+            pass.set_vertex_buffer(1, inst_buf.slice(..));
+            pass.set_index_buffer(quad_ibuf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..1);
         }
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pite text test readback"),
@@ -1662,6 +1930,7 @@ mod atlas_draw_tests {
             size_px: Some((frame.w, frame.h)),
             uv: frame.uv(atlas.size),
             rotation: 0.0,
+            color: [255, 255, 255, 255],
             z_index: 0,
             order: 0,
         }
@@ -1677,19 +1946,15 @@ mod atlas_draw_tests {
         ];
         let sizes: HashMap<String, (u32, u32)> =
             HashMap::from([("sheet.png".to_string(), atlas.size)]);
-        let batches = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        let (batches, instances) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
 
         assert_eq!(batches.len(), 1, "one sheet, one draw");
         assert_eq!(batches[0].tex_key, "sheet.png");
-        let verts = &batches[0].verts;
-        assert_eq!(verts.len(), 12, "two quads share the group");
+        assert_eq!(batches[0].instance_range, 0..2);
+        assert_eq!(instances.len(), 2, "two instances share the group");
 
-        let player_uvs: Vec<[f32; 2]> = verts[..6].iter().map(|v| v.uv).collect();
-        assert_eq!(player_uvs[0], [0.0, 0.0]);
-        assert_eq!(player_uvs[2], [0.5, 1.0]);
-        let enemy_uvs: Vec<[f32; 2]> = verts[6..].iter().map(|v| v.uv).collect();
-        assert_eq!(enemy_uvs[0], [0.5, 0.0]);
-        assert_eq!(enemy_uvs[2], [1.0, 1.0]);
+        assert_eq!(instances[0].uv_rect, [0.0, 0.0, 0.5, 1.0]);
+        assert_eq!(instances[1].uv_rect, [0.5, 0.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -1698,15 +1963,9 @@ mod atlas_draw_tests {
         let sprites = vec![queued(&atlas, player, (0.0, 0.0))];
         let sizes: HashMap<String, (u32, u32)> =
             HashMap::from([("sheet.png".to_string(), atlas.size)]);
-        let batches = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        let (batches, instances) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
         assert_eq!(batches.len(), 1);
-        let verts = &batches[0].verts;
-        let width_ndc = verts[1].pos[0] - verts[0].pos[0];
-        // 32px frame in a 200px-wide view, doubled because NDC spans both edges.
-        assert!(
-            (width_ndc - 2.0 * 32.0 / 200.0).abs() < 1e-6,
-            "got {width_ndc}"
-        );
+        assert_eq!(instances[0].size_px, [32.0, 32.0]);
     }
 
     #[test]
@@ -1722,7 +1981,7 @@ mod atlas_draw_tests {
             ("tex_b".to_string(), (16, 16)),
         ]);
 
-        let batches = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
+        let (batches, _) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
 
         assert_eq!(batches.len(), 4);
         assert_eq!(batches[0].tex_key, "tex_b");

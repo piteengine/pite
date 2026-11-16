@@ -40,6 +40,7 @@ pub(crate) enum NodeDraw {
         frame: Option<String>,
         pos: (f64, f64),
         rotation: f32,
+        modulate: [u8; 4],
         z_index: i32,
     },
     AnimatedSprite {
@@ -49,6 +50,7 @@ pub(crate) enum NodeDraw {
         frame: i64,
         pos: (f64, f64),
         rotation: f32,
+        modulate: [u8; 4],
         z_index: i32,
     },
     Text {
@@ -87,6 +89,10 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 Some(PropValue::Str(s)) if !s.is_empty() => Some(s.clone()),
                 _ => None,
             };
+            let modulate = match node.props.get("modulate") {
+                Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
+                _ => [255, 255, 255, 255],
+            };
             Some(NodeDraw::Sprite {
                 id: node.id.to_string(),
                 texture: prop("texture").unwrap_or_default(),
@@ -94,6 +100,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 frame: prop("frame"),
                 pos,
                 rotation: prop_num(node, "rotation"),
+                modulate,
                 z_index,
             })
         }
@@ -107,6 +114,10 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 Some(PropValue::Num(n)) => *n as i64,
                 _ => 0,
             };
+            let modulate = match node.props.get("modulate") {
+                Some(PropValue::Color(r, g, b, a)) => [*r, *g, *b, *a],
+                _ => [255, 255, 255, 255],
+            };
             Some(NodeDraw::AnimatedSprite {
                 id: node.id.to_string(),
                 atlas: prop_str("atlas"),
@@ -114,6 +125,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 frame,
                 pos,
                 rotation: prop_num(node, "rotation"),
+                modulate,
                 z_index,
             })
         }
@@ -206,6 +218,7 @@ impl GameSession {
                     frame,
                     pos,
                     rotation,
+                    modulate,
                     z_index,
                 } => {
                     let has_texture = !texture.is_empty();
@@ -218,13 +231,14 @@ impl GameSession {
                         (Some(atlas), Some(frame)) => {
                             let sidecar = self.resolve_path(&atlas);
                             let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                            r.draw_sprite_layered(
+                            r.draw_sprite_tinted(
                                 &sheet.to_string_lossy(),
                                 Some(&frame),
                                 pos.0,
                                 pos.1,
                                 rotation as f64,
                                 z_index,
+                                modulate,
                             )?;
                         }
                         (Some(_), None) => anyhow::bail!("node {id}: `atlas` requires a `frame`"),
@@ -232,13 +246,14 @@ impl GameSession {
                         (None, None) => {
                             if has_texture {
                                 let resolved = self.resolve_path(&texture);
-                                r.draw_sprite_layered(
+                                r.draw_sprite_tinted(
                                     &resolved.to_string_lossy(),
                                     None,
                                     pos.0,
                                     pos.1,
                                     rotation as f64,
                                     z_index,
+                                    modulate,
                                 )?;
                             }
                         }
@@ -251,6 +266,7 @@ impl GameSession {
                     frame,
                     pos,
                     rotation,
+                    modulate,
                     z_index,
                 } => {
                     if atlas.is_empty() {
@@ -280,13 +296,14 @@ impl GameSession {
                                 let idx = (frame.max(0) as usize) % anim.frames.len();
                                 let frame_name = &anim.frames[idx];
                                 let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                                r.draw_sprite_layered(
+                                r.draw_sprite_tinted(
                                     &sheet.to_string_lossy(),
                                     Some(frame_name),
                                     pos.0,
                                     pos.1,
                                     rotation as f64,
                                     z_index,
+                                    modulate,
                                 )?;
                             }
                         }

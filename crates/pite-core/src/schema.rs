@@ -251,7 +251,7 @@ mod tests {
     fn test_type_props() {
         let props = type_props("Sprite2D");
         let keys: Vec<&str> = props.iter().map(|p| p.key).collect();
-        assert_eq!(keys, vec!["texture", "atlas", "frame"]);
+        assert_eq!(keys, vec!["texture", "atlas", "frame", "modulate"]);
 
         let anim_props = type_props("AnimatedSprite2D");
         let keys: Vec<&str> = anim_props.iter().map(|p| p.key).collect();
@@ -263,7 +263,8 @@ mod tests {
                 "frame",
                 "speed_scale",
                 "playing",
-                "autoplay"
+                "autoplay",
+                "modulate"
             ]
         );
 
@@ -280,7 +281,7 @@ mod tests {
         let keys: Vec<&str> = all_props("Sprite2D").iter().map(|p| p.key).collect();
         assert_eq!(
             keys,
-            vec!["texture", "atlas", "frame", "position", "rotation", "z_index"]
+            vec!["texture", "atlas", "frame", "modulate", "position", "rotation", "z_index"]
         );
 
         // AnimatedSprite2D → Node2D → Node
@@ -297,6 +298,7 @@ mod tests {
                 "speed_scale",
                 "playing",
                 "autoplay",
+                "modulate",
                 "position",
                 "rotation",
                 "z_index"

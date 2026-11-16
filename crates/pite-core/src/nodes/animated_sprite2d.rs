@@ -70,4 +70,12 @@ pub static PROPS: &[PropSchema] = &[
         hint: PropHint::Text,
         read_only: false,
     },
+    PropSchema {
+        key: "modulate",
+        label: "Modulate",
+        doc: "RGBA color multiplier applied to the sprite.",
+        default_value: DefaultPropVal::Color([255, 255, 255, 255]),
+        hint: PropHint::Color,
+        read_only: false,
+    },
 ];

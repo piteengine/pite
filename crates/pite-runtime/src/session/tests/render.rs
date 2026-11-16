@@ -15,6 +15,7 @@ fn dogfood_scene() -> PathBuf {
 struct RecordingRenderer {
     calls: Vec<(String, Option<String>, (f64, f64))>,
     layered_calls: Vec<(String, Option<String>, (f64, f64), i32)>,
+    tinted_calls: Vec<(String, Option<String>, (f64, f64), i32, [u8; 4])>,
 }
 
 impl Renderer2D for RecordingRenderer {
@@ -26,6 +27,8 @@ impl Renderer2D for RecordingRenderer {
         self.calls.push((texture.to_string(), None, (x, y)));
         self.layered_calls
             .push((texture.to_string(), None, (x, y), 0));
+        self.tinted_calls
+            .push((texture.to_string(), None, (x, y), 0, [255, 255, 255, 255]));
         Ok(())
     }
 
@@ -41,6 +44,13 @@ impl Renderer2D for RecordingRenderer {
             .push((texture.to_string(), frame.map(str::to_string), (x, y)));
         self.layered_calls
             .push((texture.to_string(), frame.map(str::to_string), (x, y), 0));
+        self.tinted_calls.push((
+            texture.to_string(),
+            frame.map(str::to_string),
+            (x, y),
+            0,
+            [255, 255, 255, 255],
+        ));
         Ok(())
     }
 
@@ -60,6 +70,41 @@ impl Renderer2D for RecordingRenderer {
             frame.map(str::to_string),
             (x, y),
             z_index,
+        ));
+        self.tinted_calls.push((
+            texture.to_string(),
+            frame.map(str::to_string),
+            (x, y),
+            z_index,
+            [255, 255, 255, 255],
+        ));
+        Ok(())
+    }
+
+    fn draw_sprite_tinted(
+        &mut self,
+        texture: &str,
+        frame: Option<&str>,
+        x: f64,
+        y: f64,
+        _rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        self.calls
+            .push((texture.to_string(), frame.map(str::to_string), (x, y)));
+        self.layered_calls.push((
+            texture.to_string(),
+            frame.map(str::to_string),
+            (x, y),
+            z_index,
+        ));
+        self.tinted_calls.push((
+            texture.to_string(),
+            frame.map(str::to_string),
+            (x, y),
+            z_index,
+            color,
         ));
         Ok(())
     }
@@ -213,5 +258,51 @@ z_index = 25
     assert_eq!(recorder.layered_calls.len(), 2);
     assert_eq!(recorder.layered_calls[0].3, -10);
     assert_eq!(recorder.layered_calls[1].3, 25);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn sprite_modulate_passes_to_renderer() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("pite-modulate-test-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(
+        dir.join("pite.toml"),
+        r#"[project]
+name = "modulate-test"
+version = "0.1.0"
+main_scene = "res://scenes/main.ptscn"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scenes").join("main.ptscn"),
+        r##"format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node2D"
+name = "Main"
+
+[[node]]
+id = "bg"
+type = "Sprite2D"
+name = "Background"
+parent = "root"
+
+[node.props]
+texture = "res://assets/bg.png"
+modulate = "#ff000080"
+"##,
+    )
+    .unwrap();
+    let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
+    let mut recorder = RecordingRenderer::default();
+    session.draw_into(&mut recorder).expect("scene draws");
+
+    assert_eq!(recorder.tinted_calls.len(), 1);
+    assert_eq!(recorder.tinted_calls[0].4, [255, 0, 0, 128]);
     std::fs::remove_dir_all(&dir).ok();
 }
