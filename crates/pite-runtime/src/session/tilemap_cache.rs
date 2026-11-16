@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use pite_render::atlas::Atlas;
 use pite_scene::TileMapDoc;
 
 /// Chunk dimension along both axes (16x16 tiles per chunk).
@@ -14,7 +15,7 @@ pub struct BakedTile {
     pub row: i32,
     pub local_x: f64,
     pub local_y: f64,
-    pub frame: String,
+    pub uv: [f32; 4],
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -40,7 +41,7 @@ pub struct BakedTileMap {
 }
 
 impl BakedTileMap {
-    pub fn bake(doc: &TileMapDoc, sheet_str: String, version: u64) -> Self {
+    pub fn bake(doc: &TileMapDoc, sheet_str: String, version: u64, atlas: Option<&Atlas>) -> Self {
         let tile_w = doc.tile_size[0] as f64;
         let tile_h = doc.tile_size[1] as f64;
         let mut layers = Vec::with_capacity(doc.layers.len());
@@ -51,13 +52,20 @@ impl BakedTileMap {
                 let chunk_row = tile.1.div_euclid(CHUNK_SIZE);
                 let local_x = (tile.0 as f64 + 0.5) * tile_w;
                 let local_y = (tile.1 as f64 + 0.5) * tile_h;
+                let uv = if let Some(a) = atlas {
+                    a.frame(&tile.2)
+                        .map(|f| f.uv(a.size))
+                        .unwrap_or([0.0, 0.0, 1.0, 1.0])
+                } else {
+                    [0.0, 0.0, 1.0, 1.0]
+                };
                 let chunk = chunks.entry((chunk_col, chunk_row)).or_default();
                 chunk.tiles.push(BakedTile {
                     col: tile.0,
                     row: tile.1,
                     local_x,
                     local_y,
-                    frame: tile.2.clone(),
+                    uv,
                 });
             }
             layers.push(BakedLayer {
@@ -82,9 +90,10 @@ impl BakedTileMap {
         layer_idx: usize,
         chunk_col: i32,
         chunk_row: i32,
+        atlas: Option<&Atlas>,
     ) {
         if layer_idx >= self.layers.len() {
-            *self = Self::bake(doc, self.sheet_str.clone(), self.version);
+            *self = Self::bake(doc, self.sheet_str.clone(), self.version, atlas);
             return;
         }
         let layer = &mut self.layers[layer_idx];
@@ -104,12 +113,19 @@ impl BakedTileMap {
             if tile.0 >= min_col && tile.0 < max_col && tile.1 >= min_row && tile.1 < max_row {
                 let local_x = (tile.0 as f64 + 0.5) * tile_w;
                 let local_y = (tile.1 as f64 + 0.5) * tile_h;
+                let uv = if let Some(a) = atlas {
+                    a.frame(&tile.2)
+                        .map(|f| f.uv(a.size))
+                        .unwrap_or([0.0, 0.0, 1.0, 1.0])
+                } else {
+                    [0.0, 0.0, 1.0, 1.0]
+                };
                 new_tiles.push(BakedTile {
                     col: tile.0,
                     row: tile.1,
                     local_x,
                     local_y,
-                    frame: tile.2.clone(),
+                    uv,
                 });
             }
         }
@@ -141,7 +157,7 @@ mod tests {
         layer.tiles.push(TileCell(-1, -1, "stone".to_string()));
         doc.layers.push(layer);
 
-        let baked = BakedTileMap::bake(&doc, "sheet.png".to_string(), 1);
+        let baked = BakedTileMap::bake(&doc, "sheet.png".to_string(), 1, None);
         assert_eq!(baked.layers.len(), 1);
         let layer = &baked.layers[0];
         assert_eq!(layer.chunks.len(), 3);
@@ -149,6 +165,7 @@ mod tests {
         assert_eq!(chunk_0_0.tiles.len(), 2);
         assert_eq!(chunk_0_0.tiles[0].local_x, 8.0);
         assert_eq!(chunk_0_0.tiles[0].local_y, 8.0);
+        assert_eq!(chunk_0_0.tiles[0].uv, [0.0, 0.0, 1.0, 1.0]);
         assert_eq!(layer.chunks.get(&(1, 0)).unwrap().tiles.len(), 1);
         assert_eq!(layer.chunks.get(&(-1, -1)).unwrap().tiles.len(), 1);
     }
@@ -161,12 +178,12 @@ mod tests {
         layer.tiles.push(TileCell(20, 20, "stone".to_string()));
         doc.layers.push(layer);
 
-        let mut baked = BakedTileMap::bake(&doc, "sheet.png".to_string(), 1);
+        let mut baked = BakedTileMap::bake(&doc, "sheet.png".to_string(), 1, None);
         assert_eq!(baked.layers[0].chunks.get(&(0, 0)).unwrap().tiles.len(), 1);
 
         // Edit cell in chunk (0, 0)
         doc.set_cell(0, 0, 1, "water");
-        baked.rebake_chunk(&doc, 0, 0, 0);
+        baked.rebake_chunk(&doc, 0, 0, 0, None);
 
         let chunk_0_0 = baked.layers[0].chunks.get(&(0, 0)).unwrap();
         assert_eq!(chunk_0_0.tiles.len(), 2);

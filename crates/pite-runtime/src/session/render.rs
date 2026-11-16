@@ -353,6 +353,25 @@ impl GameSession {
                             let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
                             let sheet_str = sheet.to_string_lossy().into_owned();
 
+                            let atlas_obj = match self.atlas_cache.entry(sidecar.clone()) {
+                                std::collections::hash_map::Entry::Occupied(e) => {
+                                    Some(&*e.into_mut())
+                                }
+                                std::collections::hash_map::Entry::Vacant(e) => {
+                                    match pite_render::atlas::load_atlas(&sidecar) {
+                                        Ok(a) => Some(&*e.insert(a)),
+                                        Err(err) => {
+                                            tracing::error!(
+                                                node = %id,
+                                                "cannot load atlas {}: {err:#}",
+                                                sidecar.display()
+                                            );
+                                            None
+                                        }
+                                    }
+                                }
+                            };
+
                             let dirty_chunks = self.host.take_dirty_tile_chunks(&id);
                             if let (Some(b), Some(dirty)) =
                                 (self.tilemap_cache.get_mut(&id), dirty_chunks)
@@ -362,16 +381,23 @@ impl GameSession {
                                     && b.layers.len() == doc.layers.len()
                                 {
                                     for (layer_idx, chunk_col, chunk_row) in dirty {
-                                        b.rebake_chunk(&doc, layer_idx, chunk_col, chunk_row);
+                                        b.rebake_chunk(
+                                            &doc, layer_idx, chunk_col, chunk_row, atlas_obj,
+                                        );
                                     }
                                     b.version = current_version;
                                 } else {
-                                    let baked =
-                                        BakedTileMap::bake(&doc, sheet_str, current_version);
+                                    let baked = BakedTileMap::bake(
+                                        &doc,
+                                        sheet_str,
+                                        current_version,
+                                        atlas_obj,
+                                    );
                                     self.tilemap_cache.insert(id.clone(), baked);
                                 }
                             } else {
-                                let baked = BakedTileMap::bake(&doc, sheet_str, current_version);
+                                let baked =
+                                    BakedTileMap::bake(&doc, sheet_str, current_version, atlas_obj);
                                 self.tilemap_cache.insert(id.clone(), baked);
                             }
                         } else {
@@ -416,9 +442,10 @@ impl GameSession {
                                             layer.chunks.get(&(chunk_col, chunk_row))
                                         {
                                             for tile in &chunk.tiles {
-                                                r.draw_sprite_layered(
+                                                r.draw_sprite_uv(
                                                     &baked.sheet_str,
-                                                    Some(&tile.frame),
+                                                    tile.uv,
+                                                    (tile_w as f32, tile_h as f32),
                                                     pos.0 + tile.local_x,
                                                     pos.1 + tile.local_y,
                                                     0.0,
@@ -436,9 +463,10 @@ impl GameSession {
                                         && chunk_row <= max_chunk_row
                                     {
                                         for tile in &chunk.tiles {
-                                            r.draw_sprite_layered(
+                                            r.draw_sprite_uv(
                                                 &baked.sheet_str,
-                                                Some(&tile.frame),
+                                                tile.uv,
+                                                (tile_w as f32, tile_h as f32),
                                                 pos.0 + tile.local_x,
                                                 pos.1 + tile.local_y,
                                                 0.0,

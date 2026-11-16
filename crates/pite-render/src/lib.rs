@@ -71,6 +71,45 @@ pub trait Renderer2D {
         let _ = (z_index, color);
         self.draw_sprite_frame(texture, frame, x, y, rotation)
     }
+    /// Draw `texture` using pre-resolved normalized `uv` rect `[u_min, v_min, u_max, v_max]`
+    /// and pixel dimensions `size_px: (f32, f32)`. Higher z_index values draw on top.
+    fn draw_sprite_uv(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.draw_sprite_uv_tinted(
+            texture,
+            uv,
+            size_px,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+    /// Draw `texture` using pre-resolved normalized `uv` rect `[u_min, v_min, u_max, v_max]`
+    /// and pixel dimensions `size_px: (f32, f32)` modulated by `color` (RGBA).
+    fn draw_sprite_uv_tinted(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        let _ = (uv, size_px, color);
+        self.draw_sprite_layered(texture, None, x, y, rotation, z_index)
+    }
     fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
     fn draw_text_layered(
         &mut self,
@@ -929,6 +968,32 @@ impl SharedQueue {
         Ok(())
     }
 
+    fn queue_sprite_uv(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        world: (f64, f64),
+        rotation: f32,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        let order = self.next_order();
+        let texture_id = self.texture_id_for(texture);
+        self.queue_list.push(QueuedSprite {
+            texture_id,
+            world,
+            size_world: None,
+            size_px: Some((size_px.0.round() as u32, size_px.1.round() as u32)),
+            uv,
+            rotation,
+            color,
+            z_index,
+            order,
+        });
+        Ok(())
+    }
+
     fn queue_rect(&mut self, world: (f64, f64), w: f64, h: f64, color: [u8; 4]) {
         self.queue_rect_layered(world, w, h, color, 0);
     }
@@ -1165,6 +1230,50 @@ impl Renderer2D for WgpuRenderer {
     ) -> Result<()> {
         self.shared
             .queue_sprite_tinted(texture, frame, (x, y), rotation as f32, z_index, color)
+    }
+
+    fn draw_sprite_uv(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.draw_sprite_uv_tinted(
+            texture,
+            uv,
+            size_px,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+
+    fn draw_sprite_uv_tinted(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        self.shared.queue_sprite_uv(
+            texture,
+            uv,
+            size_px,
+            (x, y),
+            rotation as f32,
+            z_index,
+            color,
+        )
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
@@ -1419,6 +1528,50 @@ impl Renderer2D for OffscreenRenderer {
     ) -> Result<()> {
         self.shared
             .queue_sprite_tinted(texture, frame, (x, y), rotation as f32, z_index, color)
+    }
+
+    fn draw_sprite_uv(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.draw_sprite_uv_tinted(
+            texture,
+            uv,
+            size_px,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+
+    fn draw_sprite_uv_tinted(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        self.shared.queue_sprite_uv(
+            texture,
+            uv,
+            size_px,
+            (x, y),
+            rotation as f32,
+            z_index,
+            color,
+        )
     }
 
     fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {

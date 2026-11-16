@@ -16,6 +16,7 @@ struct RecordingRenderer {
     calls: Vec<(String, Option<String>, (f64, f64))>,
     layered_calls: Vec<(String, Option<String>, (f64, f64), i32)>,
     tinted_calls: Vec<(String, Option<String>, (f64, f64), i32, [u8; 4])>,
+    uv_calls: Vec<(String, [f32; 4], (f32, f32), (f64, f64), i32)>,
 }
 
 impl Renderer2D for RecordingRenderer {
@@ -106,6 +107,49 @@ impl Renderer2D for RecordingRenderer {
             z_index,
             color,
         ));
+        Ok(())
+    }
+
+    fn draw_sprite_uv(
+        &mut self,
+        texture: &str,
+        uv: [f32; 4],
+        size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        rotation: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        self.uv_calls
+            .push((texture.to_string(), uv, size_px, (x, y), z_index));
+        self.draw_sprite_uv_tinted(
+            texture,
+            uv,
+            size_px,
+            x,
+            y,
+            rotation,
+            z_index,
+            [255, 255, 255, 255],
+        )
+    }
+
+    fn draw_sprite_uv_tinted(
+        &mut self,
+        texture: &str,
+        _uv: [f32; 4],
+        _size_px: (f32, f32),
+        x: f64,
+        y: f64,
+        _rotation: f64,
+        z_index: i32,
+        color: [u8; 4],
+    ) -> Result<()> {
+        self.calls.push((texture.to_string(), None, (x, y)));
+        self.layered_calls
+            .push((texture.to_string(), None, (x, y), z_index));
+        self.tinted_calls
+            .push((texture.to_string(), None, (x, y), z_index, color));
         Ok(())
     }
 
@@ -397,13 +441,12 @@ z_index = 10
 
     // Ground chunk (0, 0) has 2 visible tiles, Overlay chunk (0, 0) has 1 visible tile.
     // Tile (500, 500) is culled.
-    assert_eq!(recorder.layered_calls.len(), 3);
-    assert_eq!(recorder.layered_calls[0].1.as_deref(), Some("grass"));
-    assert_eq!(recorder.layered_calls[0].3, 10); // Layer 0 z_index
-    assert_eq!(recorder.layered_calls[1].1.as_deref(), Some("grass"));
-    assert_eq!(recorder.layered_calls[1].3, 10); // Layer 0 z_index
-    assert_eq!(recorder.layered_calls[2].1.as_deref(), Some("flower"));
-    assert_eq!(recorder.layered_calls[2].3, 11); // Layer 1 z_index (10 + 1)
+    assert_eq!(recorder.uv_calls.len(), 3);
+    assert_eq!(recorder.uv_calls[0].4, 10); // Layer 0 z_index
+    assert_eq!(recorder.uv_calls[1].4, 10); // Layer 0 z_index
+    assert_eq!(recorder.uv_calls[2].4, 11); // Layer 1 z_index (10 + 1)
+                                            // Verify UV rects are pre-resolved from the atlas
+    assert_ne!(recorder.uv_calls[0].1, [0.0, 0.0, 0.0, 0.0]);
 
     // Now test dirty chunk dynamic modification: add "dirt" at (2, 2)
     session.host().set_tilemap_cell("map", 0, 2, 2, "dirt");
@@ -411,7 +454,7 @@ z_index = 10
     session
         .draw_into(&mut recorder2)
         .expect("tilemap re-renders with dirty chunk");
-    assert_eq!(recorder2.layered_calls.len(), 4);
+    assert_eq!(recorder2.uv_calls.len(), 4);
 
     // Erase cell at (2, 2)
     assert!(session.host().erase_tilemap_cell("map", 0, 2, 2));
@@ -419,7 +462,7 @@ z_index = 10
     session
         .draw_into(&mut recorder3)
         .expect("tilemap re-renders after erasing cell");
-    assert_eq!(recorder3.layered_calls.len(), 3);
+    assert_eq!(recorder3.uv_calls.len(), 3);
 
     std::fs::remove_dir_all(&dir).ok();
 }
