@@ -55,6 +55,7 @@ const ENGINE_SIGNALS: &[(&str, &[(&str, &[&str])])] = &[
 
 impl GameSession {
     pub(super) fn rebuild(&mut self) -> Result<()> {
+        self.tilemap_cache.clear();
         let doc = pite_scene::load_scene_cached(&self.scene)
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
         let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;

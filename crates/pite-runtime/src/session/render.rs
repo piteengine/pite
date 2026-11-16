@@ -5,6 +5,7 @@ use pite_core::{global_position, Node, NodeTree, PropValue};
 use pite_render::Renderer2D;
 
 use super::physics::prop_num;
+use super::tilemap_cache::{BakedTileMap, CHUNK_SIZE};
 use super::GameSession;
 
 /// Which draw call a node type produces. `draw_into` walks the tree once
@@ -197,6 +198,7 @@ impl GameSession {
                 self.atlas_cache.remove(&p);
                 r.reload_asset(&p.to_string_lossy());
             }
+            self.tilemap_cache.clear();
         }
         let (cam, _) = self.camera_view();
         r.set_camera(cam.0, cam.1, self.effective_zoom());
@@ -339,12 +341,52 @@ impl GameSession {
                     }
                 }
                 NodeDraw::TileMap { id, pos, z_index } => {
-                    if let Some(doc) = self.host.get_tilemap_doc(&id) {
-                        let sidecar = self.resolve_path(&doc.atlas);
-                        let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
-                        let sheet_str = sheet.to_string_lossy();
-                        let tile_w = doc.tile_size[0] as f64;
-                        let tile_h = doc.tile_size[1] as f64;
+                    let current_version = self.host.get_tilemap_version(&id);
+                    let needs_bake = match self.tilemap_cache.get(&id) {
+                        Some(b) => b.version != current_version,
+                        None => true,
+                    };
+
+                    if needs_bake {
+                        if let Some(doc) = self.host.get_tilemap_doc(&id) {
+                            let sidecar = self.resolve_path(&doc.atlas);
+                            let sheet = pite_render::atlas::sheet_for_sidecar(&sidecar);
+                            let sheet_str = sheet.to_string_lossy().into_owned();
+
+                            let dirty_chunks = self.host.take_dirty_tile_chunks(&id);
+                            if let (Some(b), Some(dirty)) =
+                                (self.tilemap_cache.get_mut(&id), dirty_chunks)
+                            {
+                                if b.atlas_path == doc.atlas
+                                    && b.tile_size == doc.tile_size
+                                    && b.layers.len() == doc.layers.len()
+                                {
+                                    for (layer_idx, chunk_col, chunk_row) in dirty {
+                                        b.rebake_chunk(&doc, layer_idx, chunk_col, chunk_row);
+                                    }
+                                    b.version = current_version;
+                                } else {
+                                    let baked =
+                                        BakedTileMap::bake(&doc, sheet_str, current_version);
+                                    self.tilemap_cache.insert(id.clone(), baked);
+                                }
+                            } else {
+                                let baked = BakedTileMap::bake(&doc, sheet_str, current_version);
+                                self.tilemap_cache.insert(id.clone(), baked);
+                            }
+                        } else {
+                            self.tilemap_cache.remove(&id);
+                        }
+                    }
+
+                    if let Some(baked) = self.tilemap_cache.get(&id) {
+                        if baked.tile_size[0] == 0 || baked.tile_size[1] == 0 {
+                            continue;
+                        }
+                        let tile_w = baked.tile_size[0] as f64;
+                        let tile_h = baked.tile_size[1] as f64;
+                        let chunk_w = tile_w * CHUNK_SIZE as f64;
+                        let chunk_h = tile_h * CHUNK_SIZE as f64;
                         let zoom = self.effective_zoom();
                         let half_w = (self.viewport.0 as f64 / 2.0) / zoom;
                         let half_h = (self.viewport.1 as f64 / 2.0) / zoom;
@@ -353,31 +395,57 @@ impl GameSession {
                         let min_y = cam.1 - half_h;
                         let max_y = cam.1 + half_h;
 
-                        let min_col = ((min_x - pos.0) / tile_w).floor() as i32 - 1;
-                        let max_col = ((max_x - pos.0) / tile_w).ceil() as i32 + 1;
-                        let min_row = ((min_y - pos.1) / tile_h).floor() as i32 - 1;
-                        let max_row = ((max_y - pos.1) / tile_h).ceil() as i32 + 1;
+                        let min_chunk_col = ((min_x - pos.0) / chunk_w).floor() as i32 - 1;
+                        let max_chunk_col = ((max_x - pos.0) / chunk_w).ceil() as i32 + 1;
+                        let min_chunk_row = ((min_y - pos.1) / chunk_h).floor() as i32 - 1;
+                        let max_chunk_row = ((max_y - pos.1) / chunk_h).ceil() as i32 + 1;
 
-                        for (layer_idx, layer) in doc.layers.iter().enumerate() {
+                        let view_chunk_count = (max_chunk_col - min_chunk_col + 1).max(0) as usize
+                            * (max_chunk_row - min_chunk_row + 1).max(0) as usize;
+
+                        for (layer_idx, layer) in baked.layers.iter().enumerate() {
                             if !layer.visible {
                                 continue;
                             }
-                            for tile in &layer.tiles {
-                                if tile.0 >= min_col
-                                    && tile.0 <= max_col
-                                    && tile.1 >= min_row
-                                    && tile.1 <= max_row
-                                {
-                                    let cx = pos.0 + (tile.0 as f64 + 0.5) * tile_w;
-                                    let cy = pos.1 + (tile.1 as f64 + 0.5) * tile_h;
-                                    r.draw_sprite_layered(
-                                        &sheet_str,
-                                        Some(&tile.2),
-                                        cx,
-                                        cy,
-                                        0.0,
-                                        z_index + layer_idx as i32,
-                                    )?;
+                            let layer_z = z_index + layer_idx as i32;
+
+                            if view_chunk_count < layer.chunks.len() {
+                                for chunk_row in min_chunk_row..=max_chunk_row {
+                                    for chunk_col in min_chunk_col..=max_chunk_col {
+                                        if let Some(chunk) =
+                                            layer.chunks.get(&(chunk_col, chunk_row))
+                                        {
+                                            for tile in &chunk.tiles {
+                                                r.draw_sprite_layered(
+                                                    &baked.sheet_str,
+                                                    Some(&tile.frame),
+                                                    pos.0 + tile.local_x,
+                                                    pos.1 + tile.local_y,
+                                                    0.0,
+                                                    layer_z,
+                                                )?;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                for (&(chunk_col, chunk_row), chunk) in &layer.chunks {
+                                    if chunk_col >= min_chunk_col
+                                        && chunk_col <= max_chunk_col
+                                        && chunk_row >= min_chunk_row
+                                        && chunk_row <= max_chunk_row
+                                    {
+                                        for tile in &chunk.tiles {
+                                            r.draw_sprite_layered(
+                                                &baked.sheet_str,
+                                                Some(&tile.frame),
+                                                pos.0 + tile.local_x,
+                                                pos.1 + tile.local_y,
+                                                0.0,
+                                                layer_z,
+                                            )?;
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -51,6 +51,8 @@ pub struct ScriptHost {
     /// `set_custom_property` to validate writes.
     custom_prop_schema: RwLock<HashMap<String, String>>,
     tilemaps: Mutex<HashMap<String, pite_scene::TileMapDoc>>,
+    tilemap_versions: Mutex<HashMap<String, u64>>,
+    dirty_tile_chunks: Mutex<HashMap<String, std::collections::HashSet<(usize, i32, i32)>>>,
 }
 
 /// Permitted primitive types for signal argument payloads.
@@ -76,6 +78,8 @@ impl ScriptHost {
             proxy_cache: Mutex::new(HashMap::new()),
             custom_prop_schema: RwLock::new(HashMap::new()),
             tilemaps: Mutex::new(HashMap::new()),
+            tilemap_versions: Mutex::new(HashMap::new()),
+            dirty_tile_chunks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -296,13 +300,44 @@ impl ScriptHost {
         let mut maps = self.tilemaps.lock().unwrap();
         if let Some(doc) = maps.get_mut(node_id) {
             doc.set_cell(layer, col, row, frame);
+            let chunk_col = col.div_euclid(16);
+            let chunk_row = row.div_euclid(16);
+            self.dirty_tile_chunks
+                .lock()
+                .unwrap()
+                .entry(node_id.to_string())
+                .or_default()
+                .insert((layer, chunk_col, chunk_row));
+            *self
+                .tilemap_versions
+                .lock()
+                .unwrap()
+                .entry(node_id.to_string())
+                .or_default() += 1;
         }
     }
 
     pub fn erase_tilemap_cell(&self, node_id: &str, layer: usize, col: i32, row: i32) -> bool {
         let mut maps = self.tilemaps.lock().unwrap();
         if let Some(doc) = maps.get_mut(node_id) {
-            doc.erase_cell(layer, col, row)
+            let res = doc.erase_cell(layer, col, row);
+            if res {
+                let chunk_col = col.div_euclid(16);
+                let chunk_row = row.div_euclid(16);
+                self.dirty_tile_chunks
+                    .lock()
+                    .unwrap()
+                    .entry(node_id.to_string())
+                    .or_default()
+                    .insert((layer, chunk_col, chunk_row));
+                *self
+                    .tilemap_versions
+                    .lock()
+                    .unwrap()
+                    .entry(node_id.to_string())
+                    .or_default() += 1;
+            }
+            res
         } else {
             false
         }
@@ -318,6 +353,13 @@ impl ScriptHost {
                     doc.clear_layer(l);
                 }
             }
+            *self
+                .tilemap_versions
+                .lock()
+                .unwrap()
+                .entry(node_id.to_string())
+                .or_default() += 1;
+            self.dirty_tile_chunks.lock().unwrap().remove(node_id);
         }
     }
 
@@ -349,11 +391,31 @@ impl ScriptHost {
     pub fn set_tilemap_doc(&self, node_id: &str, doc: pite_scene::TileMapDoc) {
         let mut maps = self.tilemaps.lock().unwrap();
         maps.insert(node_id.to_string(), doc);
+        *self
+            .tilemap_versions
+            .lock()
+            .unwrap()
+            .entry(node_id.to_string())
+            .or_default() += 1;
+        self.dirty_tile_chunks.lock().unwrap().remove(node_id);
     }
 
     pub fn get_tilemap_doc(&self, node_id: &str) -> Option<pite_scene::TileMapDoc> {
         let maps = self.tilemaps.lock().unwrap();
         maps.get(node_id).cloned()
+    }
+
+    pub fn get_tilemap_version(&self, node_id: &str) -> u64 {
+        let versions = self.tilemap_versions.lock().unwrap();
+        versions.get(node_id).copied().unwrap_or(0)
+    }
+
+    pub fn take_dirty_tile_chunks(
+        &self,
+        node_id: &str,
+    ) -> Option<std::collections::HashSet<(usize, i32, i32)>> {
+        let mut dirty = self.dirty_tile_chunks.lock().unwrap();
+        dirty.remove(node_id)
     }
 
     pub fn resolve_proxy(

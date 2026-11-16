@@ -3,6 +3,7 @@
 mod physics;
 mod rebuild;
 mod render;
+pub mod tilemap_cache;
 mod update;
 mod watcher;
 
@@ -23,6 +24,7 @@ use pite_script::{Pyo3Backend, ScriptBackend, ScriptHost};
 use crate::scenes::resolve_script;
 
 use rebuild::InstanceSlot;
+pub use tilemap_cache::BakedTileMap;
 
 /// Active game execution session managing scene nodes, script instances, physics simulation,
 /// and live hot reload.
@@ -43,6 +45,7 @@ pub struct GameSession {
     pub dirty_assets: HashSet<PathBuf>,
     animation_times: HashMap<String, f64>,
     atlas_cache: HashMap<PathBuf, pite_render::atlas::Atlas>,
+    tilemap_cache: HashMap<String, BakedTileMap>,
 }
 
 impl GameSession {
@@ -70,6 +73,7 @@ impl GameSession {
             dirty_assets: HashSet::new(),
             animation_times: HashMap::new(),
             atlas_cache: HashMap::new(),
+            tilemap_cache: HashMap::new(),
         };
         pite_script::set_current_host(session.host.clone());
         pite_script::set_current_physics(Some(session.physics.clone()));
