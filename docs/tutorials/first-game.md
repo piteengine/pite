@@ -484,3 +484,18 @@ Congratulations on finishing your first Pite game! Here are a few ways to expand
 - Add level obstacles using `StaticBody2D` nodes or design tiled levels with [Tilemaps](../reference/scene-format#tilemaps).
 - Add animated coin frames using a sprite sheet atlas (see the [Assets Guide](../guides/assets)).
 - Use the visual [Editor](../guides/editor) to arrange levels interactively.
+
+---
+
+## Complete Project Template
+
+If you want to inspect the finished reference implementation or launch the game immediately without manual setup, scaffold the project using the `--template` flag:
+
+```sh title="Terminal"
+pite new gem-collector --template gem-collector
+cd gem-collector
+pite run
+```
+
+This creates a complete project directory containing all the scenes, assets, audio files, and Python scripts built throughout this tutorial.
+
