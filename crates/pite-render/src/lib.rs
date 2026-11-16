@@ -346,12 +346,12 @@ struct GpuTexture {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SpriteBatch {
-    pub(crate) tex_key: String,
+    pub(crate) texture_id: u32,
     pub(crate) instance_range: std::ops::Range<u32>,
 }
 
 struct QueuedSprite {
-    tex_key: String,
+    texture_id: u32,
     world: (f64, f64),
     size_world: Option<(f64, f64)>,
     /// Frame size in pixels; `None` means "the whole texture".
@@ -365,9 +365,9 @@ struct QueuedSprite {
 }
 
 impl QueuedSprite {
-    fn plain(tex_key: String, world: (f64, f64), z_index: i32, order: usize) -> Self {
+    fn plain(texture_id: u32, world: (f64, f64), z_index: i32, order: usize) -> Self {
         Self {
-            tex_key,
+            texture_id,
             world,
             size_world: None,
             size_px: None,
@@ -568,7 +568,7 @@ fn upload(
 /// owns the texture cache) so both the surface and offscreen paths share it.
 fn build_groups(
     mut sprites: Vec<QueuedSprite>,
-    sizes: &std::collections::HashMap<String, (u32, u32)>,
+    sizes: &[(u32, u32)],
     cam: (f64, f64),
     zoom: f64,
     size: (u32, u32),
@@ -584,7 +584,10 @@ fn build_groups(
     let mut instances: Vec<SpriteInstance> = Vec::with_capacity(sprites.len());
 
     for sprite in sprites {
-        let (tw, th) = sizes.get(&sprite.tex_key).copied().unwrap_or((8, 8));
+        let (tw, th) = sizes
+            .get(sprite.texture_id as usize)
+            .copied()
+            .unwrap_or((8, 8));
         // Every size scales with zoom: positions already do, so a sprite
         // that stayed pixel-fixed while its center moved would shear apart
         // from the scene on resize (and under Camera2D zoom).
@@ -606,7 +609,7 @@ fn build_groups(
         };
 
         if let Some(last) = batches.last_mut() {
-            if last.tex_key == sprite.tex_key {
+            if last.texture_id == sprite.texture_id {
                 instances.push(instance);
                 last.instance_range.end += 1;
                 continue;
@@ -615,7 +618,7 @@ fn build_groups(
         let start = instances.len() as u32;
         instances.push(instance);
         batches.push(SpriteBatch {
-            tex_key: sprite.tex_key,
+            texture_id: sprite.texture_id,
             instance_range: start..start + 1,
         });
     }
@@ -677,7 +680,7 @@ fn encode_groups(
             if batch.instance_range.is_empty() {
                 continue;
             }
-            let Some(tex) = shared.textures.get(&batch.tex_key) else {
+            let Some(Some(tex)) = shared.textures.get(batch.texture_id as usize) else {
                 continue;
             };
             pass.set_bind_group(0, &tex.bind_group, &[]);
@@ -696,7 +699,10 @@ struct SharedQueue {
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
     tex_layout: wgpu::BindGroupLayout,
-    textures: std::collections::HashMap<String, GpuTexture>,
+    textures: Vec<Option<GpuTexture>>,
+    texture_sizes: Vec<(u32, u32)>,
+    texture_lookup: std::collections::HashMap<String, u32>,
+    free_slots: Vec<u32>,
     baked: std::collections::HashMap<String, text::BakedText>,
     baked_order: std::collections::VecDeque<String>,
     atlas: text::TextAtlas,
@@ -742,7 +748,10 @@ impl SharedQueue {
             pipeline,
             sampler,
             tex_layout,
-            textures: std::collections::HashMap::new(),
+            textures: Vec::new(),
+            texture_sizes: Vec::new(),
+            texture_lookup: std::collections::HashMap::new(),
+            free_slots: Vec::new(),
             baked: std::collections::HashMap::new(),
             baked_order: std::collections::VecDeque::new(),
             atlas: text::TextAtlas::new()?,
@@ -819,28 +828,40 @@ impl SharedQueue {
         }
     }
 
-    fn texture_for(&mut self, key: &str) -> &GpuTexture {
-        if !self.textures.contains_key(key) {
-            let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
-            let entry = match baked {
-                Some((rgba, w, h)) => {
-                    let texture = upload(&self.device, &self.queue, &rgba, w, h);
-                    let view = texture.create_view(&Default::default());
-                    let bind_group =
-                        bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
-                    GpuTexture {
-                        texture,
-                        view,
-                        bind_group,
-                        w,
-                        h,
-                    }
-                }
-                None => self.load_texture(key),
-            };
-            self.textures.insert(key.to_string(), entry);
+    fn texture_id_for(&mut self, key: &str) -> u32 {
+        if let Some(&id) = self.texture_lookup.get(key) {
+            return id;
         }
-        &self.textures[key]
+        let baked = self.baked.get(key).map(|b| (b.rgba.clone(), b.w, b.h));
+        let entry = match baked {
+            Some((rgba, w, h)) => {
+                let texture = upload(&self.device, &self.queue, &rgba, w, h);
+                let view = texture.create_view(&Default::default());
+                let bind_group = bind_group(&self.device, &self.tex_layout, &self.sampler, &view);
+                GpuTexture {
+                    texture,
+                    view,
+                    bind_group,
+                    w,
+                    h,
+                }
+            }
+            None => self.load_texture(key),
+        };
+        let size = (entry.w, entry.h);
+        if let Some(slot) = self.free_slots.pop() {
+            let idx = slot as usize;
+            self.textures[idx] = Some(entry);
+            self.texture_sizes[idx] = size;
+            self.texture_lookup.insert(key.to_string(), slot);
+            slot
+        } else {
+            let slot = self.textures.len() as u32;
+            self.textures.push(Some(entry));
+            self.texture_sizes.push(size);
+            self.texture_lookup.insert(key.to_string(), slot);
+            slot
+        }
     }
 
     fn queue_sprite(&mut self, texture: &str, world: (f64, f64), rotation: f32) {
@@ -893,8 +914,9 @@ impl SharedQueue {
             }
             None => (FULL_UV, None),
         };
+        let texture_id = self.texture_id_for(texture);
         self.queue_list.push(QueuedSprite {
-            tex_key: texture.to_string(),
+            texture_id,
             world,
             size_world: None,
             size_px,
@@ -930,11 +952,12 @@ impl SharedQueue {
                 },
             );
         }
+        let texture_id = self.texture_id_for(key);
         let order = self.next_order();
         self.queue_list.push(QueuedSprite {
             size_world: Some((w.max(1.0), h.max(1.0))),
             color,
-            ..QueuedSprite::plain(key.to_string(), world, z_index, order)
+            ..QueuedSprite::plain(texture_id, world, z_index, order)
         });
     }
 
@@ -962,13 +985,17 @@ impl SharedQueue {
             while self.baked_order.len() > 64 {
                 if let Some(old) = self.baked_order.pop_front() {
                     self.baked.remove(&old);
-                    self.textures.remove(&old);
+                    if let Some(slot) = self.texture_lookup.remove(&old) {
+                        self.textures[slot as usize] = None;
+                        self.free_slots.push(slot);
+                    }
                 }
             }
         }
+        let texture_id = self.texture_id_for(&key);
         let order = self.next_order();
         self.queue_list
-            .push(QueuedSprite::plain(key, world, z_index, order));
+            .push(QueuedSprite::plain(texture_id, world, z_index, order));
     }
 
     /// Drain the queue, resolve every queued texture once, and build the
@@ -976,32 +1003,40 @@ impl SharedQueue {
     fn build(&mut self, size: (u32, u32)) -> Vec<SpriteBatch> {
         self.order_counter = 0;
         let sprites = std::mem::take(&mut self.queue_list);
-        for sprite in &sprites {
-            self.texture_for(&sprite.tex_key);
-        }
-        let sizes: std::collections::HashMap<String, (u32, u32)> = self
-            .textures
-            .iter()
-            .map(|(k, t)| (k.clone(), (t.w, t.h)))
-            .collect();
-        let (batches, instances) = build_groups(sprites, &sizes, self.cam, self.zoom, size);
+        let (batches, instances) =
+            build_groups(sprites, &self.texture_sizes, self.cam, self.zoom, size);
         self.upload_instances(&instances);
         batches
     }
 
     fn reload_asset(&mut self, path: &str) {
-        self.textures.remove(path);
+        if let Some(&id) = self.texture_lookup.get(path) {
+            let tex = self.load_texture(path);
+            let size = (tex.w, tex.h);
+            self.textures[id as usize] = Some(tex);
+            self.texture_sizes[id as usize] = size;
+        }
         self.sprite_atlases.remove(path);
         let path_obj = std::path::Path::new(path);
         if let Some(stem) = path_obj.file_stem().and_then(|s| s.to_str()) {
             let pure_stem = stem.strip_suffix(".atlas").unwrap_or(stem);
-            self.textures.retain(|k, _| !k.contains(pure_stem));
             self.sprite_atlases.retain(|k, _| !k.contains(pure_stem));
+            for (key, &id) in &self.texture_lookup {
+                if key.contains(pure_stem) {
+                    let tex = self.load_texture(key);
+                    let size = (tex.w, tex.h);
+                    self.textures[id as usize] = Some(tex);
+                    self.texture_sizes[id as usize] = size;
+                }
+            }
         }
     }
 
     fn clear_asset_cache(&mut self) {
         self.textures.clear();
+        self.texture_sizes.clear();
+        self.texture_lookup.clear();
+        self.free_slots.clear();
         self.sprite_atlases.clear();
     }
 }
@@ -1924,7 +1959,7 @@ mod atlas_draw_tests {
 
     fn queued(atlas: &Atlas, frame: AtlasFrame, world: (f64, f64)) -> QueuedSprite {
         QueuedSprite {
-            tex_key: "sheet.png".to_string(),
+            texture_id: 0,
             world,
             size_world: None,
             size_px: Some((frame.w, frame.h)),
@@ -1944,12 +1979,11 @@ mod atlas_draw_tests {
             queued(&atlas, player, (0.0, 0.0)),
             queued(&atlas, enemy, (40.0, 0.0)),
         ];
-        let sizes: HashMap<String, (u32, u32)> =
-            HashMap::from([("sheet.png".to_string(), atlas.size)]);
+        let sizes = [atlas.size];
         let (batches, instances) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
 
         assert_eq!(batches.len(), 1, "one sheet, one draw");
-        assert_eq!(batches[0].tex_key, "sheet.png");
+        assert_eq!(batches[0].texture_id, 0);
         assert_eq!(batches[0].instance_range, 0..2);
         assert_eq!(instances.len(), 2, "two instances share the group");
 
@@ -1961,8 +1995,7 @@ mod atlas_draw_tests {
     fn frame_quad_uses_frame_size_not_sheet_size() {
         let (atlas, player) = sheet_frame("player");
         let sprites = vec![queued(&atlas, player, (0.0, 0.0))];
-        let sizes: HashMap<String, (u32, u32)> =
-            HashMap::from([("sheet.png".to_string(), atlas.size)]);
+        let sizes = [atlas.size];
         let (batches, instances) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
         assert_eq!(batches.len(), 1);
         assert_eq!(instances[0].size_px, [32.0, 32.0]);
@@ -1971,23 +2004,20 @@ mod atlas_draw_tests {
     #[test]
     fn z_index_and_consecutive_batching_preserves_draw_order() {
         let sprites = vec![
-            QueuedSprite::plain("tex_a".to_string(), (0.0, 0.0), 0, 0),
-            QueuedSprite::plain("tex_b".to_string(), (10.0, 0.0), 0, 1),
-            QueuedSprite::plain("tex_a".to_string(), (20.0, 0.0), 0, 2),
-            QueuedSprite::plain("tex_b".to_string(), (-10.0, 0.0), -1, 3),
+            QueuedSprite::plain(0, (0.0, 0.0), 0, 0),
+            QueuedSprite::plain(1, (10.0, 0.0), 0, 1),
+            QueuedSprite::plain(0, (20.0, 0.0), 0, 2),
+            QueuedSprite::plain(1, (-10.0, 0.0), -1, 3),
         ];
-        let sizes: HashMap<String, (u32, u32)> = HashMap::from([
-            ("tex_a".to_string(), (16, 16)),
-            ("tex_b".to_string(), (16, 16)),
-        ]);
+        let sizes = [(16, 16), (16, 16)];
 
         let (batches, _) = build_groups(sprites, &sizes, (0.0, 0.0), 1.0, (200, 100));
 
         assert_eq!(batches.len(), 4);
-        assert_eq!(batches[0].tex_key, "tex_b");
-        assert_eq!(batches[1].tex_key, "tex_a");
-        assert_eq!(batches[2].tex_key, "tex_b");
-        assert_eq!(batches[3].tex_key, "tex_a");
+        assert_eq!(batches[0].texture_id, 1);
+        assert_eq!(batches[1].texture_id, 0);
+        assert_eq!(batches[2].texture_id, 1);
+        assert_eq!(batches[3].texture_id, 0);
     }
 
     #[test]
