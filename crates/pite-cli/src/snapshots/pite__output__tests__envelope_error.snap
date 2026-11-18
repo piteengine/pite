@@ -1,0 +1,15 @@
+---
+source: crates/pite-cli/src/output.rs
+expression: "error_envelope(\"export\", &error).unwrap()"
+---
+{
+  "schema_version": 1,
+  "command": "export",
+  "ok": false,
+  "error": {
+    "message": "inner",
+    "chain": [
+      "outer"
+    ]
+  }
+}

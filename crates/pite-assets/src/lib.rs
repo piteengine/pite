@@ -254,12 +254,26 @@ pub struct ScanReport {
     pub changed: Vec<String>,
 }
 
+/// Rewrite result for one `(old, new)` rename.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenameRewrite {
+    pub old: String,
+    pub new: String,
+    /// Total quote-wrapped references replaced across all files.
+    pub references: usize,
+    /// `res://`-style paths of the files that were rewritten.
+    pub files: Vec<String>,
+}
+
 /// Outcome of [`reimport_project`]: importer results plus ref rewrites.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReimportReport {
     pub reimported: Vec<String>,
     pub failed: Vec<String>,
     pub refs_updated: Vec<String>,
+    /// Per-rename reference counts, in the order the renames were applied.
+    #[serde(default)]
+    pub rewrites: Vec<RenameRewrite>,
 }
 
 /// Directory names never descended into during any walk.
@@ -528,8 +542,31 @@ pub fn replace_res_ref(text: &str, old: &str, new: &str) -> (String, usize) {
 /// with at least one quote-wrapped hit are written back. Returns the
 /// sorted `res://`-style paths of touched files.
 pub fn apply_renames(root: &Path, renames: &[(String, String)]) -> Result<Vec<String>> {
+    let mut touched: Vec<String> = apply_renames_detailed(root, renames)?
+        .into_iter()
+        .flat_map(|rewrite| rewrite.files)
+        .collect();
+    touched.sort();
+    touched.dedup();
+    Ok(touched)
+}
+
+/// [`apply_renames`], keeping per-rename reference counts and file lists.
+pub fn apply_renames_detailed(
+    root: &Path,
+    renames: &[(String, String)],
+) -> Result<Vec<RenameRewrite>> {
+    let mut rewrites: Vec<RenameRewrite> = renames
+        .iter()
+        .map(|(old, new)| RenameRewrite {
+            old: old.clone(),
+            new: new.clone(),
+            references: 0,
+            files: Vec::new(),
+        })
+        .collect();
     if renames.is_empty() {
-        return Ok(Vec::new());
+        return Ok(rewrites);
     }
     let mut targets: Vec<(String, PathBuf)> = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -566,27 +603,35 @@ pub fn apply_renames(root: &Path, renames: &[(String, String)]) -> Result<Vec<St
     }
     targets.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let mut touched = Vec::new();
     for (res_path, fs_path) in &targets {
         let text = match std::fs::read_to_string(fs_path) {
             Ok(text) => text,
             Err(_) => continue,
         };
         let mut current = text;
+        let mut counts = Vec::with_capacity(renames.len());
         let mut total = 0usize;
         for (old, new) in renames {
             let (next_text, count) = replace_res_ref(&current, old, new);
             current = next_text;
+            counts.push(count);
             total += count;
         }
-        if total > 0 {
-            std::fs::write(fs_path, current)
-                .with_context(|| format!("write {}", fs_path.display()))?;
-            touched.push(res_path.clone());
+        if total == 0 {
+            continue;
+        }
+        std::fs::write(fs_path, current).with_context(|| format!("write {}", fs_path.display()))?;
+        for (rewrite, count) in rewrites.iter_mut().zip(counts) {
+            if count > 0 {
+                rewrite.references += count;
+                rewrite.files.push(res_path.clone());
+            }
         }
     }
-    touched.sort();
-    Ok(touched)
+    for rewrite in &mut rewrites {
+        rewrite.files.sort();
+    }
+    Ok(rewrites)
 }
 
 /// Scan, re-run the matching importer over every `changed`/`added` path
@@ -620,7 +665,16 @@ pub fn reimport_project(root: &Path) -> Result<(UidRegistry, ReimportReport)> {
     reimported.sort();
     failed.sort();
 
-    let refs_updated = apply_renames(root, &scan.renamed)?;
+    let rewrites = apply_renames_detailed(root, &scan.renamed)?;
+    let refs_updated: Vec<String> = {
+        let mut files: Vec<String> = rewrites
+            .iter()
+            .flat_map(|rewrite| rewrite.files.iter().cloned())
+            .collect();
+        files.sort();
+        files.dedup();
+        files
+    };
     save_registry(root, &reg)?;
     Ok((
         reg,
@@ -628,6 +682,7 @@ pub fn reimport_project(root: &Path) -> Result<(UidRegistry, ReimportReport)> {
             reimported,
             failed,
             refs_updated,
+            rewrites,
         },
     ))
 }

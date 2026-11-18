@@ -12,7 +12,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
+
+use crate::output::{Outcome, SCHEMA_VERSION};
+use crate::text::{capitalize, Spans};
+use crate::ui::{BarTone, Cell, Table, Ui};
 
 #[derive(Debug, Subcommand)]
 pub enum VendorAction {
@@ -38,16 +43,62 @@ pub enum VendorAction {
     Verify,
 }
 
-pub fn run(action: VendorAction) -> Result<()> {
+/// One vendored package row.
+#[derive(Debug, Serialize)]
+struct Package {
+    name: String,
+    version: String,
+    direct: bool,
+    status: &'static str,
+    /// `zipped` or `unpacked` for packages that are present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+struct ListData {
+    schema_version: u32,
+    packages: Vec<Package>,
+}
+
+#[derive(Debug, Serialize)]
+struct AddEntry {
+    name: String,
+    version: String,
+    storage: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct AddData {
+    schema_version: u32,
+    added: Vec<AddEntry>,
+}
+
+#[derive(Debug, Serialize)]
+struct RemoveData {
+    schema_version: u32,
+    removed: String,
+}
+
+#[derive(Debug, Serialize)]
+struct VerifyData {
+    schema_version: u32,
+    ok: bool,
+    verified: usize,
+    failed: usize,
+    packages: Vec<Package>,
+}
+
+pub fn run(ui: &mut Ui, action: VendorAction) -> Result<Outcome> {
     match action {
         VendorAction::Add {
             spec,
             zipped,
             unpacked,
-        } => add(&spec, zipped, unpacked),
-        VendorAction::Remove { name } => remove(&name),
-        VendorAction::List => list(),
-        VendorAction::Verify => verify(),
+        } => add(ui, &spec, zipped, unpacked),
+        VendorAction::Remove { name } => remove(ui, &name),
+        VendorAction::List => list(ui),
+        VendorAction::Verify => verify(ui),
     }
 }
 
@@ -282,14 +333,19 @@ fn parse_spec(spec: &str) -> Result<String> {
     }
 }
 
-fn add(spec: &str, zipped: bool, unpacked: bool) -> Result<()> {
+fn add(ui: &mut Ui, spec: &str, zipped: bool, unpacked: bool) -> Result<Outcome> {
     if zipped && unpacked {
         anyhow::bail!("--zipped and --unpacked conflict; pick one");
     }
     let root = project_root()?;
     let mut manifest = pite_project::load_manifest(&root)?;
     let pinned = parse_spec(spec)?;
-    eprintln!("info: downloading wheel(s) for {pinned} via pip...");
+    ui.info(
+        Spans::new()
+            .plain("Downloading wheels for ")
+            .info(pinned.as_str())
+            .plain(" via pip…"),
+    );
     let requested = normalize_dist(pinned.split("==").next().unwrap_or(&pinned));
     let tmp = std::env::temp_dir().join(format!("pite-vendor-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -311,6 +367,7 @@ fn add(spec: &str, zipped: bool, unpacked: bool) -> Result<()> {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
+        ui.verbose_note(Spans::new().faded("  Wheel ").strong(file_name.as_str()));
         let (dist_raw, version) = parse_wheel_filename(&file_name)
             .with_context(|| format!("cannot parse wheel filename {file_name:?}"))?;
         let dist = normalize_dist(&dist_raw);
@@ -378,19 +435,65 @@ fn add(spec: &str, zipped: bool, unpacked: bool) -> Result<()> {
     }
     pite_project::save_manifest(&root, &manifest)?;
     let _ = std::fs::remove_dir_all(&tmp);
+
+    let mut table = Table::new(&["PACKAGE", "VERSION", "STORAGE"]);
+    let mut entries = Vec::new();
     for (dist, (version, was_zipped)) in &added {
-        println!(
-            "vendor: {dist} {version} ({})",
-            if *was_zipped { "zipped" } else { "unpacked" }
-        );
+        let storage = if *was_zipped { "zipped" } else { "unpacked" };
+        table = table.row(vec![
+            Cell::info(dist.as_str()),
+            Cell::plain(version.as_str()),
+            Cell::success(storage),
+        ]);
+        entries.push(AddEntry {
+            name: dist.clone(),
+            version: version.clone(),
+            storage,
+        });
     }
-    Ok(())
+    ui.section("Vendored packages");
+    ui.table(&table);
+    if !ui.quiet() {
+        ui.blank();
+        let zipped = added.values().filter(|(_, zipped)| *zipped).count();
+        let unpacked = added.len() - zipped;
+        let right = if unpacked == 0 {
+            format!("{} added · zipped", package_count(added.len()))
+        } else if zipped == 0 {
+            format!("{} added · unpacked", package_count(added.len()))
+        } else {
+            format!(
+                "{} added · {zipped} zipped · {unpacked} unpacked",
+                package_count(added.len())
+            )
+        };
+        ui.bar("Vendored", &right, BarTone::Success);
+    }
+
+    Outcome::completed(AddData {
+        schema_version: SCHEMA_VERSION,
+        added: entries,
+    })
 }
 
 fn tree_hash_for(vendor_dir: &Path, dist: &str, version: &str) -> Result<String> {
     let info = find_dist_info(vendor_dir, dist, version)?;
     let rels = read_record(&info.join("RECORD"))?;
     hash_unpacked(vendor_dir, &rels)
+}
+
+/// First 16 hex characters of a hash, for verbose lines.
+fn short_hash(hash: &str) -> &str {
+    &hash[..hash.len().min(16)]
+}
+
+/// `1 package` / `3 packages`, for summary bars.
+fn package_count(count: usize) -> String {
+    if count == 1 {
+        "1 package".to_string()
+    } else {
+        format!("{count} packages")
+    }
 }
 
 /// True when `module` resolves inside `vendor_dir`: an unpacked tree or a
@@ -428,7 +531,7 @@ pub fn vendor_provides(vendor_dir: &Path, module: &str) -> bool {
     false
 }
 
-fn remove(name: &str) -> Result<()> {
+fn remove(ui: &mut Ui, name: &str) -> Result<Outcome> {
     let root = project_root()?;
     let mut manifest = pite_project::load_manifest(&root)?;
     let dist = normalize_dist(name);
@@ -454,8 +557,19 @@ fn remove(name: &str) -> Result<()> {
     }
     manifest.vendor.remove(&dist);
     pite_project::save_manifest(&root, &manifest)?;
-    println!("vendor: removed {dist}");
-    Ok(())
+    ui.success(
+        Spans::new()
+            .plain("Removed ")
+            .info(dist.as_str())
+            .plain(" from ")
+            .strong(format!("{VENDOR_DIR}/"))
+            .plain("."),
+    );
+
+    Outcome::completed(RemoveData {
+        schema_version: SCHEMA_VERSION,
+        removed: dist,
+    })
 }
 
 fn remove_empty_parents(dir: &Path, stop: &Path) {
@@ -471,71 +585,206 @@ fn remove_empty_parents(dir: &Path, stop: &Path) {
     }
 }
 
-fn list() -> Result<()> {
+fn list(ui: &mut Ui) -> Result<Outcome> {
     let root = project_root()?;
     let manifest = pite_project::load_manifest(&root)?;
     let vendor_dir = root.join(VENDOR_DIR);
     let mut names: Vec<&String> = manifest.vendor.keys().collect();
     names.sort_unstable();
     if names.is_empty() {
-        println!("no packages vendored (use 'pite vendor add <package>' to vendor one)");
-        return Ok(());
+        ui.info(
+            Spans::new()
+                .plain("No packages are vendored yet. Add one with ")
+                .strong("pite vendor add pkg==version")
+                .plain("."),
+        );
+        return Outcome::completed(ListData {
+            schema_version: SCHEMA_VERSION,
+            packages: Vec::new(),
+        });
     }
+
+    let mut table = Table::new(&["PACKAGE", "VERSION", "KIND", "STATUS", "STORAGE"]);
+    let mut packages = Vec::new();
+    let mut notes = Vec::new();
+    let mut missing = 0usize;
+    let mut direct = 0usize;
     for name in names {
         let entry = &manifest.vendor[name];
-        let present = find_wheel(&vendor_dir, name, &entry.version).is_ok()
-            || find_dist_info(&vendor_dir, name, &entry.version).is_ok();
-        println!(
-            "{} {} {} {}",
-            name,
-            entry.version,
-            if entry.direct { "direct" } else { "transitive" },
-            if present { "ok" } else { "MISSING" }
+        let wheel = find_wheel(&vendor_dir, name, &entry.version);
+        let unpacked = find_dist_info(&vendor_dir, name, &entry.version);
+        let (status, storage, cells) = match (&wheel, &unpacked) {
+            (Ok(_), _) => ("ok", Some("zipped"), Cell::success("Cached")),
+            (_, Ok(_)) => ("ok", Some("unpacked"), Cell::success("Cached")),
+            _ => {
+                missing += 1;
+                ("missing", None, Cell::warning("Missing"))
+            }
+        };
+        if entry.direct {
+            direct += 1;
+        }
+        table = table.row(vec![
+            Cell::info(name.as_str()),
+            Cell::plain(entry.version.as_str()),
+            Cell::plain(if entry.direct { "direct" } else { "transitive" }),
+            cells,
+            Cell::plain(storage.unwrap_or("-")),
+        ]);
+        packages.push(Package {
+            name: name.clone(),
+            version: entry.version.clone(),
+            direct: entry.direct,
+            status,
+            storage,
+        });
+        notes.push(format!("    Pinned to {}", short_hash(&entry.sha256)));
+    }
+
+    ui.section("Vendored packages");
+    ui.table(&table);
+    for note in &notes {
+        ui.verbose_line(note);
+    }
+    if !ui.quiet() {
+        ui.blank();
+        let right = if missing == 0 {
+            format!("{} · {direct} direct", package_count(packages.len()))
+        } else {
+            format!("{} · {missing} missing", package_count(packages.len()))
+        };
+        ui.bar(
+            "Vendored packages",
+            &right,
+            if missing == 0 {
+                BarTone::Faded
+            } else {
+                BarTone::Warning
+            },
         );
     }
-    Ok(())
+
+    Outcome::completed(ListData {
+        schema_version: SCHEMA_VERSION,
+        packages,
+    })
 }
 
-fn verify() -> Result<()> {
+fn verify(ui: &mut Ui) -> Result<Outcome> {
     let root = project_root()?;
     let manifest = pite_project::load_manifest(&root)?;
     let vendor_dir = root.join(VENDOR_DIR);
-    let mut bad = 0;
     let mut names: Vec<&String> = manifest.vendor.keys().collect();
     names.sort_unstable();
     if names.is_empty() {
-        println!("no packages vendored to verify");
-        return Ok(());
+        ui.info(
+            Spans::new()
+                .plain("No packages are vendored to verify. Add one with ")
+                .strong("pite vendor add pkg==version")
+                .plain("."),
+        );
+        return Outcome::completed(VerifyData {
+            schema_version: SCHEMA_VERSION,
+            ok: true,
+            verified: 0,
+            failed: 0,
+            packages: Vec::new(),
+        });
     }
+
+    let mut verified = 0usize;
+    let mut failed = 0usize;
+    let mut table = Table::new(&["PACKAGE", "VERSION", "STATUS", "DETAIL"]);
+    let mut packages = Vec::new();
     for name in names {
         let entry = &manifest.vendor[name];
         let hash = find_wheel(&vendor_dir, name, &entry.version)
-            .and_then(|w| sha256_file(&w))
+            .and_then(|wheel| sha256_file(&wheel))
             .or_else(|_| tree_hash_for(&vendor_dir, name, &entry.version));
-        match hash {
-            Ok(h) if h == entry.sha256 => println!("{name} ok"),
-            Ok(_) => {
-                eprintln!("{name} MISMATCH");
-                bad += 1;
+        let (status, detail, cell) = match hash {
+            Ok(actual) if actual == entry.sha256 => {
+                verified += 1;
+                (
+                    "ok",
+                    "Matches the pinned hash".to_string(),
+                    Cell::success("Verified"),
+                )
             }
-            Err(e) => {
-                eprintln!("{name} MISSING ({e:#})");
-                bad += 1;
+            Ok(actual) => {
+                failed += 1;
+                (
+                    "mismatch",
+                    format!("Got unexpected {}", short_hash(&actual)),
+                    Cell::error("Mismatch"),
+                )
             }
+            Err(error) => {
+                failed += 1;
+                (
+                    "missing",
+                    capitalize(&format!("{error:#}")),
+                    Cell::warning("Missing"),
+                )
+            }
+        };
+        table = table.row(vec![
+            Cell::info(name.as_str()),
+            Cell::plain(entry.version.as_str()),
+            cell,
+            Cell::plain(detail.clone()),
+        ]);
+        packages.push(Package {
+            name: name.clone(),
+            version: entry.version.clone(),
+            direct: entry.direct,
+            status,
+            storage: None,
+        });
+    }
+
+    ui.section("Verification");
+    ui.table(&table);
+    let ok = failed == 0;
+    if !ui.quiet() || !ok {
+        ui.blank();
+        if ok {
+            ui.bar(
+                "Vendored packages verified",
+                &package_count(verified),
+                BarTone::Success,
+            );
+        } else {
+            ui.bar(
+                "Vendor verify failed",
+                &format!("{failed} failed · {verified} verified"),
+                BarTone::Error,
+            );
         }
     }
-    if bad > 0 {
-        anyhow::bail!("{bad} vendored package(s) failed verification");
+
+    let data = VerifyData {
+        schema_version: SCHEMA_VERSION,
+        ok,
+        verified,
+        failed,
+        packages,
+    };
+    if ok {
+        Outcome::completed(data)
+    } else {
+        Outcome::failed(data)
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::ui::Ui;
     use std::io::Write;
 
     /// `add`/`remove` mutate the process cwd and env: never run together.
+    #[cfg(unix)]
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn make_wheel(dir: &Path, dist: &str, version: &str, native: bool) -> PathBuf {
@@ -599,9 +848,12 @@ mod tests {
     }
 
     /// Fake `pip download SPEC -d DIR …`: copies fixture wheels, ignoring
-    /// flags. Drives `add` end to end with no network.
+    /// flags. Drives `add` end to end with no network. A POSIX shell script,
+    /// so the end-to-end tests that use it are Unix-only.
+    #[cfg(unix)]
     const FAKE_PIP: &str = "#!/bin/sh\ndest=\"\"\nprev=\"\"\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"-d\" ]; then dest=\"$a\"; fi\n  prev=\"$a\"\ndone\ncp \"$PITE_FAKE_WHEELS\"/*.whl \"$dest\"/\n";
 
+    #[cfg(unix)]
     fn fake_project(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pite-vendor-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -610,6 +862,7 @@ mod tests {
         dir
     }
 
+    #[cfg(unix)]
     #[test]
     fn add_verify_remove_round_trip() {
         let _guard = SERIAL.lock().unwrap();
@@ -630,7 +883,7 @@ mod tests {
         std::env::set_current_dir(&dir).unwrap();
         std::env::set_var("PITE_PIP_BIN", &fake);
         std::env::set_var("PITE_FAKE_WHEELS", &wheels);
-        add("demo==1.0", false, false).unwrap();
+        add(&mut Ui::silent(), "demo==1.0", false, false).unwrap();
         let manifest = pite_project::load_manifest(&dir).unwrap();
         assert!(manifest.vendor["demo"].direct);
         assert!(!manifest.vendor["natpkg"].direct);
@@ -643,13 +896,13 @@ mod tests {
             .join("natpkg")
             .join("__init__.py")
             .is_file());
-        verify().unwrap();
+        assert_eq!(verify(&mut Ui::silent()).unwrap().exit, 0);
         std::fs::write(
             dir.join("vendor").join("demo-1.0-py3-none-any.whl"),
             b"corrupt",
         )
         .unwrap();
-        assert!(verify().is_err());
+        assert_eq!(verify(&mut Ui::silent()).unwrap().exit, 1);
         std::env::remove_var("PITE_PIP_BIN");
         std::env::remove_var("PITE_FAKE_WHEELS");
         std::env::set_current_dir(&prev).unwrap();
@@ -657,6 +910,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&wheels);
     }
 
+    #[cfg(unix)]
     #[test]
     fn remove_deletes_artifact_and_row() {
         let _guard = SERIAL.lock().unwrap();
@@ -676,15 +930,15 @@ mod tests {
         std::env::set_current_dir(&dir).unwrap();
         std::env::set_var("PITE_PIP_BIN", &fake);
         std::env::set_var("PITE_FAKE_WHEELS", &wheels);
-        add("solo", false, false).unwrap();
-        remove("solo").unwrap();
+        add(&mut Ui::silent(), "solo", false, false).unwrap();
+        remove(&mut Ui::silent(), "solo").unwrap();
         let manifest = pite_project::load_manifest(&dir).unwrap();
         assert!(manifest.vendor.is_empty());
         assert!(!dir
             .join("vendor")
             .join("solo-3.0-py3-none-any.whl")
             .exists());
-        assert!(remove("solo").is_err());
+        assert!(remove(&mut Ui::silent(), "solo").is_err());
         std::env::remove_var("PITE_PIP_BIN");
         std::env::remove_var("PITE_FAKE_WHEELS");
         std::env::set_current_dir(&prev).unwrap();

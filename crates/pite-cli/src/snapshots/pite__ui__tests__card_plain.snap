@@ -1,0 +1,8 @@
+---
+source: crates/pite-cli/src/ui.rs
+expression: "format_card(&card(), &COLOR_DISABLED)"
+---
+Error: Referenced asset is missing.
+  At:    scenes/main.ptscn › node "sprite"
+  Why:   This property points to res://assets/gone.png, which does not exist on disk.
+  Fix:   Add the asset at that res:// path or update the property.

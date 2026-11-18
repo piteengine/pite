@@ -1,0 +1,8 @@
+---
+source: crates/pite-cli/src/ui.rs
+expression: "format_table(&table, &COLOR_DISABLED)"
+---
+PLATFORM  STATUS    PATH
+Linux     Cached    /cache/linux
+Windows   Missing   cpython-3.12.9.zip
+macOS     Mismatch  /cache/macos

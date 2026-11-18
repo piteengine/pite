@@ -1,0 +1,5 @@
+---
+source: crates/pite-cli/src/ui.rs
+expression: "format_bar(\"Checked demo\", \"2 scenes · 5 assets · 12ms\", BarTone::Success,\n72, &COLOR_DISABLED)"
+---
+ Checked demo                                 2 scenes · 5 assets · 12ms

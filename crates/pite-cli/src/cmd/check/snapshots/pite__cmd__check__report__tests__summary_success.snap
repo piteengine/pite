@@ -1,0 +1,5 @@
+---
+source: crates/pite-cli/src/cmd/check/report.rs
+expression: "format!(\"{} {}\", bar.label, bar.right)"
+---
+Checked demo 2 scenes · 5 assets · 12ms
