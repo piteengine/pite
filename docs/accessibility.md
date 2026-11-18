@@ -31,9 +31,15 @@ The Pite editor is built with Rust using `eframe` and `egui`. Accessibility capa
 
 The `pite` CLI tool is designed for clarity and predictable text stream output:
 
-- Color Accessibility: CLI output uses standard ANSI colors that adhere to user terminal color palettes.
-- Scripting and Non-Interactive Modes: The CLI detects non-TTY environments and respects flags such as `--json` and standard environment variables like `NO_COLOR`, stripping ANSI escape sequences for text-to-speech tools and automated pipelines.
-- Structured Error Messages: Diagnostics adhere to an actionable format stating what failed, why it failed, and how to resolve it.
+- Outcome Labels, Not Glyphs: outcomes are announced in words (`Error:`, `Warning:`, `Checked …`, `Check failed`, `Verified`, `Missing`, `Mismatch`) instead of `✖` / `▲` / `✔` symbols, so screen readers and text-to-speech tools read them correctly.
+- Structured Error Messages: diagnostics follow an actionable card layout stating what failed, why it failed, and how to resolve it, with `At:`, `Why:`, and `Fix:` fields aligned on their own lines.
+- Additive Emphasis: bold paths, cyan identifiers, and dim secondary text only add emphasis; every message is complete plain text, so `--color never` loses no information.
+- Summary Bars: verdicts close with a full-width bar carrying a label and stats as plain text. The green/yellow/red background restates the verdict rather than carrying it, and bars adapt to terminal width without truncating labels.
+- Predictable Structure: section headings come before their indented content, a shared-fix `Hint:` line sits between the cards and the summary, and related summary bars form one block at the bottom. When output is piped, every progress step keeps its own full line, so logs and screen readers never depend on in-place terminal rewrites.
+- Color Accessibility: CLI output uses standard ANSI colors that adhere to user terminal color palettes. `--color auto` (the default) respects non-TTY detection and `NO_COLOR`; `--color never` strips all escapes without needing an environment variable.
+- Scripting and Non-Interactive Modes: `--json` emits a machine-readable envelope on stdout and always disables ANSI escapes, regardless of `--color`. Human-readable progress, cards, tables, and bars go to stderr, keeping pipelines clean.
+- Quiet Mode: `-q` / `--quiet` removes progress, success, and table output while preserving warnings, errors, and a failing verdict bar, so problems are never silently swallowed.
+- Stable Tables: tabular output (`pite vendor list`, `pite toolchain status`) aligns columns to their widest cell without truncation, so paths and versions stay copyable.
 
 ### Documentation Site
 

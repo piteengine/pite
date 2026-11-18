@@ -5,23 +5,44 @@
 //! (`pite edit`), standalone gameplay (`pite run`), project verification (`pite check`),
 //! cross-platform desktop exports (`pite export`), dependency vendoring (`pite vendor`),
 //! and toolchain management (`pite toolchain`).
+//!
+//! Every command receives the shared [`ui::Ui`] built here, so color policy,
+//! `--json`, `--quiet`, and `--verbose` behave identically everywhere.
 
-mod cmd_check;
-mod cmd_edit;
-mod cmd_export;
-mod cmd_new;
-mod cmd_run;
-mod cmd_toolchain;
-mod cmd_vendor;
+mod cmd;
+mod diagnostics;
+mod output;
+mod text;
+mod ui;
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 
+use crate::ui::{ColorChoice, Ui};
+
 #[derive(Debug, Parser)]
 #[command(name = "pite", version, about = "Pite game engine CLI")]
 struct Cli {
+    /// Control colored output: auto, always, never.
+    #[arg(
+        long,
+        value_name = "WHEN",
+        value_enum,
+        default_value = "auto",
+        global = true
+    )]
+    color: ColorChoice,
+    /// Emit a machine-readable JSON envelope on stdout.
+    #[arg(long, global = true, default_value_t = false)]
+    json: bool,
+    /// Print extra detail about the command's work.
+    #[arg(short, long, global = true, default_value_t = false)]
+    verbose: bool,
+    /// Suppress progress, success, and table output.
+    #[arg(short, long, global = true, default_value_t = false)]
+    quiet: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -56,15 +77,6 @@ enum Command {
         /// Treat warnings as errors and exit with a non-zero status.
         #[arg(long, default_value_t = false)]
         strict: bool,
-        /// Output the check report formatted as JSON.
-        #[arg(long, default_value_t = false)]
-        json: bool,
-        /// Control colored output: auto, always, never.
-        #[arg(long, value_name = "WHEN", default_value = "auto")]
-        color: cmd_check::ColorChoice,
-        /// Show verbose output including scene cache hit/miss details.
-        #[arg(short, long, default_value_t = false)]
-        verbose: bool,
     },
     /// Launch the interactive graphical scene and script editor.
     Edit {
@@ -96,49 +108,115 @@ enum Command {
     /// Manage engine toolchains (CPython runtimes and export players).
     Toolchain {
         #[command(subcommand)]
-        action: cmd_toolchain::ToolchainAction,
+        action: cmd::toolchain::ToolchainAction,
     },
     /// Manage third-party vendored Python packages.
     Vendor {
         #[command(subcommand)]
-        action: cmd_vendor::VendorAction,
+        action: cmd::vendor::VendorAction,
     },
 }
 
-fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
-    let cli = Cli::parse();
-    match cli.command {
+fn main() {
+    std::process::exit(run_cli());
+}
+
+fn run_cli() -> i32 {
+    let wants_json = std::env::args().any(|arg| arg == "--json");
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            use clap::error::ErrorKind;
+            match error.kind() {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+                    let _ = error.print();
+                    return 0;
+                }
+                _ if wants_json => {
+                    println!(
+                        "{}",
+                        output::usage_error_envelope("pite", &error.to_string())
+                    );
+                    return 2;
+                }
+                _ => {
+                    let _ = error.print();
+                    return error.exit_code();
+                }
+            }
+        }
+    };
+
+    let mut ui = Ui::stdio(cli.color, cli.json, cli.quiet, cli.verbose);
+    init_tracing(&ui);
+
+    // No subcommand outside a project: help on stdout, or an error envelope
+    // when a machine-readable report was requested.
+    if cli.command.is_none() && ui.json() {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if pite_project::find_project_root(&cwd).is_none() {
+            println!(
+                "{}",
+                output::usage_error_envelope("pite", "no command given")
+            );
+            return 2;
+        }
+    }
+
+    let command = command_name(&cli.command);
+    match dispatch(&mut ui, cli.command) {
+        Ok(outcome) => {
+            if ui.json() {
+                match output::envelope(command, &outcome) {
+                    Ok(text) => {
+                        ui.write_out(&text);
+                        ui.write_out("\n");
+                    }
+                    Err(error) => {
+                        output::print_error(&mut ui, &error);
+                        return 1;
+                    }
+                }
+            }
+            i32::from(outcome.exit)
+        }
+        Err(error) => {
+            if ui.json() {
+                match output::error_envelope(command, &error) {
+                    Ok(text) => {
+                        ui.write_out(&text);
+                        ui.write_out("\n");
+                    }
+                    Err(_) => output::print_error(&mut ui, &error),
+                }
+            } else {
+                output::print_error(&mut ui, &error);
+            }
+            1
+        }
+    }
+}
+
+fn dispatch(ui: &mut Ui, command: Option<Command>) -> Result<output::Outcome> {
+    match command {
         None => {
             let cwd = std::env::current_dir()?;
             if pite_project::find_project_root(&cwd).is_some() {
-                cmd_edit::run(None)
+                cmd::edit::run(ui, None)
             } else {
-                Cli::command().print_help()?;
-                println!();
-                Ok(())
+                let _ = Cli::command().print_help();
+                ui.write_out("\n");
+                Ok(output::Outcome::silent())
             }
         }
-        Some(Command::New { name, template }) => cmd_new::run(&name, template.as_deref()),
-        Some(Command::Run { scene, no_reload }) => cmd_run::run(scene.as_deref(), no_reload),
+        Some(Command::New { name, template }) => cmd::new::run(ui, &name, template.as_deref()),
+        Some(Command::Run { scene, no_reload }) => cmd::run::run(ui, scene.as_deref(), no_reload),
         Some(Command::Check {
             path,
             reimport_assets,
             strict,
-            json,
-            color,
-            verbose,
-        }) => cmd_check::run(
-            path.as_deref(),
-            reimport_assets,
-            strict,
-            json,
-            color,
-            verbose,
-        ),
-        Some(Command::Edit { scene }) => cmd_edit::run(scene.as_deref()),
+        }) => cmd::check::run(ui, path.as_deref(), reimport_assets, strict),
+        Some(Command::Edit { scene }) => cmd::edit::run(ui, scene.as_deref()),
         Some(Command::Export {
             platform,
             path,
@@ -146,7 +224,8 @@ fn main() -> Result<()> {
             binary,
             skip_python_check,
             no_bundle_python,
-        }) => cmd_export::run(
+        }) => cmd::export::run(
+            ui,
             &platform,
             path.as_deref(),
             out.as_deref(),
@@ -154,9 +233,35 @@ fn main() -> Result<()> {
             skip_python_check,
             no_bundle_python,
         ),
-        Some(Command::Toolchain { action }) => cmd_toolchain::run(action),
-        Some(Command::Vendor { action }) => cmd_vendor::run(action),
+        Some(Command::Toolchain { action }) => cmd::toolchain::run(ui, action),
+        Some(Command::Vendor { action }) => cmd::vendor::run(ui, action),
     }
+}
+
+fn command_name(command: &Option<Command>) -> &'static str {
+    match command {
+        None => "pite",
+        Some(Command::New { .. }) => "new",
+        Some(Command::Run { .. }) => "run",
+        Some(Command::Check { .. }) => "check",
+        Some(Command::Edit { .. }) => "edit",
+        Some(Command::Export { .. }) => "export",
+        Some(Command::Toolchain { .. }) => "toolchain",
+        Some(Command::Vendor { .. }) => "vendor",
+    }
+}
+
+/// Logs always go to stderr, honor `RUST_LOG` when set, and use the same color
+/// decision as human output. `--verbose` only adds command detail; it never
+/// raises the log level, so engine debug logs stay out of normal verbose runs.
+fn init_tracing(ui: &Ui) {
+    use tracing_subscriber::EnvFilter;
+    let filter = EnvFilter::from_default_env();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_ansi(ui.color_enabled())
+        .try_init();
 }
 
 pub(crate) fn resolve_scene(scene: Option<&str>) -> Result<PathBuf> {
@@ -179,4 +284,98 @@ pub(crate) fn resolve_start_dir(path: Option<&str>) -> Result<PathBuf> {
         }
         None => cwd,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Cli {
+        Cli::try_parse_from(args).expect("global flags parse")
+    }
+
+    #[test]
+    fn global_flags_are_accepted_after_a_subcommand() {
+        let cli = parse(&["pite", "check", "--json", "--color", "always", "-q", "-v"]);
+        assert!(cli.json);
+        assert!(cli.quiet);
+        assert!(cli.verbose);
+        assert_eq!(cli.color, ColorChoice::Always);
+    }
+
+    #[test]
+    fn global_flags_default_to_human_auto_output() {
+        let cli = parse(&["pite", "check"]);
+        assert!(!cli.json);
+        assert!(!cli.quiet);
+        assert!(!cli.verbose);
+        assert_eq!(cli.color, ColorChoice::Auto);
+    }
+
+    #[test]
+    fn check_keeps_its_own_flags() {
+        let cli = parse(&["pite", "check", "proj", "--reimport-assets", "--strict"]);
+        match cli.command {
+            Some(Command::Check {
+                path,
+                reimport_assets,
+                strict,
+            }) => {
+                assert_eq!(path.as_deref(), Some("proj"));
+                assert!(reimport_assets);
+                assert!(strict);
+            }
+            other => panic!("expected check, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn toolchain_clean_takes_platform_lists() {
+        let cli = parse(&[
+            "pite",
+            "toolchain",
+            "clean",
+            "--python",
+            "macos",
+            "--player",
+            "windows,linux",
+        ]);
+        match cli.command {
+            Some(Command::Toolchain {
+                action:
+                    cmd::toolchain::ToolchainAction::Clean {
+                        python,
+                        player,
+                        all,
+                    },
+            }) => {
+                assert_eq!(python, vec!["macos"]);
+                assert_eq!(player, vec!["windows", "linux"]);
+                assert!(!all);
+            }
+            other => panic!("expected toolchain clean, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn toolchain_clean_rejects_unknown_platforms() {
+        assert!(Cli::try_parse_from(["pite", "toolchain", "clean", "--player", "beos"]).is_err());
+    }
+
+    #[test]
+    fn every_command_has_a_stable_name() {
+        assert_eq!(
+            command_name(&Some(Command::Vendor {
+                action: cmd::vendor::VendorAction::List
+            })),
+            "vendor"
+        );
+        assert_eq!(
+            command_name(&Some(Command::Toolchain {
+                action: cmd::toolchain::ToolchainAction::Status
+            })),
+            "toolchain"
+        );
+        assert_eq!(command_name(&None), "pite");
+    }
 }

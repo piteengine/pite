@@ -6,9 +6,11 @@
 //! CPython 3.12 environment requiring no system dependencies on players' machines.
 
 pub mod player;
+pub mod progress;
 pub mod python_bundle;
 
 pub use player::{candidate_player_names, player_bin_name};
+pub use progress::Progress;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -18,6 +20,16 @@ use pite_assets::played_assets;
 use pite_render::atlas::{sheet_for_sidecar, SIDECAR_EXT};
 
 pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "windows", "macos"];
+
+/// Human display name for an export platform (`windows` → `Windows`).
+pub fn platform_label(platform: &str) -> &str {
+    match platform {
+        "windows" => "Windows",
+        "linux" => "Linux",
+        "macos" => "macOS",
+        other => other,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ExportOptions {
@@ -114,7 +126,11 @@ impl Drop for ExportDir {
     }
 }
 
-pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+pub fn export_project(
+    root: &Path,
+    opts: &ExportOptions,
+    progress: &mut dyn Progress,
+) -> Result<ExportReport> {
     if !SUPPORTED_PLATFORMS.contains(&opts.platform.as_str()) {
         anyhow::bail!(
             "unsupported export platform {:?} (supported: linux, windows, macos)",
@@ -127,31 +143,6 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         .binary_name
         .clone()
         .unwrap_or_else(|| manifest.project.name.clone());
-    let python = if opts.bundle_python {
-        let spec = python_bundle::pinned(&opts.platform).with_context(|| {
-            format!(
-                "no pinned Python build for {}; pass --no-bundle-python to require \
-                 system Python 3.12 instead",
-                opts.platform
-            )
-        })?;
-        let archive = python_bundle::ensure_archive(&spec)?;
-        PythonChoice::Bundled {
-            zip: archive.clone(),
-        }
-    } else {
-        if !opts.skip_python_check && find_python().is_none() {
-            anyhow::bail!(
-                "export needs system Python 3.12 on PATH (or PITE_PYTHON); \
-                 the target machine must have it too. Pass --skip-python-check \
-                 for cross-machine builds, or drop --no-bundle-python to ship a \
-                 pinned interpreter."
-            );
-        }
-        PythonChoice::System
-    };
-    let binary_src = select_binary(opts)?;
-
     let out = opts.out_dir.clone().unwrap_or_else(|| {
         root.join("dist")
             .join(format!("{game_name}-{}", opts.platform))
@@ -173,8 +164,61 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
     std::fs::create_dir_all(&game_dir)?;
     std::fs::create_dir_all(&bin_dir)?;
 
+    // The player binary and the interpreter are separate sections: each is
+    // fetched (or reused from the cache) before any game content is copied.
+    progress.section("Binary");
+    let binary_src = select_binary(opts, progress)?;
+
+    let staged = if opts.bundle_python {
+        progress.section("Python");
+        let spec = python_bundle::pinned(&opts.platform).with_context(|| {
+            format!(
+                "no pinned Python build for {}; pass --no-bundle-python to require \
+                 system Python 3.12 instead",
+                opts.platform
+            )
+        })?;
+        let archive = python_bundle::ensure_archive(&spec, progress)?;
+        let mut staged = python_bundle::stage(&spec, &archive, &out.join("python"), progress)
+            .context("cannot stage the bundled Python")?;
+        if opts.platform == "windows" {
+            // Windows resolves DLLs from the exe's own directory before
+            // PATH, so the interpreter DLL lives next to the binary and
+            // the staged copy is dropped instead of shipped twice.
+            let dll = staged
+                .lib
+                .file_name()
+                .expect("lib file has a name")
+                .to_string_lossy()
+                .into_owned();
+            let dest = bin_dir.join(&dll);
+            std::fs::copy(&staged.lib, &dest)
+                .context("cannot place the interpreter DLL next to the binary")?;
+            std::fs::remove_file(&staged.lib)?;
+            staged.lib = dest;
+        }
+        if let Some(pth) = spec.pth_name {
+            let pth_body = windows_pth(&bin_dir, &staged)?;
+            std::fs::write(bin_dir.join(pth), pth_body)
+                .context("cannot write the interpreter loader config")?;
+        }
+        Some(staged)
+    } else {
+        if !opts.skip_python_check && find_python().is_none() {
+            anyhow::bail!(
+                "export needs system Python 3.12 on PATH (or PITE_PYTHON); \
+                 the target machine must have it too. Pass --skip-python-check \
+                 for cross-machine builds, or drop --no-bundle-python to ship a \
+                 pinned interpreter."
+            );
+        }
+        None
+    };
+
     let mut files = collect_referenced(root, &manifest)?;
     files.sort();
+    progress.section("Files");
+    progress.step(&format!("copying {} project files", files.len()));
     for abs in &files {
         let rel = abs.strip_prefix(root).with_context(|| {
             format!("export cannot reach outside the project: {}", abs.display())
@@ -184,6 +228,7 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
             std::fs::create_dir_all(parent)?;
         }
         std::fs::copy(abs, &dest)?;
+        progress.detail(&format!("Copied {}", rel_to(root, abs)));
     }
     std::fs::copy(
         root.join(pite_project::MANIFEST_FILE),
@@ -198,37 +243,6 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&bin_dest, std::fs::Permissions::from_mode(0o755))?;
     }
-
-    let staged = match &python {
-        PythonChoice::Bundled { zip } => {
-            let spec = python_bundle::pinned(&opts.platform).expect("checked above");
-            let mut staged = python_bundle::stage(&spec, zip, &out.join("python"))
-                .context("cannot stage the bundled Python")?;
-            if opts.platform == "windows" {
-                // Windows resolves DLLs from the exe's own directory before
-                // PATH, so the interpreter DLL lives next to the binary and
-                // the staged copy is dropped instead of shipped twice.
-                let dll = staged
-                    .lib
-                    .file_name()
-                    .expect("lib file has a name")
-                    .to_string_lossy()
-                    .into_owned();
-                let dest = bin_dir.join(&dll);
-                std::fs::copy(&staged.lib, &dest)
-                    .context("cannot place the interpreter DLL next to the binary")?;
-                std::fs::remove_file(&staged.lib)?;
-                staged.lib = dest;
-            }
-            if let Some(pth) = spec.pth_name {
-                let pth_body = windows_pth(&bin_dir, &staged)?;
-                std::fs::write(bin_dir.join(pth), pth_body)
-                    .context("cannot write the interpreter loader config")?;
-            }
-            Some(staged)
-        }
-        PythonChoice::System => None,
-    };
 
     let main_rel = manifest
         .project
@@ -253,17 +267,17 @@ pub fn export_project(root: &Path, opts: &ExportOptions) -> Result<ExportReport>
             std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755))?;
         }
     }
-    std::fs::write(
-        out.join("README.txt"),
-        readme(&game_name, &opts.platform, &python),
-    )?;
-
     let python = match staged {
         Some(staged) => PythonChoice::Bundled {
             zip: staged.stdlib_zip,
         },
         None => PythonChoice::System,
     };
+    std::fs::write(
+        out.join("README.txt"),
+        readme(&game_name, &opts.platform, &python),
+    )?;
+
     owned.commit();
     Ok(ExportReport {
         out_dir: out,
@@ -380,26 +394,39 @@ fn windows_launcher(
 /// for all platforms. If no sibling binary is found beside the engine, export
 /// automatically downloads and caches the target platform's player binary.
 /// The full `pite` binary is never shipped: it carries the editor.
-fn select_binary(opts: &ExportOptions) -> Result<PathBuf> {
-    select_binary_from(opts, std::env::current_exe().ok())
+fn select_binary(opts: &ExportOptions, progress: &mut dyn Progress) -> Result<PathBuf> {
+    select_binary_from(opts, std::env::current_exe().ok(), progress)
 }
 
-fn select_binary_from(opts: &ExportOptions, current_exe: Option<PathBuf>) -> Result<PathBuf> {
+fn select_binary_from(
+    opts: &ExportOptions,
+    current_exe: Option<PathBuf>,
+    progress: &mut dyn Progress,
+) -> Result<PathBuf> {
     if let Some(p) = &opts.binary {
         if !p.is_file() {
             anyhow::bail!("engine binary not found: {}", p.display());
         }
+        let name = p
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| p.display().to_string());
+        progress.step(&format!("using provided player binary ({name})"));
         return Ok(p.clone());
     }
     if let Some(dir) = current_exe.as_ref().and_then(|e| e.parent()) {
         for name in candidate_player_names(&opts.platform, std::env::consts::OS) {
-            let sibling = dir.join(name);
+            let sibling = dir.join(&name);
             if sibling.is_file() {
+                progress.step(&format!(
+                    "using local player binary for {} ({name})",
+                    platform_label(&opts.platform)
+                ));
                 return Ok(sibling);
             }
         }
     }
-    match player::ensure_player_binary(&opts.platform) {
+    match player::ensure_player_binary(&opts.platform, progress) {
         Ok(path) => Ok(path),
         Err(e) => {
             anyhow::bail!(
@@ -670,7 +697,7 @@ def _once():
     #[test]
     fn layout_copies_only_referenced_files() {
         let (dir, bin) = fixture("layout");
-        let report = export_project(&dir, &opts(&bin)).unwrap();
+        let report = export_project(&dir, &opts(&bin), &mut ()).unwrap();
         let out = &report.out_dir;
         for rel in [
             "pite.toml",
@@ -707,7 +734,7 @@ def _once():
             b"fake-wheel",
         )
         .unwrap();
-        let report = export_project(&dir, &opts(&bin)).unwrap();
+        let report = export_project(&dir, &opts(&bin), &mut ()).unwrap();
         let out = &report.out_dir;
         assert!(game_has(out, "vendor/vpkg/__init__.py"), "missing tree");
         assert!(
@@ -730,6 +757,7 @@ def _once():
                 skip_python_check: false,
                 ..opts(&bin)
             },
+            &mut (),
         )
         .unwrap_err();
         assert!(err.to_string().contains("Python 3.12"), "{err:#}");
@@ -768,6 +796,7 @@ def _once():
                 skip_python_check: false,
                 ..opts(&bin)
             },
+            &mut (),
         )
         .unwrap();
         match prev {
@@ -815,7 +844,7 @@ def _once():
             return;
         }
         let out = dir.join("out");
-        let staged = python_bundle::stage(&spec, &archive, &out).unwrap();
+        let staged = python_bundle::stage(&spec, &archive, &out, &mut ()).unwrap();
         assert!(staged.lib.ends_with("libpython3.12.so.1.0"), "{staged:?}");
         assert!(staged.lib.is_file());
         assert!(staged.stdlib_zip.is_file());
@@ -878,7 +907,7 @@ def _once():
             return;
         }
         let out = dir.join("out");
-        let staged = python_bundle::stage(&spec, &archive, &out).unwrap();
+        let staged = python_bundle::stage(&spec, &archive, &out, &mut ()).unwrap();
         assert!(staged.lib.ends_with("libpython3.12.dylib"), "{staged:?}");
         assert!(staged.lib.is_file());
         assert!(staged.stdlib_zip.is_file());
@@ -921,6 +950,7 @@ def _once():
                 skip_python_check: false,
                 bundle_python: true,
             },
+            &mut (),
         )
         .expect("bundled export must succeed");
         match &report.python {
@@ -968,6 +998,7 @@ def _once():
                 platform: "ps5".to_string(),
                 ..opts(Path::new("unused"))
             },
+            &mut (),
         )
         .unwrap_err();
         assert!(
@@ -984,7 +1015,7 @@ def _once():
     #[test]
     fn exported_manifest_runs_round_trip() {
         let (dir, bin) = fixture("roundtrip");
-        let report = export_project(&dir, &opts(&bin)).unwrap();
+        let report = export_project(&dir, &opts(&bin), &mut ()).unwrap();
         let scene = report
             .out_dir
             .join("game")
@@ -1025,6 +1056,7 @@ def _once():
                 out_dir: Some(out.clone()),
                 ..opts(&bin)
             },
+            &mut (),
         )
         .unwrap_err();
         assert!(
@@ -1092,6 +1124,7 @@ def _once():
                 skip_python_check: false,
                 bundle_python: true,
             },
+            &mut (),
         )
         .expect("windows bundled export must succeed");
         let out = &report.out_dir;
@@ -1161,6 +1194,7 @@ def _once():
         let got = select_binary_from(
             &bin_opts(std::env::consts::OS, Some(explicit.clone())),
             Some(fake_exe),
+            &mut (),
         )
         .unwrap();
         assert_eq!(got, explicit);
@@ -1174,8 +1208,12 @@ def _once():
         let sibling = dir.join(player_bin_name(std::env::consts::OS));
         std::fs::write(&fake_exe, "x").unwrap();
         std::fs::write(&sibling, "x").unwrap();
-        let got =
-            select_binary_from(&bin_opts(std::env::consts::OS, None), Some(fake_exe)).unwrap();
+        let got = select_binary_from(
+            &bin_opts(std::env::consts::OS, None),
+            Some(fake_exe),
+            &mut (),
+        )
+        .unwrap();
         assert_eq!(got, sibling);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1190,9 +1228,13 @@ def _once():
         std::fs::create_dir_all(&empty_cache).unwrap();
         std::env::set_var("PITE_PLAYER_DIR", &empty_cache);
         std::env::set_var("PITE_PLAYER_URL", "http://127.0.0.1:9/nonexistent");
-        let err = select_binary_from(&bin_opts(std::env::consts::OS, None), Some(fake_exe))
-            .unwrap_err()
-            .to_string();
+        let err = select_binary_from(
+            &bin_opts(std::env::consts::OS, None),
+            Some(fake_exe),
+            &mut (),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("pite-player"), "got: {err}");
         assert!(err.contains("--binary"), "got: {err}");
         std::env::remove_var("PITE_PLAYER_DIR");
@@ -1217,7 +1259,7 @@ def _once():
         std::fs::write(&cached_bin, "cached-binary-content").unwrap();
 
         std::env::set_var("PITE_PLAYER_DIR", &cache);
-        let got = select_binary_from(&bin_opts(platform, None), Some(fake_exe)).unwrap();
+        let got = select_binary_from(&bin_opts(platform, None), Some(fake_exe), &mut ()).unwrap();
         assert_eq!(got, cached_bin);
         std::env::remove_var("PITE_PLAYER_DIR");
         std::fs::remove_dir_all(&dir).ok();
@@ -1253,7 +1295,7 @@ def _once():
             "PITE_PLAYER_URL",
             format!("file://{}", archive_tar.display()),
         );
-        let got = select_binary_from(&bin_opts("linux", None), Some(fake_exe)).unwrap();
+        let got = select_binary_from(&bin_opts("linux", None), Some(fake_exe), &mut ()).unwrap();
         assert!(got.is_file());
         let content = std::fs::read_to_string(&got).unwrap();
         assert_eq!(content, "downloaded-player-content");
@@ -1286,7 +1328,7 @@ def _once():
             "PITE_PLAYER_URL",
             format!("file://{}", archive_zip.display()),
         );
-        let got = select_binary_from(&bin_opts("windows", None), Some(fake_exe)).unwrap();
+        let got = select_binary_from(&bin_opts("windows", None), Some(fake_exe), &mut ()).unwrap();
         assert!(got.is_file());
         let content = std::fs::read_to_string(&got).unwrap();
         assert_eq!(content, "windows-player-content");
@@ -1310,7 +1352,7 @@ def _once():
         let sibling = dir.join(player_bin_name(foreign));
         std::fs::write(&fake_exe, "x").unwrap();
         std::fs::write(&sibling, "x").unwrap();
-        let got = select_binary_from(&bin_opts(foreign, None), Some(fake_exe)).unwrap();
+        let got = select_binary_from(&bin_opts(foreign, None), Some(fake_exe), &mut ()).unwrap();
         assert_eq!(got, sibling);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1322,7 +1364,7 @@ def _once():
         let sibling = dir.join("pite-player-macos");
         std::fs::write(&fake_exe, "x").unwrap();
         std::fs::write(&sibling, "x").unwrap();
-        let got = select_binary_from(&bin_opts("macos", None), Some(fake_exe)).unwrap();
+        let got = select_binary_from(&bin_opts("macos", None), Some(fake_exe), &mut ()).unwrap();
         assert_eq!(got, sibling);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1339,6 +1381,7 @@ def _once():
                 skip_python_check: true,
                 bundle_python: false,
             },
+            &mut (),
         )
         .unwrap();
         let out = &report.out_dir;
@@ -1379,6 +1422,7 @@ def _once():
                 platform: "ps5".to_string(),
                 ..opts(&bin)
             },
+            &mut (),
         )
         .unwrap_err();
         assert!(err.to_string().contains("unsupported export platform"));

@@ -1,0 +1,13 @@
+---
+source: crates/pite-cli/src/output.rs
+expression: "envelope(\"vendor\", &sample()).unwrap()"
+---
+{
+  "schema_version": 1,
+  "command": "vendor",
+  "ok": true,
+  "data": {
+    "schema_version": 1,
+    "value": 7
+  }
+}

@@ -4,6 +4,44 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+- **CLI Output Design Pass**:
+    - Human messages are built from typed styled spans (bold paths, cyan identifiers, dim secondary text) instead of markup embedded in strings; JSON receives the plain concatenation.
+    - Diagnostic cards use `Error:` / `Warning:`, `Why:`, and `Fix:` only — the `Hint:` field and its duplicated guidance were folded into `Fix:`.
+    - Commands with a verdict or stats end in a full-width summary bar: solid green/yellow/red with bold black text, or dim when neutral. Bars follow terminal width (40–200 columns, 80 when piped) and grow instead of truncating.
+    - `pite check` gained cyan `Reimporting assets:` and `Checking scene caches:` blocks, rewritten-reference counts on renames, an `Update:` label for changed assets, and `Nothing to change.` when a reimport has no work. The scene-cache, reimport, and check bars print as one contiguous group at the bottom.
+    - `pite check` prints a cyan `Hint: Run pite check --reimport-assets to fix <n> issues.` line after reference-rewrite cards, with a blank line above and below. The reimport command is cyan in `Fix:` text too.
+    - The verbose scene cache lists each scene file once, even when it is also reached through an `[[instance]]` entry.
+    - `pite vendor` indents `Pinned to <hash>` under the package row instead of aligning it with the row's cells.
+    - `pite export`, `pite vendor`, and `pite toolchain` now share the same cards/bars/tables vocabulary, including `Verified` / `Mismatch` / `Missing` / `Cached` display statuses and `Windows` / `Linux` / `macOS` platform names.
+    - `pite export` groups progress into `Binary`, `Python`, and `Files` sections, lists `Copied <path>` lines under `Copying N project files` with `-v`, and renders output paths with the target platform's separator.
+    - Long-running export steps rewrite their line in place on a terminal (`Downloading …` becomes a green `Downloaded …`) and print both lines when stderr is piped; section content is indented two spaces.
+    - `pite toolchain status` groups rows under one `Python` and one `Player` label; `pite toolchain clean` now requires `--python`, `--player`, or `--all` and lists what it removed.
+    - `pite vendor` labels downloaded artifacts `Wheel <file>`, prints `Pinned to <hash>`, and reports `Matches the pinned hash` / `Got unexpected <hash>` in verification details.
+    - `-v` only adds command detail (cache lines, copied files, pinned hashes); it no longer raises the log level to debug.
+    - Progress lines capitalize the verb in cyan and bold parenthesized file names; `pite run -v` and `pite edit -v` announce the target before launching.
+- **Unified CLI Output Layer**:
+    - Every `pite` command now shares one output context: diagnostics, success lines, progress, cards, and tables render consistently.
+    - Global flags accepted before or after any subcommand: `--color <auto|always|never>`, `--json`, `-v, --verbose`, and `-q, --quiet` (previously `pite check`-only).
+    - Human output (progress, confirmations, cards, tables) moved to stderr; stdout carries only JSON payloads and requested data, so `pite export … > build.log` and pipelines stay clean.
+    - `pite new`, `pite export`, `pite vendor`, and `pite toolchain` confirmations are now structured lines and tables instead of ad-hoc `println!` text.
+    - `pite vendor list` and `pite toolchain status` render aligned, auto-width tables with an uppercase header and no truncation.
+    - Severity labels are words (`Error:`, `Warning:`, `Success:`) rather than `✖` / `▲` / `✔` glyphs, improving screen-reader output.
+- **Structured JSON for Every Command**:
+    - All commands honor `--json` and emit one envelope: `{ schema_version, command, ok, data?, error? }`.
+    - `check` keeps its full payload; `new`, `export`, `toolchain`, and `vendor` gained typed payloads; `run` and `edit` report on exit only.
+    - Envelope and per-command payload `schema_version` are independent and both start at `1` (previously the check report was `schema_version: 3`).
+    - A failed check or failed verification reports `ok: false` with full data and exits `1`; usage errors emit an error envelope and exit `2`.
+    - `--json` always disables ANSI; color precedence is `--json` > `--color` > `NO_COLOR` > TTY detection.
+- **`pite check` Refactor**:
+    - Findings are built as typed `Finding` values at detection time (severity, kind, location, message, why, fix) instead of parsed from rendered strings; the old string parsing remains only as a boundary adapter for lower-crate messages.
+    - JSON paths are project-relative with `/` separators, including scene-cache entries.
+    - The check implementation is split into orchestration, scene walk, payload types/rendering, and behavior tests.
+- **`pite-export` Progress Sink (Breaking for library callers)**:
+    - Added `pite_export::Progress` with `section` / `info` / `step` / `success` / `warn` / `pending` / `complete` / `detail`; the CLI implements it with its own output layer.
+    - I/O-facing functions (`export_project`, `ensure_archive`, `verify`, `stage`, `download_and_extract_player`, `ensure_player_binary`) now take `&mut dyn Progress`; pass `&mut ()` for silence.
+    - Removed duplicated raw `eprintln!` progress lines in favor of the sink, so `RUST_LOG=info` no longer prints each event twice.
+    - This is a breaking API change for the published crate and will be reflected in the next release version.
+
 ## v0.4.0 - 2026-11-13
 
 - **Enhanced `pite check` CLI Diagnostics**:

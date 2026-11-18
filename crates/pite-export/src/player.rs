@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
+use crate::platform_label;
+use crate::progress::Progress;
+
 /// Player binary file name on its own platform, always carrying the platform name.
 pub fn player_bin_name(platform: &str) -> &'static str {
     match platform {
@@ -126,7 +129,7 @@ pub fn player_download_url(platform: &str, tag: &str) -> String {
 }
 
 /// Download the player archive and unpack it into the cache directory.
-pub fn download_and_extract_player(platform: &str) -> Result<PathBuf> {
+pub fn download_and_extract_player(platform: &str, progress: &mut dyn Progress) -> Result<PathBuf> {
     let tag =
         std::env::var("PITE_VERSION").unwrap_or_else(|_| format!("v{}", env!("CARGO_PKG_VERSION")));
     let target_dir = player_dir(platform);
@@ -137,10 +140,19 @@ pub fn download_and_extract_player(platform: &str) -> Result<PathBuf> {
     let archive_path = target_dir.join(&archive_name);
     let url = player_download_url(platform, &tag);
 
-    eprintln!("info: downloading player binary for {platform} ({archive_name})...");
-    tracing::info!(platform = %platform, url = %url, "downloading pite-player binary");
+    progress.pending(&format!(
+        "downloading player binary for {} ({archive_name})...",
+        platform_label(platform)
+    ));
     download_file(&url, &archive_path, platform)?;
-    eprintln!("info: extracting player binary for {platform}...");
+    progress.complete(&format!(
+        "downloaded player binary for {} ({archive_name})",
+        platform_label(platform)
+    ));
+    progress.pending(&format!(
+        "extracting player binary for {}...",
+        platform_label(platform)
+    ));
 
     let extract_res = if archive_name.ends_with(".zip") {
         unpack_zip(&archive_path, &target_dir)
@@ -150,6 +162,10 @@ pub fn download_and_extract_player(platform: &str) -> Result<PathBuf> {
 
     let _ = std::fs::remove_file(&archive_path);
     extract_res?;
+    progress.complete(&format!(
+        "extracted player binary for {}",
+        platform_label(platform)
+    ));
 
     let bin_name = player_bin_name(platform);
     let bin_path = target_dir.join(bin_name);
@@ -174,11 +190,15 @@ pub fn download_and_extract_player(platform: &str) -> Result<PathBuf> {
 
 /// Ensure a player binary is available for `platform`, checking cache first and
 /// downloading if absent.
-pub fn ensure_player_binary(platform: &str) -> Result<PathBuf> {
+pub fn ensure_player_binary(platform: &str, progress: &mut dyn Progress) -> Result<PathBuf> {
     if let Some(cached) = find_cached_player(platform) {
+        progress.step(&format!(
+            "using cached player binary for {}",
+            platform_label(platform)
+        ));
         return Ok(cached);
     }
-    download_and_extract_player(platform)
+    download_and_extract_player(platform, progress)
 }
 
 fn download_file(url: &str, dest: &Path, platform: &str) -> Result<()> {

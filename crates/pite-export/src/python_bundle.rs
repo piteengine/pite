@@ -17,6 +17,9 @@ use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+use crate::platform_label;
+use crate::progress::Progress;
+
 /// Pinned upstream build: astral-sh/python-build-standalone, `install_only`.
 /// Checksums come from the release's `SHA256SUMS`.
 pub const PINNED_BUILD: &str = "20250317";
@@ -127,27 +130,34 @@ pub fn archive_path(spec: &BundleSpec) -> PathBuf {
 
 /// Fetch the pinned archive into the toolchain cache and verify it.
 /// A cached file is re-verified every time: a bad cache is never trusted.
-pub fn ensure_archive(spec: &BundleSpec) -> Result<PathBuf> {
+pub fn ensure_archive(spec: &BundleSpec, progress: &mut dyn Progress) -> Result<PathBuf> {
     let path = archive_path(spec);
     if path.is_file() {
-        verify(spec, &path)?;
+        verify(spec, &path, progress)?;
         return Ok(path);
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
-    eprintln!(
-        "info: downloading pinned Python {} runtime for {} ({})...",
-        PINNED_PYTHON, spec.platform, spec.file
-    );
+    progress.pending(&format!(
+        "downloading pinned Python {} runtime for {} ({})...",
+        PINNED_PYTHON,
+        platform_label(spec.platform),
+        spec.file
+    ));
     let url = format!("{RELEASE_BASE}/{PINNED_BUILD}/{}", spec.file);
     download(&url, &path)?;
-    if let Err(e) = verify(spec, &path) {
+    progress.complete(&format!(
+        "downloaded pinned Python {} runtime for {} ({})",
+        PINNED_PYTHON,
+        platform_label(spec.platform),
+        spec.file
+    ));
+    if let Err(e) = verify(spec, &path, progress) {
         let _ = std::fs::remove_file(&path);
         return Err(e);
     }
-    eprintln!("info: verified Python runtime ({})", spec.file);
     Ok(path)
 }
 
@@ -160,12 +170,18 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// Checksum gate. Never warns, never repairs: a mismatch is fatal.
-pub fn verify(spec: &BundleSpec, path: &Path) -> Result<()> {
+pub fn verify(spec: &BundleSpec, path: &Path, progress: &mut dyn Progress) -> Result<()> {
+    progress.pending(&format!(
+        "verifying pinned Python runtime ({})...",
+        spec.file
+    ));
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
     let actual = sha256_hex(&bytes);
     if actual.eq_ignore_ascii_case(spec.sha256) {
+        progress.complete(&format!("verified pinned Python runtime ({})", spec.file));
         return Ok(());
     }
+    progress.warn(&format!("checksum mismatch for {}", path.display()));
     if spec.sha256 == "REPLACE_WINDOWS_SHA256" {
         bail!(
             "no pinned checksum recorded for {} (expected placeholder); refusing to use {}",
@@ -238,7 +254,16 @@ pub struct StagedBundle {
 
 /// Extract the shared library, pack the stdlib into a zip, and lay both out
 /// under `dest` (`<out>/python`). `site-packages` is deliberately dropped.
-pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBundle> {
+pub fn stage(
+    spec: &BundleSpec,
+    archive: &Path,
+    dest: &Path,
+    progress: &mut dyn Progress,
+) -> Result<StagedBundle> {
+    progress.pending(&format!(
+        "staging bundled Python runtime ({})...",
+        spec.zip_name
+    ));
     let work = dest.join(".staging");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).with_context(|| format!("cannot create {}", work.display()))?;
@@ -274,6 +299,10 @@ pub fn stage(spec: &BundleSpec, archive: &Path, dest: &Path) -> Result<StagedBun
     let stdlib_zip = dest.join(spec.zip_name);
     zip_dir(&stdlib_dir, &stdlib_zip)?;
     let _ = std::fs::remove_dir_all(&work);
+    progress.complete(&format!(
+        "staged bundled Python runtime ({})",
+        spec.zip_name
+    ));
     Ok(StagedBundle {
         root: dest.to_path_buf(),
         lib,
@@ -471,7 +500,7 @@ mod tests {
         let dir = tmpdir("sum");
         let archive = dir.join("fake.tar.gz");
         std::fs::write(&archive, b"not the pinned archive").unwrap();
-        let err = verify(&LINUX, &archive).unwrap_err().to_string();
+        let err = verify(&LINUX, &archive, &mut ()).unwrap_err().to_string();
         assert!(err.contains("checksum mismatch"), "got: {err}");
         assert!(err.contains(LINUX.sha256), "got: {err}");
         std::fs::remove_dir_all(&dir).ok();
@@ -484,7 +513,7 @@ mod tests {
         spec.file = "cpython-offline-probe.tar.gz";
         let dir = tmpdir("offline");
         std::env::set_var("PITE_TOOLCHAIN_DIR", &dir);
-        let err = ensure_archive(&spec).unwrap_err().to_string();
+        let err = ensure_archive(&spec, &mut ()).unwrap_err().to_string();
         assert!(err.contains("--no-bundle-python"), "got: {err}");
         std::env::remove_var("PITE_TOOLCHAIN_DIR");
         std::fs::remove_dir_all(&dir).ok();

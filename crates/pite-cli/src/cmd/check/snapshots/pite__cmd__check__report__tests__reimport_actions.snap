@@ -1,0 +1,9 @@
+---
+source: crates/pite-cli/src/cmd/check/report.rs
+expression: "format_reimport(&summary, &COLOR_DISABLED)"
+---
+Reimporting assets:
+  Renamed:  assets/old.png → assets/moved.png (2 references updated)
+  Added:    assets/new.png
+  Update:   assets/edited.png
+  Removed:  assets/gone.png

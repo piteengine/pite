@@ -1,0 +1,5 @@
+---
+source: crates/pite-cli/src/cmd/check/report.rs
+expression: "format!(\"{} {}\", bar.label, bar.right)"
+---
+Check failed (strict) 0 errors · 2 warnings · 1.20s
