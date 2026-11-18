@@ -1493,9 +1493,11 @@ mod tests {
         }
         // Hand-templated surface spot-checks.
         for line in [
-            "class Signal:",
+            "class Signal(",
             "class Vec2:",
             "class InputQuery:",
+            "class ChildDescriptor:",
+            "class NodeDescriptor:",
             "held: InputQuery",
             "def raycast(",
         ] {

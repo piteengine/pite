@@ -26,8 +26,18 @@ fn main() {
     let stubs = generate_stub();
     let source = generate_source();
     let out = std::env::var("OUT_DIR").expect("OUT_DIR set by cargo");
-    std::fs::write(std::path::Path::new(&out).join("pite.pyi"), stubs).expect("write pite.pyi");
+    std::fs::write(std::path::Path::new(&out).join("pite.pyi"), &stubs).expect("write pite.pyi");
     std::fs::write(std::path::Path::new(&out).join("pite.py"), source).expect("write pite.py");
+
+    // Optional copy at a caller-chosen path. The PyPI job sets this so the
+    // published wheel and the editor's embedded stubs are the same bytes.
+    println!("cargo:rerun-if-env-changed=PITE_STUB_OUT");
+    if let Ok(dest) = std::env::var("PITE_STUB_OUT") {
+        if let Some(parent) = std::path::Path::new(&dest).parent() {
+            std::fs::create_dir_all(parent).expect("create PITE_STUB_OUT parent");
+        }
+        std::fs::write(&dest, stubs).expect("write PITE_STUB_OUT");
+    }
 
     generate_docs();
 }
@@ -191,13 +201,18 @@ const HEADER: &str = "\
 # Regenerate by building pite-editor; source in crates/pite-editor/build.rs.
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Any, Callable, Generic, Iterator, TypeVar, overload
 
-class Signal:
-    def emit(self, *values: object) -> None: ...
-    def connect(self, handler: object) -> None: ...
+_T = TypeVar(\"_T\")
 
-def signal(*types: object) -> Signal: ...
+class Signal(Generic[_T]):
+    def emit(self, *values: _T) -> None: ...
+    def connect(self, handler: Callable[..., None]) -> None: ...
+
+@overload
+def signal() -> Signal[None]: ...
+@overload
+def signal(first: type[_T], *rest: type[object]) -> Signal[_T]: ...
 
 class Vec2:
     x: float
@@ -227,14 +242,20 @@ held: InputQuery
 pressed: InputQuery
 released: InputQuery
 
+class ChildDescriptor:
+    def __get__(self, instance: object, owner: type[object] | None = None) -> Node: ...
+
+class NodeDescriptor:
+    def __get__(self, instance: object, owner: type[object] | None = None) -> Node: ...
+
 def mouse() -> Vec2: ...
 def frames(atlas: str) -> list[str]: ...
 def play(path: str, volume: float = ...) -> int: ...
 def stop(id: int) -> None: ...
 def set_volume(id: int, volume: float) -> None: ...
 def is_playing(id: int) -> bool: ...
-def child(name: str) -> Any: ...
-def node(path: str) -> Any: ...
+def child(name: str) -> ChildDescriptor: ...
+def node(path: str) -> NodeDescriptor: ...
 def raycast(from_pos: tuple[float, float] | Vec2, to_pos: tuple[float, float] | Vec2, mask: int = ...) -> dict[str, Any] | None: ...
 
 ";

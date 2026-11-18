@@ -12,3 +12,6 @@ examples/*/dist/
 repomix*
 /docs/reference/nodes
 /crates/pite-project/templates
+/python/pite/__init__.pyi
+/python/dist/
+**/__pycache__/

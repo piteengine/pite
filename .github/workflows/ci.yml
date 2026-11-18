@@ -50,6 +50,31 @@ jobs:
       - name: Build the workspace (locked)
         run: cargo build --workspace --locked
 
+      - name: Check the PyPI stub version matches the workspace
+        shell: bash
+        run: |
+          cargo_ver=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          py_ver=$(grep -m1 '^version' python/pyproject.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "workspace: $cargo_ver / pypi: $py_ver"
+          test "$cargo_ver" = "$py_ver" || {
+            echo "FATAL: python/pyproject.toml version must match Cargo.toml"
+            exit 1
+          }
+
+      - name: Generate the PyPI stub file from the node schema
+        run: PITE_STUB_OUT="$PWD/python/pite/__init__.pyi" cargo build --locked -p pite-editor
+
+      - name: Build the stub wheel and verify Pyright resolves it
+        shell: bash
+        run: |
+          python -m pip install --upgrade build
+          python -m build --outdir /tmp/pypi-dist python
+          python -m venv /tmp/pypi-venv
+          /tmp/pypi-venv/bin/pip install --quiet /tmp/pypi-dist/*.whl "pyright==1.1.411"
+          mkdir -p /tmp/pypi-smoke && cd /tmp/pypi-smoke
+          printf 'import pite\n\nclass P(pite.Node2D):\n    def _process(self, delta: float) -> None:\n        self.position += pite.Vec2(1.0, 0.0)\n' > check.py
+          /tmp/pypi-venv/bin/pyright --pythonpath /tmp/pypi-venv/bin/python check.py
+
   test:
     name: Tests
     runs-on: ubuntu-latest

@@ -181,6 +181,22 @@ When Pyright is available on your system `PATH`:
 - **Type Hover**: Press ++ctrl+h++ over any variable or method to view type signatures.
 - **Engine Stubs**: Pite bundles complete type stubs (`pite.pyi`), enabling autocompletion for all engine classes, properties, and signals without extra configuration.
 
+#### Typing Outside the Editor
+
+The editor injects the stubs into Pyright automatically. For an external IDE
+(VS Code with Pylance, or any Pyright-based setup), install the published
+stub package as a development dependency:
+
+```sh title="Terminal"
+pip install pite-stubs
+```
+
+The distribution is stub-only and versions in lockstep with the engine. It
+installs a `pite` package containing only `__init__.pyi` + `py.typed`, so
+`import pite` resolves for the checker and raises a clear error at runtime
+(the module is native and exists only inside the interpreter Pite embeds).
+Scripts still run through `pite edit` / `pite run`.
+
 ---
 
 ## Tilemap Editing

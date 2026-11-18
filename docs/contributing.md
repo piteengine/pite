@@ -40,8 +40,28 @@ The release process requires coordinated version bumps across internal crates an
 - MSRV proof: Ensure `msrv-proof.yml` passes on the pinned workspace `rust-version`.
 - Python bundle pins: When updating the embedded CPython distribution, update `python_bundle.rs` (`PINNED_PYTHON`, `PINNED_BUILD`, filenames, and SHA-256 checksums).
 - Pyright language server: When upgrading pyright, synchronize the version pin in `crates/pite-editor/src/lsp.rs`, `ci.yml`, and `AGENTS.md`.
+- PyPI stubs: `python/pyproject.toml` carries the same `version` as the workspace (CI and the tag publish check enforce it).
 - Scene format changes: If the `.ptscn` schema evolves, update `FORMAT_VERSION`, `CACHE_VERSION`, the template literals, and `docs/reference/scene-format.md`.
 - Release tagging: Strict `v*.*.*` tags must match the workspace version; milestone tags (`v0.1-mN`) are non-publishing tags.
+
+### PyPI stub package
+
+`python/` builds the `pite-stubs` distribution: a stub-only wheel for editors
+outside the built-in one. It installs a `pite` package (`__init__.pyi`,
+`py.typed`) so the import name matches the engine module; only the PyPI
+distribution name carries the `-stubs` suffix (PyPI rejects `pite` as too
+similar to existing projects). The `__init__.pyi` is generated, never
+committed:
+
+```sh
+PITE_STUB_OUT="$PWD/python/pite/__init__.pyi" cargo build -p pite-editor
+python -m build --outdir dist python
+```
+
+Publishing runs in `publish-pypi.yml` through Trusted Publishing (no token):
+tag pushes publish to PyPI, manual dispatches default to TestPyPI. Before the
+first real release, register the workflow and the `pypi` environment as a
+trusted publisher on PyPI (and `testpypi` on TestPyPI).
 
 ## Local Environment Setup
 
