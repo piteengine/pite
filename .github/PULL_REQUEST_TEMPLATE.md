@@ -1,39 +1,53 @@
 ## Summary
 
-Provide a concise summary of the purpose, changes, and architectural rationale of this pull request.
+Provide a concise summary of the purpose, changes, and architectural rationale of this pull request. Please read comments (texts inside `<!-- -->`) and follow instructions; This will help us merge your request as soon as possible. Replace this paragraph with requested information.
 
 ## Related Issues
 
-- Closes #
-- Fixes #
+<!--
+    Mention related issues in following style (replace X with issue number) to link this PR to them.
+    Also linking related PRs is possible. If your change hasn't any related issue, create an issue first or describe problem clearly in the "Summary" section.
+-->
 
-## Type of Change
+- Closes #X
+- Fixes #X
 
-Select item that applies and remove others
+## Type and Scope
 
-- `feat`: A new feature or engine capability
-- `fix`: A bug fix or patch
-- `docs`: Documentation updates or additions
-- `style`: Formatting, whitespace, or non-functional styling
-- `refactor`: Internal code refactoring with no behavior change
-- `perf`: Performance improvement
-- `test`: New tests or test fixture improvements
-- `chore`: Maintenance, CI, dependencies, or internal tooling
+<!--
+    Contributors: Select item that applies in the Type and Scope sections below. A maintainer will confirm or correct them and remove this section after applying appropriate labels.
+-->
 
-## Subsystems Affected
+### Type of Change
 
-Select item that applies and remove others
+<!--
 
-- Editor (`pite-editor`)
-- Core & Scene Tree (`pite-core`, `pite-scene`)
-- Scripting & Python Bridge (`pite-script`)
-- Physics (`pite-physics`)
-- Render (`pite-render`)
-- Audio (`pite-audio`)
-- Assets & Manifest (`pite-assets`, `pite-project`)
-- Export & Player (`pite-export`, `pite-player`, `pite-cli`)
-- Runtime (`pite-runtime`)
-- Documentation & Governance
+-->
+
+- [ ] `feat`: A new feature or engine capability
+- [ ] `fix`: A bug fix or patch
+- [ ] `docs`: Documentation fix or improvement
+- [ ] `style`: Formatting, whitespace, or non-functional styling
+- [ ] `refactor`: Internal code refactoring with no behavior change
+- [ ] `perf`: Performance improvement
+- [ ] `test`: New tests or test fixture improvements
+- [ ] `chore`: Maintenance, CI, or internal tooling
+- [ ] `dep`: Dependency updates / issues (usually by Dependabot)
+- [ ] `a11y`: Accessibility improvement
+
+### Subsystems Affected
+
+- [ ] Editor
+- [ ] Command-line interface (CLI)
+- [ ] Scene Tree
+- [ ] Scripting & Python Bridge
+- [ ] Physics
+- [ ] Render
+- [ ] Audio
+- [ ] Assets & Manifest
+- [ ] Export & Player Bundle
+- [ ] Engine Runtime
+- [ ] Documentation & Governance
 
 ## Verification and Testing
 
