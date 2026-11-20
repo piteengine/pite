@@ -20,7 +20,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 anyhow.workspace = true
 eframe = "0.37"
-rfd = "0.17"
+rfd = "0.18"
 serde_json.workspace = true
 arboard = "3"
 pite-assets.workspace = true
