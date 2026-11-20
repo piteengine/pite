@@ -36,6 +36,7 @@ bash scripts/check-examples.sh
 ## Conventions
 
 - Conventional commits (`feat:`/`fix:`/`docs:`/`chore:`), one focused change per commit/PR; never commit secrets, `target/`, or local paths.
+- Git hooks (`pre-commit`) check formatting, Markdown, and commit subjects; install them with `pre-commit install` and run everything with `pre-commit run --all-files`.
 - New Rust files start with `// SPDX-License-Identifier: MIT OR Apache-2.0` (Python: `# …`); `examples/` game scripts stay header-free.
 - Pinned values bump in multi-file lockstep (13 internal path-dep pins, scene `FORMAT_VERSION`/`CACHE_VERSION`, the pyright pin in `crates/pite-editor/src/lsp.rs` + docs + CI, `python_bundle.rs` pins) — checklist in `docs/developer/maintenance.md`.
 

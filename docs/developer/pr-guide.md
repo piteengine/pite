@@ -14,6 +14,7 @@ Pite keeps a linear history: changes land on `main` as focused commits, and pull
 - **Discuss large changes first.** New subsystems, scene-format changes, and public API redesigns should start in [GitHub Discussions](https://github.com/piteengine/pite/discussions) so the design is agreed before code review.
 - **Start with `good first issue` or `help wanted`.** Both labels mark work a maintainer has already scoped.
 - **Set up the build.** Embedded scripting needs CPython 3.12 development headers, and Linux audio needs ALSA headers; the [Contributing Guide](../contributing.md) covers the environment variables and platform packages.
+- **Install the Git hooks.** Run `pre-commit install` once per clone; the hooks check formatting and Markdown before each commit and reject subjects that do not follow the convention below.
 - **Build and test once before branching.** A green baseline makes CI failures unambiguous.
 
 ## Pull Request Lifecycle

@@ -1,0 +1,35 @@
+# Fast local checks that mirror the Format and Markdown CI jobs.
+# Install once per clone with `pre-commit install`; run everything with
+# `pre-commit run --all-files`.
+
+minimum_pre_commit_version: "3.5.0"
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Check Rust formatting across the workspace.
+        entry: cargo fmt --all -- --check
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: markdownlint
+        name: markdownlint
+        description: Lint staged Markdown with the repository configuration.
+        # Keep in step with the markdownlint-cli2 version bundled by
+        # DavidAnson/markdownlint-cli2-action@v25 in `.github/workflows/ci.yml`.
+        entry: npx --yes markdownlint-cli2@0.24.0 --no-globs
+        language: system
+        files: \.md$
+        # These paths are symlinks into `docs/`, which is linted directly.
+        exclude: ^(ACCESSIBILITY|CHANGELOG|CODE_OF_CONDUCT|CONTRIBUTING|DESIGN|SECURITY)\.md$
+
+      - id: conventional-commit
+        name: conventional commit
+        description: Validate the commit subject against the project convention.
+        entry: python scripts/check-commit-msg.py
+        language: system
+        stages: [commit-msg]

@@ -43,6 +43,8 @@ Releases are cut by maintainers on an ad hoc schedule. The lockstep version-bump
 
 ## Local Environment Setup
 
+- **Git Hooks:** Install [pre-commit](https://pre-commit.com) (`pipx install pre-commit` or `pip install pre-commit`) and run `pre-commit install` once per clone. The hooks check Rust formatting, lint staged Markdown, and reject commit subjects that do not follow the convention above; the Markdown hook runs `markdownlint-cli2` through `npx`, so Node.js must be available. Run every hook across the tree with `pre-commit run --all-files`.
+
 - **Python & Audio Headers:** Building embedded scripting requires CPython 3.12 with development headers, and Linux audio requires ALSA development headers (`libasound2-dev` and `pkg-config` on Debian/Ubuntu). Set environment variables to point PyO3 at your Python installation:
 
 ```sh
