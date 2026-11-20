@@ -28,11 +28,14 @@ Every pull request must pass the full workspace verification suite:
 
 ```sh
 cargo fmt --all -- --check
+npx markdownlint-cli2
 cargo build --workspace --locked
 cargo test --workspace --locked
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
 bash scripts/check-examples.sh
 ```
+
+Markdown rules live in `.markdownlint.yml`; lint scope and generated-file ignores live in `.markdownlint-cli2.jsonc`.
 
 ## Releases
 

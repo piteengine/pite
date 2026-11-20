@@ -119,7 +119,7 @@ Construct the scene hierarchy containing the camera, HUD label, player body, and
             !!! Info
                 This properties are based on our sample sprite for the gem, you can continue configuring it to make it more similar to your gem sprite.
 
-    Press <kbd>Ctrl</kbd> + <kbd>S</kbd> to save the scene!
+    Press ++ctrl+s++ to save the scene!
 
 === "Direct File Edit"
     When you create a blank project, `scenes/main.ptscn` starts with a single root `Node2D` named `Main` (lines 1–8). Open `scenes/main.ptscn` and expand the scene tree by adding the nodes for the camera, HUD label, player, and gem (highlighted below):
@@ -272,7 +272,7 @@ class Player(pite.CharacterBody2D):
 === "In Editor"
     1. In the Assets panel, select the `scripts` folder and click **+ File** (or right-click `scripts` > **New File…**).
     2. Select the **Script (.py)** template, name the file `player.py`, and click **Create**.
-    3. Double-click `scripts/player.py` in the Assets panel to open it in the **Code** tab, and paste the code above. Save with <kbd>Ctrl</kbd> + <kbd>S</kbd>.
+    3. Double-click `scripts/player.py` in the Assets panel to open it in the **Code** tab, and paste the code above. Save with ++ctrl+s++.
     4. Switch back to the **Viewport** tab, select the `Player` node in the Scene Tree, and drag `scripts/player.py` from the Assets panel onto the `Player` node to attach it.
 
 === "Direct File Edit"
@@ -326,7 +326,7 @@ class Gem(pite.Area2D):
 
 === "In Editor"
     1. In the Assets panel under `scripts`, click **+ File**, choose **Script (.py)**, name it `gem.py`, and click **Create**.
-    2. Double-click `scripts/gem.py` to open it in the **Code** tab, and paste the script above. Save with <kbd>Ctrl</kbd> + <kbd>S</kbd>.
+    2. Double-click `scripts/gem.py` to open it in the **Code** tab, and paste the script above. Save with ++ctrl+s++.
     3. In the Scene Tree, drag `scripts/gem.py` from the Assets panel onto the `Gem` node to attach it.
 
 === "Direct File Edit"
@@ -442,7 +442,7 @@ class GameTimer(pite.Timer):
 ```
 
 === "In Editor"
-    1. In the Assets panel under `scripts`, click **+ File**, create `game_timer.py`, and paste the script above. Save with <kbd>Ctrl</kbd> + <kbd>S</kbd>.
+    1. In the Assets panel under `scripts`, click **+ File**, create `game_timer.py`, and paste the script above. Save with ++ctrl+s++.
     2. Drag `scripts/game_timer.py` from the Assets panel onto `GameTimer` in the Scene Tree to attach it.
     3. Press **Play (`▶`)** to test your complete timed arcade game!
 
@@ -498,4 +498,3 @@ pite run
 ```
 
 This creates a complete project directory containing all the scenes, assets, audio files, and Python scripts built throughout this tutorial.
-

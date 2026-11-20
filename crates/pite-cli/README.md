@@ -34,4 +34,3 @@ Full documentation, quickstart tutorials, and API references:
 ## License
 
 Dual-licensed MIT + Apache-2.0 ([LICENSE-MIT](https://github.com/piteengine/pite/blob/main/LICENSE-MIT), [LICENSE-APACHE](https://github.com/piteengine/pite/blob/main/LICENSE-APACHE)).
-

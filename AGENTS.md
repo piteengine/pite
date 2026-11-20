@@ -6,6 +6,7 @@ Rust workspace (resolver 2, edition 2021, rust-version 1.95). Scene-tree game en
 
 ```sh
 cargo fmt --all -- --check
+npx markdownlint-cli2
 cargo build --workspace --locked
 cargo test --workspace --locked
 PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke   # needs pyright==1.1.411, gated off by default

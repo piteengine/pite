@@ -2,6 +2,7 @@ name: CI
 
 # Pite Continues Integration:
 # - Formatting
+# - Markdown
 # - Build
 # - Tests
 # - Smoke Tests (LSP, Export)
@@ -35,6 +36,18 @@ jobs:
           alsa: "false"
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  markdown:
+    name: Markdown
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v7
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@v25
+        with:
+          globs: "**/*.md"
 
   build:
     name: Build

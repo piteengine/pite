@@ -22,7 +22,7 @@ Most video games are inherently spatial and relational:
 - A floating **HealthBar** stays positioned directly above an enemy's head.
 - A **UI Canvas** contains buttons, labels, and icons aligned relative to containers.
 
-In a scene tree, **parent-child coordinate inheritance is automatic**. Moving a parent node transforms all descendants naturally down the tree. 
+In a scene tree, **parent-child coordinate inheritance is automatic**. Moving a parent node transforms all descendants naturally down the tree.
 
 In a pure ECS, expressing parent-child relationships requires building custom hierarchy components, tracking parent entities via IDs, and running explicit transform-propagation systems every frame to reconcile global matrices.
 
@@ -105,13 +105,13 @@ What you see in the visual editor matches your script structure and disk files.
 
 ## Architectural Comparison
 
-| Dimension | Scene Tree (Pite) | Entity Component System (ECS) |
-| :-------- | :---------------- | :---------------------------- |
-| **Mental Model** | Hierarchical, spatial, and object-oriented. | Relational database: entities are rows, components are columns. |
-| **Coordinate Hierarchy** | Automatic through parent-child node transforms. | Requires explicit transform hierarchy systems and queries. |
-| **Scripting Feel** | Intuitive class inheritance (`class Hero(pite.Node2D)`). | System loops, queries, and entity-ID lookups. |
-| **Composability** | Scenes can be instantiated inside other scenes. | Prefabs or entity blueprints require custom instantiation logic. |
-| **Target Sweet Spot** | 2D platformers, action games, RPGs, narrative, and arcade games. | Mass simulation (e.g. 50,000 homogeneous particles, flocking boids). |
-| **Visual Tooling** | Direct 1:1 correspondence with the editor tree view. | Inspector requires custom query visualizers and archetype inspectors. |
+| Dimension                | Scene Tree (Pite)                                                | Entity Component System (ECS)                                         |
+| :----------------------- | :--------------------------------------------------------------- | :-------------------------------------------------------------------- |
+| **Mental Model**         | Hierarchical, spatial, and object-oriented.                      | Relational database: entities are rows, components are columns.       |
+| **Coordinate Hierarchy** | Automatic through parent-child node transforms.                  | Requires explicit transform hierarchy systems and queries.            |
+| **Scripting Feel**       | Intuitive class inheritance (`class Hero(pite.Node2D)`).         | System loops, queries, and entity-ID lookups.                         |
+| **Composability**        | Scenes can be instantiated inside other scenes.                  | Prefabs or entity blueprints require custom instantiation logic.      |
+| **Target Sweet Spot**    | 2D platformers, action games, RPGs, narrative, and arcade games. | Mass simulation (e.g. 50,000 homogeneous particles, flocking boids).  |
+| **Visual Tooling**       | Direct 1:1 correspondence with the editor tree view.             | Inspector requires custom query visualizers and archetype inspectors. |
 
 For indie games, solo projects, game jams, and small-team productions, the developer velocity, readability, and mental clarity of a **Scene Tree** make game creation faster and much more enjoyable.

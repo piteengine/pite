@@ -137,6 +137,7 @@ Read every line. `unsafe` blocks need a `// SAFETY:` comment, public API or scen
 Every pull request runs the same suite, split into parallel jobs:
 
 - **Format** — `cargo fmt --all -- --check` — rustfmt drift.
+- **Markdown** — `npx markdownlint-cli2` — heading structure, table alignment, and link style across tracked Markdown.
 - **Build** — `cargo build --workspace --locked` — compilation, lockfile drift, and the PyPI stub version matching the workspace.
 - **Tests** — `cargo test --workspace --locked` — unit and integration tests.
 - **LSP Smoke** — `PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke` — a live pyright session against the pinned `1.1.411` server.
@@ -147,6 +148,7 @@ Run the fast jobs locally before pushing:
 
 ```sh
 cargo fmt --all -- --check
+npx markdownlint-cli2
 cargo build --workspace --locked
 cargo test --workspace --locked
 bash scripts/check-examples.sh

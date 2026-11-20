@@ -65,21 +65,21 @@ Rather than building an interpreted engine or requiring developers to compile C+
 
 The engine is structured as a modular Rust workspace consisting of 13 focused crates:
 
-| Crate | Role |
-| :---- | :--- |
-| `pite` (`pite-cli`) | Unified command-line interface: `new`, `run`, `check`, `edit`, `export`, `toolchain`, `vendor`. |
-| `pite-runtime` | Window creation (`winit`), the main execution loop, event polling, input forwarding, and hot reload orchestration. |
-| `pite-core` | The hierarchical scene tree, `NodeId` handles, schema definitions, custom properties, and lifecycle signals. |
-| `pite-script` | Embedded Python 3.12 bindings (PyO3), native `Vec2` math class, property accessors, and input state. |
-| `pite-physics` | Pure-Rust 2D physics simulation powered by `rapier2d 0.36`, kinematic controller, and collision queries. |
-| `pite-render` | 2D batch sprite and text renderer built directly on [wgpu](https://wgpu.rs/). |
-| `pite-audio` | Audio engine decoding WAV, OGG Vorbis, MP3, and FLAC via `symphonia` and `cpal`, with silent simulation fallback. |
-| `pite-scene` | Human-readable `.ptscn` TOML parsing, validation, byte-stable serialization, and binary disk cache. |
-| `pite-assets` | Asset import pipeline, header validation, UID tracking (`assets.pite.toml`), and reference reconciliation. |
-| `pite-project` | Project manifest loader (`pite.toml`), `res://` path resolver, and starter templates. |
-| `pite-export` | Self-contained game bundler, standalone asset collection, and CPython runtime packager. |
-| `pite-player` | Lean game runner binary without editor dependencies for distribution builds. |
-| `pite-editor` | Integrated desktop editor built with `egui`/`eframe`, featuring a GPU viewport, tree view, inspector, and LSP client. |
+| Crate               | Role                                                                                                                  |
+| :------------------ | :-------------------------------------------------------------------------------------------------------------------- |
+| `pite` (`pite-cli`) | Unified command-line interface: `new`, `run`, `check`, `edit`, `export`, `toolchain`, `vendor`.                       |
+| `pite-runtime`      | Window creation (`winit`), the main execution loop, event polling, input forwarding, and hot reload orchestration.    |
+| `pite-core`         | The hierarchical scene tree, `NodeId` handles, schema definitions, custom properties, and lifecycle signals.          |
+| `pite-script`       | Embedded Python 3.12 bindings (PyO3), native `Vec2` math class, property accessors, and input state.                  |
+| `pite-physics`      | Pure-Rust 2D physics simulation powered by `rapier2d 0.36`, kinematic controller, and collision queries.              |
+| `pite-render`       | 2D batch sprite and text renderer built directly on [wgpu](https://wgpu.rs/).                                         |
+| `pite-audio`        | Audio engine decoding WAV, OGG Vorbis, MP3, and FLAC via `symphonia` and `cpal`, with silent simulation fallback.     |
+| `pite-scene`        | Human-readable `.ptscn` TOML parsing, validation, byte-stable serialization, and binary disk cache.                   |
+| `pite-assets`       | Asset import pipeline, header validation, UID tracking (`assets.pite.toml`), and reference reconciliation.            |
+| `pite-project`      | Project manifest loader (`pite.toml`), `res://` path resolver, and starter templates.                                 |
+| `pite-export`       | Self-contained game bundler, standalone asset collection, and CPython runtime packager.                               |
+| `pite-player`       | Lean game runner binary without editor dependencies for distribution builds.                                          |
+| `pite-editor`       | Integrated desktop editor built with `egui`/`eframe`, featuring a GPU viewport, tree view, inspector, and LSP client. |
 
 ---
 
@@ -99,24 +99,32 @@ flowchart TD
 ```
 
 ### Input Event Collection
+
 Window and hardware events are collected from the OS via `winit` and translated into engine input state (`pite.held`, `pite.pressed`, and physical mouse coordinates).
 
 ### Fixed Physics Simulation at 60 Hz
+
 Physics runs on a fixed time accumulator at 60 Hz (`dt = 1/60`):
+
 - Dynamic bodies and forces advance via `rapier2d`.
 - Scripts defining `_physics_process(delta)` execute, allowing kinematic controllers like `CharacterBody2D` to call `move_and_slide()`.
 - Contact flags (`is_on_floor`, `is_on_wall`, `is_on_ceiling`) and overlap events (`body_entered`) update.
 
 ### Variable Gameplay Frame
+
 For each visual frame:
+
 - The delta time `delta` (clamped to at most 0.1s to prevent spiral-of-death during pauses) passes to `_process(delta)` in attached Python scripts.
 - Input edge states (`pressed` and `released`) clear at the end of the frame.
 
 ### Direct Property Synchronization
+
 Script assignments such as `self.position.x += 10` or `self.texture = "res://…"` write directly into the Rust tree state without intermediary string lookups or end-of-frame reflection passes.
 
 ### Offscreen and Surface Rendering
+
 The renderer traverses the node tree in scene-tree order:
+
 - Cameras calculate view projections (`screen_to_world`).
 - Sprite quads and text glyphs batch into vertex buffers.
 - `wgpu` renders the scene directly to the surface (or into an offscreen texture for the editor viewport).

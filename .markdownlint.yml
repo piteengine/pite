@@ -19,6 +19,9 @@ MD033:
   allowed_elements:
     - img
     - div
+    - p
+    - br
+    - em
 MD035:
   style: ---
 MD046: false # Doesn't work for admonitions

@@ -10,11 +10,11 @@ Security and memory safety are foundational requirements of the Pite engine arch
 
 Pite provides active security patches for the latest development branch and the latest published minor release series. Older releases are not actively maintained.
 
-| Branch or Release Series | Security Support Status |
-|---|---|
-| Latest `main` branch | Supported |
-| Latest minor release series | Supported |
-| Earlier minor and patch releases | Not supported |
+| Branch or Release Series         | Security Support Status |
+| -------------------------------- | ----------------------- |
+| Latest `main` branch             | Supported               |
+| Latest minor release series      | Supported               |
+| Earlier minor and patch releases | Not supported           |
 
 ## Reporting a Vulnerability
 
