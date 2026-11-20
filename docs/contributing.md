@@ -15,9 +15,12 @@ We welcome contributions across all areas of the project—code, documentation, 
 
 ## Development Workflow
 
-- Maintain focused changes: keep unrelated modifications in separate commits or pull requests.
-- Adhere to Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- Maintain changes focused: keep unrelated modifications in separate commits or pull requests.
+- Adhere to Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`), also use same pattern for PR titles:
+    - Commit message: `refactor(editor): split app.rs into dedicated submodules`
+    - PR title: ``Refactor(Editor): Split `app.rs` into dedicated submodules``
 - Never commit credentials, local filesystem paths, or build artifacts (`target/`, `_cache/`).
+- Follow [How to create a PR](developer/pr-guide.md) guide for complete instructions.
 
 ## Continuous Integration
 
@@ -31,37 +34,9 @@ PITE_LSP_SMOKE=1 cargo test -p pite-editor --lib live_pyright_smoke
 bash scripts/check-examples.sh
 ```
 
-## Release Checklist
+## Releases
 
-The release process requires coordinated version bumps across internal crates and documentation before tagging:
-
-- `Cargo.toml`: Bump `version` across all 13 internal `pite-*` path-dependency pins (workspace crates publish in lockstep).
-- `docs/changelog.md`: Move unreleased entries under the new version header with a release date.
-- MSRV proof: Ensure `msrv-proof.yml` passes on the pinned workspace `rust-version`.
-- Python bundle pins: When updating the embedded CPython distribution, update `python_bundle.rs` (`PINNED_PYTHON`, `PINNED_BUILD`, filenames, and SHA-256 checksums).
-- Pyright language server: When upgrading pyright, synchronize the version pin in `crates/pite-editor/src/lsp.rs`, `ci.yml`, and `AGENTS.md`.
-- PyPI stubs: `python/pyproject.toml` carries the same `version` as the workspace (CI and the tag publish check enforce it).
-- Scene format changes: If the `.ptscn` schema evolves, update `FORMAT_VERSION`, `CACHE_VERSION`, the template literals, and `docs/reference/scene-format.md`.
-- Release tagging: Strict `v*.*.*` tags must match the workspace version; milestone tags (`v0.1-mN`) are non-publishing tags.
-
-### PyPI stub package
-
-`python/` builds the `pite-stubs` distribution: a stub-only wheel for editors
-outside the built-in one. It installs a `pite` package (`__init__.pyi`,
-`py.typed`) so the import name matches the engine module; only the PyPI
-distribution name carries the `-stubs` suffix (PyPI rejects `pite` as too
-similar to existing projects). The `__init__.pyi` is generated, never
-committed:
-
-```sh
-PITE_STUB_OUT="$PWD/python/pite/__init__.pyi" cargo build -p pite-editor
-python -m build --outdir dist python
-```
-
-Publishing runs in `publish-pypi.yml` through Trusted Publishing (no token):
-tag pushes publish to PyPI, manual dispatches default to TestPyPI. Before the
-first real release, register the workflow and the `pypi` environment as a
-trusted publisher on PyPI (and `testpypi` on TestPyPI).
+Releases are cut by maintainers on an ad hoc schedule. The lockstep version-bump checklist, tag rules, and PyPI stub publishing steps live in [Maintenance Notes](developer/maintenance.md#releases).
 
 ## Local Environment Setup
 

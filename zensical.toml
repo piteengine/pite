@@ -41,8 +41,10 @@ nav = [
     "security.md",
     "accessibility.md",
     "developer/design.md",
-    "developer/rust-docs.md"
-  ] }
+    "developer/rust-docs.md",
+    "developer/pr-guide.md",
+    "developer/maintenance.md",
+  ] },
 ]
 
 
