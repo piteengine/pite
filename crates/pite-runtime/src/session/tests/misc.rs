@@ -349,19 +349,33 @@ fn animated_sprite_playback_and_signals_e2e() {
     std::fs::create_dir_all(dir.join("assets")).unwrap();
     std::fs::write(dir.join("pite.toml"), "[project]\nname = \"anim-test\"\n").unwrap();
 
-    let atlas = r#"{
-"texture": "res://assets/sheet.png",
-"size": [64, 32],
-"frames": {
-"f1": { "x": 0, "y": 0, "w": 32, "h": 32 },
-"f2": { "x": 32, "y": 0, "w": 32, "h": 32 }
-},
-"animations": {
-"walk": { "frames": ["f1", "f2"], "fps": 10.0, "loop": true },
-"attack": { "frames": ["f1", "f2"], "fps": 10.0, "loop": false }
-}
-}"#;
-    std::fs::write(dir.join("assets").join("sheet.atlas.json"), atlas).unwrap();
+    let atlas = r#"format_version = 1
+texture = "res://assets/sheet.png"
+size = [64, 32]
+
+[frames.f1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.f2]
+x = 32
+y = 0
+w = 32
+h = 32
+
+[animations.walk]
+frames = ["f1", "f2"]
+fps = 10.0
+loop = true
+
+[animations.attack]
+frames = ["f1", "f2"]
+fps = 10.0
+loop = false
+"#;
+    std::fs::write(dir.join("assets").join("sheet.ptatlas"), atlas).unwrap();
 
     let script = r#"import pite
 
@@ -395,7 +409,7 @@ name = "Hero"
 parent = "root"
 
 [node.props]
-atlas = "res://assets/sheet.atlas.json"
+atlas = "res://assets/sheet.ptatlas"
 autoplay = "walk"
 
 [node.script]

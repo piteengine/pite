@@ -17,6 +17,6 @@ name = "Sprite"
 parent = "enemy"
 
 [node.props]
-atlas = "res://assets/sheet.atlas.json"
+atlas = "res://assets/sheet.ptatlas"
 frame = "enemy"
 position = [0.0, 0.0]

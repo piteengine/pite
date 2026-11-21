@@ -414,7 +414,7 @@ tilemap = "res://maps/level.ptmap"
 
     std::fs::write(
         root.join("maps").join("level.ptmap"),
-        r#"atlas = "res://tiles.atlas.json"
+        r#"atlas = "res://tiles.ptatlas"
 tile_size = [16, 16]
 
 [[layer]]
@@ -432,7 +432,7 @@ tiles = [[0, 0, "grass"], [1, 0, "dirt"]]
 
     assert!(walker.findings.is_empty(), "got: {:?}", walker.findings);
     assert!(walker.referenced.contains("res://maps/level.ptmap"));
-    assert!(walker.referenced.contains("res://tiles.atlas.json"));
+    assert!(walker.referenced.contains("res://tiles.ptatlas"));
     assert_eq!(walker.atlas_uses.len(), 2);
     assert_eq!(walker.atlas_uses[0].frame, "grass");
     assert_eq!(walker.atlas_uses[1].frame, "dirt");
@@ -443,10 +443,21 @@ tiles = [[0, 0, "grass"], [1, 0, "dirt"]]
 fn animated_sprite_validation() {
     let root = fixture_root(77);
     std::fs::write(
-        root.join("assets").join("hero.atlas.json"),
-        r#"{"texture":"hero.png","size":[64,32],
-            "frames":{"idle1":{"x":0,"y":0,"w":32,"h":32}},
-            "animations":{"idle":{"frames":["idle1"],"fps":6.0}}}"#,
+        root.join("assets").join("hero.ptatlas"),
+        r#"format_version = 1
+texture = "hero.png"
+size = [64, 32]
+
+[frames.idle1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[animations.idle]
+frames = ["idle1"]
+fps = 6.0
+"#,
     )
     .unwrap();
 
@@ -467,7 +478,7 @@ name = "Hero"
 parent = "root"
 
 [node.props]
-atlas = "res://assets/hero.atlas.json"
+atlas = "res://assets/hero.ptatlas"
 animation = "idle"
 "#,
     )
@@ -482,7 +493,7 @@ animation = "idle"
     assert!(walker.findings.is_empty(), "got: {:?}", walker.findings);
     assert_eq!(walker.anim_uses.len(), 1);
     assert_eq!(walker.anim_uses[0].animation, "idle");
-    assert!(walker.referenced.contains("res://assets/hero.atlas.json"));
+    assert!(walker.referenced.contains("res://assets/hero.ptatlas"));
 
     let (report_errors, report_warnings) =
         pite_assets::atlas_report(&root, &walker.atlas_uses, &walker.anim_uses);

@@ -127,7 +127,7 @@ Pite is built to be handy to use, to change, and to own. It unites Python script
 
 **v0.4 is out:**
 
-- 2D flipbook animations (`AnimatedSprite2D`) with `.atlas.json` sprite sheet sequencing, fps/loop timing, playback API, and animation signals
+- 2D flipbook animations (`AnimatedSprite2D`) with `.ptatlas` sprite sheet sequencing, fps/loop timing, playback API, and animation signals
 - Multi-layer 2D tilemaps (`TileMap2D`) via `.ptmap` sidecars with Rapier2D greedy collider coalescing and frustum-culled GPU batch rendering
 - Enhanced `pite check` CLI diagnostics with structured What/Why/Fix cards, 16-color ANSI output, and schema v3 JSON reporting
 - Assets panel file management: creation dialogs, context menus, drag-and-drop file organization, and cross-panel asset assignments

@@ -241,17 +241,25 @@ fn tilemap_loading_and_physics_e2e() {
     )
     .unwrap();
 
-    let atlas = r#"{
-"texture": "res://assets/tiles.png",
-"size": [64, 64],
-"frames": {
-"grass": { "x": 0, "y": 0, "w": 32, "h": 32 },
-"wall": { "x": 32, "y": 0, "w": 32, "h": 32 }
-}
-}"#;
-    std::fs::write(dir.join("assets").join("tiles.atlas.json"), atlas).unwrap();
+    let atlas = r#"format_version = 1
+texture = "res://assets/tiles.png"
+size = [64, 64]
 
-    let ptmap = r#"atlas = "res://assets/tiles.atlas.json"
+[frames.grass]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.wall]
+x = 32
+y = 0
+w = 32
+h = 32
+"#;
+    std::fs::write(dir.join("assets").join("tiles.ptatlas"), atlas).unwrap();
+
+    let ptmap = r#"atlas = "res://assets/tiles.ptatlas"
 tile_size = [32, 32]
 
 [[layer]]

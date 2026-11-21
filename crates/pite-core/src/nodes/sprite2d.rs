@@ -25,10 +25,10 @@ pub static PROPS: &[PropSchema] = &[
     PropSchema {
         key: "atlas",
         label: "Atlas",
-        doc: "Path to a spritesheet sidecar (`.atlas.json`). Requires `frame`.",
+        doc: "Path to a spritesheet sidecar (`.ptatlas`). Requires `frame`.",
         default_value: DefaultPropVal::Str(""),
         hint: PropHint::Asset {
-            filter: &["atlas.json", "json"],
+            filter: &["ptatlas"],
         },
         read_only: false,
     },

@@ -1,8 +1,0 @@
-{
-  "texture": "sheet.png",
-  "size": [128, 64],
-  "frames": {
-    "player": { "x": 0, "y": 0, "w": 64, "h": 64 },
-    "enemy": { "x": 64, "y": 0, "w": 64, "h": 64 }
-  }
-}

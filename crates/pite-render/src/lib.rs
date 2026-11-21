@@ -1744,7 +1744,7 @@ mod tests {
         let sheet = image::open("../../examples/minimal-2d/assets/sheet.png")
             .unwrap()
             .to_rgba8();
-        // The `player` frame's rect from sheet.atlas.json: (0, 0, 32, 32).
+        // The `player` frame's rect from sheet.ptatlas: (0, 0, 32, 32).
         let rgba = image::imageops::crop_imm(&sheet, 0, 0, 32, 32).to_image();
         let sprite = upload(&device, &queue, &rgba, 32, 32);
         let sprite_view = sprite.create_view(&Default::default());
@@ -2122,9 +2122,22 @@ mod atlas_draw_tests {
 
     fn sheet_frame(name: &str) -> (Atlas, AtlasFrame) {
         let atlas = atlas::parse_atlas(
-            r#"{"texture":"sheet.png","size":[64,32],
-                "frames":{"player":{"x":0,"y":0,"w":32,"h":32},
-                          "enemy":{"x":32,"y":0,"w":32,"h":32}}}"#,
+            r#"format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.player]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.enemy]
+x = 32
+y = 0
+w = 32
+h = 32
+"#,
         )
         .unwrap();
         let frame = atlas.frame(name).unwrap();

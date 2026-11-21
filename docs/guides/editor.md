@@ -108,7 +108,7 @@ Selecting any node in the Scene Tree populates the **Inspector** on the right wi
 
 - **Inheritance Grouping**: Properties are organized in collapsible groups corresponding to each ancestor class (e.g. `CharacterBody2D` inherits from `Node2D`, which inherits from `Node`).
 - **Revert to Default**: Overridden properties display a subtle revert button next to their label, allowing you to reset any field back to its engine default with one click.
-- **Drag-and-Drop Assignment**: Drag images (`.png`) or atlases (`.atlas.json`) from the Assets panel directly onto texture and atlas fields in the Inspector.
+- **Drag-and-Drop Assignment**: Drag images (`.png`) or atlases (`.ptatlas`) from the Assets panel directly onto texture and atlas fields in the Inspector.
 
 ### Editable Property Types
 
@@ -152,7 +152,7 @@ The **Assets Panel** is a full-featured project file browser:
     - **Show in File Manager**: Reveals the item in your operating system's native file explorer.
 - **Drag-and-Drop Ingestion**: Drag files or folders directly from your operating system into the Assets panel. Pite copies them to the target directory, applies collision suffixes (`file (1).ext`) if needed, and triggers an asset reimport.
 - **Internal Moving**: Dragging files or folders onto other directories moves them on disk with cycle protection and automatic reference updates.
-- **Cross-Panel Dragging**: Drag `.py` scripts onto Scene Tree nodes to attach them; drag `.png` or `.atlas.json` onto Inspector fields to assign properties.
+- **Cross-Panel Dragging**: Drag `.py` scripts onto Scene Tree nodes to attach them; drag `.png` or `.ptatlas` onto Inspector fields to assign properties.
 
 ---
 

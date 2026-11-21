@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Sprite-sheet atlases: frame metadata from a JSON sidecar plus the UV math
-//! the sprite pipeline needs.
+//! Sprite-sheet atlases: frame metadata from a TOML sidecar (`.ptatlas`) plus
+//! the UV math the sprite pipeline needs.
 //!
 //! The frame table lives here because the renderer owns UVs and batches by
 //! texture key — one sheet means one texture, so every frame of it lands in
@@ -11,10 +11,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+/// Current format version for `.ptatlas` files.
+pub const FORMAT_VERSION: u32 = 1;
 
 /// Sidecar suffix appended to a sheet's file stem.
-pub const SIDECAR_EXT: &str = "atlas.json";
+pub const SIDECAR_EXT: &str = "ptatlas";
 
 /// One frame inside the sheet, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,22 +106,28 @@ impl Atlas {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct RawAtlas {
-    texture: String,
-    size: [u32; 2],
-    frames: BTreeMap<String, RawFrame>,
-    #[serde(default)]
-    animations: BTreeMap<String, RawAnimation>,
+fn default_format_version() -> u32 {
+    FORMAT_VERSION
 }
 
-#[derive(Debug, Deserialize)]
-struct RawAnimation {
-    frames: Vec<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawAtlas {
+    #[serde(default = "default_format_version")]
+    pub format_version: u32,
+    pub texture: String,
+    pub size: [u32; 2],
+    pub frames: BTreeMap<String, RawFrame>,
+    #[serde(default)]
+    pub animations: BTreeMap<String, RawAnimation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawAnimation {
+    pub frames: Vec<String>,
     #[serde(default = "default_fps")]
-    fps: f32,
+    pub fps: f32,
     #[serde(default = "default_looping", rename = "loop", alias = "looping")]
-    looping: bool,
+    pub looping: bool,
 }
 
 fn default_fps() -> f32 {
@@ -129,12 +138,12 @@ fn default_looping() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize)]
-struct RawFrame {
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawFrame {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
 }
 
 impl From<RawFrame> for AtlasFrame {
@@ -148,11 +157,17 @@ impl From<RawFrame> for AtlasFrame {
     }
 }
 
-/// Parse atlas JSON. Empty sheets, zero sizes, and frames outside the sheet
+/// Parse atlas TOML. Empty sheets, zero sizes, and frames outside the sheet
 /// are errors — a bad atlas must never reach the GPU as silent garbage.
 pub fn parse_atlas(text: &str) -> Result<Atlas> {
     let raw: RawAtlas =
-        serde_json::from_str(text).context("atlas is not valid JSON (texture/size/frames)")?;
+        toml::from_str(text).context("atlas is not valid TOML (texture/size/frames)")?;
+    if raw.format_version != FORMAT_VERSION {
+        anyhow::bail!(
+            "unsupported atlas format_version {} (engine supports {FORMAT_VERSION})",
+            raw.format_version
+        );
+    }
     if raw.texture.trim().is_empty() {
         anyhow::bail!("atlas has an empty `texture`");
     }
@@ -227,7 +242,24 @@ pub fn load_atlas(path: &Path) -> Result<Atlas> {
     parse_atlas(&text).with_context(|| format!("cannot parse atlas {}", path.display()))
 }
 
-/// Sidecar path for a sheet: `sheet.png` -> `sheet.atlas.json` beside it.
+/// Migrates a legacy `.atlas.json` string to `.ptatlas` TOML format.
+pub fn migrate_legacy_json_to_toml(json_text: &str) -> Result<String> {
+    let mut raw: RawAtlas =
+        serde_json::from_str(json_text).context("atlas is not valid JSON (texture/size/frames)")?;
+    raw.format_version = FORMAT_VERSION;
+    if raw.texture.trim().is_empty() {
+        anyhow::bail!("atlas has an empty `texture`");
+    }
+    if raw.size[0] == 0 || raw.size[1] == 0 {
+        anyhow::bail!("atlas size {:?} must be positive", raw.size);
+    }
+    if raw.frames.is_empty() {
+        anyhow::bail!("atlas {:?} declares no frames", raw.texture);
+    }
+    toml::to_string_pretty(&raw).context("failed to serialize migrated atlas to TOML")
+}
+
+/// Sidecar path for a sheet: `sheet.png` -> `sheet.ptatlas` beside it.
 pub fn sidecar_for(sheet: &Path) -> PathBuf {
     let stem = sheet
         .file_stem()
@@ -240,7 +272,7 @@ pub fn sidecar_for(sheet: &Path) -> PathBuf {
         .join(format!("{stem}.{SIDECAR_EXT}"))
 }
 
-/// The sheet a sidecar describes: `sheet.atlas.json` -> `sheet.png`.
+/// The sheet a sidecar describes: `sheet.ptatlas` -> `sheet.png`.
 pub fn sheet_for_sidecar(sidecar: &Path) -> PathBuf {
     let name = sidecar
         .file_name()
@@ -259,15 +291,29 @@ pub fn sheet_for_sidecar(sidecar: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
-    const SHEET: &str = r#"{
-        "texture": "sheet.png",
-        "size": [64, 32],
-        "frames": {
-            "player": { "x": 0, "y": 0, "w": 32, "h": 32 },
-            "enemy": { "x": 32, "y": 0, "w": 32, "h": 32 },
-            "coin": { "x": 0, "y": 16, "w": 16, "h": 16 }
-        }
-    }"#;
+    const SHEET: &str = r#"
+format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.player]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.enemy]
+x = 32
+y = 0
+w = 32
+h = 32
+
+[frames.coin]
+x = 0
+y = 16
+w = 16
+h = 16
+"#;
 
     #[test]
     fn parses_named_frames() {
@@ -317,12 +363,21 @@ mod tests {
 
     #[test]
     fn bad_atlases_fail_loudly() {
-        assert!(parse_atlas("not json").is_err());
-        assert!(parse_atlas(r#"{"texture":"","size":[1,1],"frames":{}}"#).is_err());
-        assert!(parse_atlas(r#"{"texture":"a.png","size":[0,8],"frames":{}}"#).is_err());
-        assert!(parse_atlas(r#"{"texture":"a.png","size":[8,8],"frames":{}}"#).is_err());
-        let out_of_bounds = r#"{"texture":"a.png","size":[8,8],
-            "frames":{"big":{"x":4,"y":4,"w":8,"h":8}}}"#;
+        assert!(parse_atlas("not toml = ").is_err());
+        assert!(parse_atlas("texture = \"\"\nsize = [1, 1]\n").is_err());
+        assert!(parse_atlas("format_version = 2\ntexture = \"a.png\"\nsize = [8, 8]\n[frames.a]\nx = 0\ny = 0\nw = 4\nh = 4\n").is_err());
+        assert!(parse_atlas("texture = \"a.png\"\nsize = [0, 8]\n").is_err());
+        assert!(parse_atlas("texture = \"a.png\"\nsize = [8, 8]\n").is_err());
+        let out_of_bounds = r#"format_version = 1
+texture = "a.png"
+size = [8, 8]
+
+[frames.big]
+x = 4
+y = 4
+w = 8
+h = 8
+"#;
         let err = parse_atlas(out_of_bounds).unwrap_err().to_string();
         assert!(err.contains("does not fit"), "got: {err}");
     }
@@ -331,33 +386,40 @@ mod tests {
     fn sidecar_and_sheet_paths_round_trip() {
         let sheet = Path::new("/game/assets/sheet.png");
         let sidecar = sidecar_for(sheet);
-        assert_eq!(sidecar, PathBuf::from("/game/assets/sheet.atlas.json"));
+        assert_eq!(sidecar, PathBuf::from("/game/assets/sheet.ptatlas"));
         assert_eq!(sheet_for_sidecar(&sidecar), sheet);
     }
 
     #[test]
     fn parses_animations_and_validates_frames() {
-        let json = r#"{
-            "texture": "sheet.png",
-            "size": [64, 32],
-            "frames": {
-                "f1": { "x": 0, "y": 0, "w": 32, "h": 32 },
-                "f2": { "x": 32, "y": 0, "w": 32, "h": 32 }
-            },
-            "animations": {
-                "walk": {
-                    "frames": ["f1", "f2"],
-                    "fps": 12.0,
-                    "loop": true
-                },
-                "jump": {
-                    "frames": ["f1"],
-                    "fps": 8.0,
-                    "loop": false
-                }
-            }
-        }"#;
-        let atlas = parse_atlas(json).unwrap();
+        let toml_src = r#"
+format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.f1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.f2]
+x = 32
+y = 0
+w = 32
+h = 32
+
+[animations.walk]
+frames = ["f1", "f2"]
+fps = 12.0
+loop = true
+
+[animations.jump]
+frames = ["f1"]
+fps = 8.0
+loop = false
+"#;
+        let atlas = parse_atlas(toml_src).unwrap();
         assert_eq!(atlas.animation_names(), vec!["jump", "walk"]);
         let walk = atlas.animation("walk").unwrap();
         assert_eq!(walk.frames, vec!["f1", "f2"]);
@@ -376,32 +438,85 @@ mod tests {
 
     #[test]
     fn invalid_animations_fail_loudly() {
-        let missing_frame = r#"{
-            "texture": "sheet.png",
-            "size": [64, 32],
-            "frames": { "f1": { "x": 0, "y": 0, "w": 32, "h": 32 } },
-            "animations": { "walk": { "frames": ["ghost"], "fps": 10.0 } }
-        }"#;
+        let missing_frame = r#"
+format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.f1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[animations.walk]
+frames = ["ghost"]
+fps = 10.0
+"#;
         let err = parse_atlas(missing_frame).unwrap_err().to_string();
         assert!(err.contains("nonexistent frame \"ghost\""), "got: {err}");
         assert!(err.contains("f1"), "got: {err}");
 
-        let empty_frames = r#"{
-            "texture": "sheet.png",
-            "size": [64, 32],
-            "frames": { "f1": { "x": 0, "y": 0, "w": 32, "h": 32 } },
-            "animations": { "walk": { "frames": [], "fps": 10.0 } }
-        }"#;
+        let empty_frames = r#"
+format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.f1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[animations.walk]
+frames = []
+fps = 10.0
+"#;
         let err = parse_atlas(empty_frames).unwrap_err().to_string();
         assert!(err.contains("declares no frames"), "got: {err}");
 
-        let zero_fps = r#"{
-            "texture": "sheet.png",
-            "size": [64, 32],
-            "frames": { "f1": { "x": 0, "y": 0, "w": 32, "h": 32 } },
-            "animations": { "walk": { "frames": ["f1"], "fps": 0.0 } }
-        }"#;
+        let zero_fps = r#"
+format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.f1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[animations.walk]
+frames = ["f1"]
+fps = 0.0
+"#;
         let err = parse_atlas(zero_fps).unwrap_err().to_string();
         assert!(err.contains("must be positive"), "got: {err}");
+    }
+
+    #[test]
+    fn test_migrate_legacy_json_to_toml() {
+        let legacy_json = r#"{
+            "texture": "sheet.png",
+            "size": [64, 32],
+            "frames": {
+                "player": { "x": 0, "y": 0, "w": 32, "h": 32 }
+            },
+            "animations": {
+                "walk": {
+                    "frames": ["player"],
+                    "fps": 10.0,
+                    "loop": true
+                }
+            }
+        }"#;
+        let migrated_toml = migrate_legacy_json_to_toml(legacy_json).unwrap();
+        assert!(migrated_toml.contains("format_version = 1"));
+        assert!(migrated_toml.contains("texture = \"sheet.png\""));
+        let atlas = parse_atlas(&migrated_toml).unwrap();
+        assert_eq!(atlas.texture, "sheet.png");
+        assert_eq!(atlas.size, (64, 32));
+        assert_eq!(atlas.frames.len(), 1);
+        assert_eq!(atlas.animations.len(), 1);
     }
 }

@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn chunk_baking_partitions_tiles_into_16x16_grids() {
-        let mut doc = TileMapDoc::new("res://assets/sheet.atlas.json", 16, 16);
+        let mut doc = TileMapDoc::new("res://assets/sheet.ptatlas", 16, 16);
         let mut layer = pite_scene::TileMapLayer::new("Main");
         // Chunk (0, 0): (0, 0) and (15, 15)
         layer.tiles.push(TileCell(0, 0, "grass".to_string()));
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn rebake_chunk_updates_only_target_chunk() {
-        let mut doc = TileMapDoc::new("res://assets/sheet.atlas.json", 16, 16);
+        let mut doc = TileMapDoc::new("res://assets/sheet.ptatlas", 16, 16);
         let mut layer = pite_scene::TileMapLayer::new("Main");
         layer.tiles.push(TileCell(0, 0, "grass".to_string()));
         layer.tiles.push(TileCell(20, 20, "stone".to_string()));

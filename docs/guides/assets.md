@@ -67,7 +67,7 @@ Pite supports the following file formats natively:
 | :----------------- | :------------------------------ | :---------------------------------------------------------------- |
 | **Graphics**       | `.png`                          | PNG magic byte validation                                         |
 | **Audio**          | `.wav`, `.ogg`, `.mp3`, `.flac` | Header validation (`RIFF...WAVE`, `OggS`, ID3/frame sync, `fLaC`) |
-| **Sprite Atlases** | `.atlas.json`                   | JSON schema validation paired with a sibling PNG                  |
+| **Sprite Atlases** | `.ptatlas`                      | TOML schema validation paired with a sibling PNG                  |
 
 ---
 
@@ -75,24 +75,29 @@ Pite supports the following file formats natively:
 
 For 2D games, packing multiple sprites into a single image (a sprite sheet or texture atlas) improves rendering efficiency by batching draw calls into a single GPU texture operation.
 
-A Pite sprite sheet consists of a PNG image paired with a sidecar JSON file named `<sheet>.atlas.json`:
+A Pite sprite sheet consists of a PNG image paired with a sidecar TOML file named `<sheet>.ptatlas`:
 
-```json title="assets/sheet.atlas.json"
-{
-    "texture": "sheet.png",
-    "size": [128, 64],
-    "frames": {
-        "player": { "x": 0, "y": 0, "w": 64, "h": 64 },
-        "enemy": { "x": 64, "y": 0, "w": 64, "h": 64 }
-    },
-    "animations": {
-        "walk": {
-            "frames": ["player", "enemy"],
-            "fps": 8.0,
-            "loop": true
-        }
-    }
-}
+```toml title="assets/sheet.ptatlas"
+format_version = 1
+texture = "sheet.png"
+size = [128, 64]
+
+[frames.player]
+x = 0
+y = 0
+w = 64
+h = 64
+
+[frames.enemy]
+x = 64
+y = 0
+w = 64
+h = 64
+
+[animations.walk]
+frames = ["player", "enemy"]
+fps = 8.0
+loop = true
 ```
 
 ### Using an Atlas in Scenes
@@ -107,7 +112,7 @@ name = "Player"
 parent = "root"
 
 [node.props]
-atlas = "res://assets/sheet.atlas.json"
+atlas = "res://assets/sheet.ptatlas"
 frame = "player"
 position = [200.0, 300.0]
 ```
@@ -122,7 +127,7 @@ name = "Player"
 parent = "root"
 
 [node.props]
-atlas = "res://assets/sheet.atlas.json"
+atlas = "res://assets/sheet.ptatlas"
 autoplay = "walk"
 position = [200.0, 300.0]
 ```
@@ -141,7 +146,7 @@ import pite
 class Player(pite.Sprite2D):
     def _ready(self):
         # Query all available frame names in the atlas
-        available_frames = pite.frames("res://assets/sheet.atlas.json")
+        available_frames = pite.frames("res://assets/sheet.ptatlas")
 
     def _process(self, delta: float):
         # Switch frames based on state
@@ -160,4 +165,4 @@ Running `pite check` performs static asset diagnostics across your project:
 - **Missing Assets**: Reports an error if a scene property or `pite.play()` call references a file that does not exist on disk.
 - **Moved Assets**: Detects if an asset was moved and prompts you to run `pite check --reimport-assets` to update references.
 - **Unreachable Assets**: Emits a warning if an asset exists in your project but is never referenced by any scene reachable from `main_scene`.
-- **Invalid Atlas Frames**: Reports an error if a scene references a frame name that is not defined in the corresponding `.atlas.json`.
+- **Invalid Atlas Frames**: Reports an error if a scene references a frame name that is not defined in the corresponding `.ptatlas`.

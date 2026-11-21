@@ -13,7 +13,7 @@ name = "Player"
 parent = "root"
 
 [node.props]
-atlas = "res://assets/sheet.atlas.json"
+atlas = "res://assets/sheet.ptatlas"
 frame = "player"
 position = [160.0, 240.0]
 

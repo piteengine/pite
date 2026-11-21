@@ -502,7 +502,7 @@ mod tests {
         assert!(dir2.join("scripts").join("enemy.py").is_file());
         assert!(dir2.join("scripts").join("hitbutton.py").is_file());
         assert!(dir2.join("assets").join("sheet.png").is_file());
-        assert!(dir2.join("assets").join("sheet.atlas.json").is_file());
+        assert!(dir2.join("assets").join("sheet.ptatlas").is_file());
         assert!(dir2.join("sfx").join("hit.wav").is_file());
         std::fs::remove_dir_all(&root2).ok();
 

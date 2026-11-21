@@ -600,7 +600,7 @@ name = "Hero"
 parent = "root"
 
 [node.props]
-atlas = "res://assets/sheet.atlas.json"
+atlas = "res://assets/sheet.ptatlas"
 frame = "player"
 
 [[node]]
@@ -651,11 +651,15 @@ def _once():
     display("res://sfx/nope.wav")
 "#;
 
-    const ATLAS: &str = r#"{
-  "texture": "sheet.png",
-  "size": [64, 32],
-  "frames": { "player": { "x": 0, "y": 0, "w": 32, "h": 32 } }
-}
+    const ATLAS: &str = r#"format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.player]
+x = 0
+y = 0
+w = 32
+h = 32
 "#;
 
     fn fixture(tag: &str) -> (PathBuf, PathBuf) {
@@ -671,7 +675,7 @@ def _once():
         std::fs::write(dir.join("assets").join("a.png"), "A").unwrap();
         std::fs::write(dir.join("assets").join("b.png"), "B").unwrap();
         std::fs::write(dir.join("assets").join("unused.png"), "U").unwrap();
-        std::fs::write(dir.join("assets").join("sheet.atlas.json"), ATLAS).unwrap();
+        std::fs::write(dir.join("assets").join("sheet.ptatlas"), ATLAS).unwrap();
         std::fs::write(dir.join("assets").join("sheet.png"), "S").unwrap();
         std::fs::write(dir.join("assets").join("orphan.png"), "O").unwrap();
         std::fs::write(dir.join("sfx").join("hit.wav"), "W").unwrap();
@@ -706,7 +710,7 @@ def _once():
             "scripts/m.py",
             "assets/a.png",
             "assets/b.png",
-            "assets/sheet.atlas.json",
+            "assets/sheet.ptatlas",
             "assets/sheet.png",
             "sfx/hit.wav",
         ] {

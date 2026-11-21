@@ -20,7 +20,7 @@ my-game/
 ├── scripts/                # Python gameplay scripts (.py)
 │   ├── player.py
 │   └── hud.py
-├── assets/                 # Textures and sprite sheets (.png, .atlas.json)
+├── assets/                 # Textures and sprite sheets (.png, .ptatlas)
 ├── sfx/                    # Sound effects and music (.wav, .ogg, .mp3, .flac)
 ├── vendor/                 # Vendored third-party Python wheels
 └── dist/                   # Exported playable builds (gitignored)

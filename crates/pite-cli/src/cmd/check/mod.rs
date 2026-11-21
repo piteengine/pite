@@ -146,13 +146,16 @@ pub fn run(
             for message in atlas_warnings {
                 findings.push(Finding::from_raw(root, Severity::Warning, &message));
             }
+            for legacy in pite_assets::find_legacy_atlases(root) {
+                findings.push(Finding::legacy_atlas_sidecar(&legacy));
+            }
 
             // Sheets are referenced through their sidecar, never directly: mark
             // each used sidecar's sheet so packed PNGs don't read as orphans.
             let mut referenced = walker.referenced;
             let mut sheets = Vec::new();
             for reference in &referenced {
-                if reference.ends_with(".atlas.json") {
+                if reference.ends_with(".ptatlas") || reference.ends_with(".atlas.json") {
                     let sheet = pite_assets::sheet_path(root, reference);
                     if let Ok(rel) = sheet.strip_prefix(root) {
                         let joined = rel
@@ -213,26 +216,13 @@ fn reimport(root: &Path) -> Result<(ReimportSummary, Vec<String>)> {
     let files = pite_assets::scan_files(root).unwrap_or_default();
     let (_next, scan) = pite_assets::reconcile(&old, &files);
     let (_registry, report) = pite_assets::reimport_project(root)?;
-    let rewrite_counts: HashMap<(String, String), usize> = report
+    let renamed = report
         .rewrites
         .iter()
-        .map(|rewrite| {
-            (
-                (rewrite.old.clone(), rewrite.new.clone()),
-                rewrite.references,
-            )
-        })
-        .collect();
-    let renamed = scan
-        .renamed
-        .iter()
-        .map(|(old_path, new_path)| RenameSummary {
-            old: old_path.clone(),
-            new: new_path.clone(),
-            references: rewrite_counts
-                .get(&(old_path.clone(), new_path.clone()))
-                .copied()
-                .unwrap_or(0),
+        .map(|rewrite| RenameSummary {
+            old: rewrite.old.clone(),
+            new: rewrite.new.clone(),
+            references: rewrite.references,
         })
         .collect();
     let summary = ReimportSummary {

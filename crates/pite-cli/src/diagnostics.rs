@@ -256,6 +256,24 @@ impl Finding {
         )
     }
 
+    pub fn legacy_atlas_sidecar(rel_path: &str) -> Self {
+        Self::warning(
+            Kind::Atlas,
+            Location::file(rel_path),
+            Spans::new()
+                .plain("Legacy atlas sidecar format ")
+                .info(rel_path)
+                .plain("."),
+            Spans::text(
+                "Pite uses `.ptatlas` (TOML) for sprite-sheet sidecars instead of legacy `.atlas.json`.",
+            ),
+            Spans::new()
+                .plain("Run ")
+                .info("pite check --reimport-assets")
+                .plain(" to automatically migrate to `.ptatlas`."),
+        )
+    }
+
     // ---- Scene walk ----------------------------------------------------
 
     pub fn scene_root_missing(scene: &str, root: &str) -> Self {
@@ -1203,7 +1221,7 @@ fn parse_atlas_diagnostic(msg: &str) -> (Spans, Spans, Spans) {
             Spans::text("The atlas sidecar does not meet engine requirements."),
             Spans::new()
                 .plain("Inspect the ")
-                .info(".atlas.json")
+                .info(".ptatlas")
                 .plain(" sidecar and fix the inconsistency."),
         )
     }

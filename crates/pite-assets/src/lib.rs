@@ -561,7 +561,7 @@ pub fn apply_renames_detailed(
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
-            if ext != "ptscn" && ext != "py" {
+            if ext != "ptscn" && ext != "py" && ext != "ptmap" {
                 continue;
             }
             targets.push((res_path_for(root, &fs_path)?, fs_path));
@@ -600,10 +600,91 @@ pub fn apply_renames_detailed(
     Ok(rewrites)
 }
 
+/// Finds legacy `.atlas.json` sidecar files under `root`, returning their relative paths.
+pub fn find_legacy_atlases(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                if !is_skipped_dir(&name) {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if name.ends_with(".atlas.json") {
+                if let Ok(rel) = path.strip_prefix(root) {
+                    let rel_str = rel
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    found.push(rel_str);
+                }
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Migrates legacy `.atlas.json` sidecar files in the project to `.ptatlas` TOML.
+/// Converts the content to `.ptatlas` format, removes the old file, and returns
+/// rename pairs `("res://path/sheet.atlas.json", "res://path/sheet.ptatlas")`.
+pub fn migrate_legacy_atlases(root: &Path) -> Result<Vec<(String, String)>> {
+    let mut renames = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                if !is_skipped_dir(&name) {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if name.ends_with(".atlas.json") {
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read legacy atlas {}", path.display()))?;
+                let toml_text = pite_render::atlas::migrate_legacy_json_to_toml(&text)
+                    .with_context(|| format!("migrate legacy atlas {}", path.display()))?;
+                let stem = name.strip_suffix(".atlas.json").unwrap();
+                let ptatlas_path = path.with_file_name(format!("{stem}.ptatlas"));
+                std::fs::write(&ptatlas_path, toml_text)
+                    .with_context(|| format!("write migrated atlas {}", ptatlas_path.display()))?;
+                let _ = std::fs::remove_file(&path);
+                let old_res = res_path_for(root, &path)?;
+                let new_res = res_path_for(root, &ptatlas_path)?;
+                renames.push((old_res, new_res));
+            }
+        }
+    }
+    renames.sort();
+    Ok(renames)
+}
+
 /// Scan, re-run the matching importer over every `changed`/`added` path
 /// (one failure never aborts the rest), rewrite refs for `renamed`
 /// paths, save, and return the fresh registry plus the report.
 pub fn reimport_project(root: &Path) -> Result<(AssetRegistry, ReimportReport)> {
+    let atlas_renames = migrate_legacy_atlases(root)?;
     let (reg, scan) = scan_project(root)?;
     let importers = default_importers();
     let mut targets: Vec<&String> = scan.changed.iter().chain(scan.added.iter()).collect();
@@ -631,7 +712,9 @@ pub fn reimport_project(root: &Path) -> Result<(AssetRegistry, ReimportReport)> 
     reimported.sort();
     failed.sort();
 
-    let rewrites = apply_renames_detailed(root, &scan.renamed)?;
+    let mut all_renames = scan.renamed.clone();
+    all_renames.extend(atlas_renames);
+    let rewrites = apply_renames_detailed(root, &all_renames)?;
     let refs_updated: Vec<String> = {
         let mut files: Vec<String> = rewrites
             .iter()
@@ -1029,5 +1112,51 @@ size = 123
     x = display("res://not_play.wav")
     "#;
         assert_eq!(played_assets(src), vec!["res://a.wav", "res://b.ogg"]);
+    }
+
+    #[test]
+    fn reimport_migrates_legacy_atlas_json_to_ptatlas() {
+        let root = test_dir("legacy_atlas_migration");
+        std::fs::write(root.join("sheet.png"), valid_png(b"s")).unwrap();
+        let legacy_json = r#"{
+            "texture": "sheet.png",
+            "size": [64, 32],
+            "frames": {
+                "player": { "x": 0, "y": 0, "w": 32, "h": 32 }
+            }
+        }"#;
+        std::fs::write(root.join("sheet.atlas.json"), legacy_json).unwrap();
+        std::fs::write(
+            root.join("main.ptscn"),
+            "atlas = \"res://sheet.atlas.json\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("level.ptmap"),
+            "atlas = \"res://sheet.atlas.json\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(find_legacy_atlases(&root), vec!["sheet.atlas.json"]);
+
+        let (_reg, report) = reimport_project(&root).unwrap();
+        assert!(!root.join("sheet.atlas.json").exists());
+        assert!(root.join("sheet.ptatlas").exists());
+        assert!(find_legacy_atlases(&root).is_empty());
+
+        let scene = std::fs::read_to_string(root.join("main.ptscn")).unwrap();
+        assert!(scene.contains("\"res://sheet.ptatlas\""));
+        let tilemap = std::fs::read_to_string(root.join("level.ptmap")).unwrap();
+        assert!(tilemap.contains("\"res://sheet.ptatlas\""));
+
+        assert_eq!(
+            report.refs_updated,
+            vec![
+                "res://level.ptmap".to_string(),
+                "res://main.ptscn".to_string()
+            ]
+        );
+
+        cleanup(&root);
     }
 }

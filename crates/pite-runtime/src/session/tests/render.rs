@@ -181,7 +181,7 @@ fn dogfood_sprites_draw_from_one_sheet() {
     session.draw_into(&mut recorder).unwrap();
 
     let sheet = session
-        .resolve_path("res://assets/sheet.atlas.json")
+        .resolve_path("res://assets/sheet.ptatlas")
         .to_string_lossy()
         .into_owned();
     let sheet = PathBuf::from(&sheet)
@@ -221,7 +221,7 @@ fn texture_and_atlas_together_fail_loudly() {
     std::fs::write(dir.join("pite.toml"), "[project]\nname = \"t\"\n").unwrap();
     std::fs::write(
         dir.join("scenes").join("main.ptscn"),
-        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"both\"\ntype = \"Sprite2D\"\nname = \"Both\"\nparent = \"root\"\n\n[node.props]\ntexture = \"res://a.png\"\natlas = \"res://sheet.atlas.json\"\nframe = \"player\"\n",
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"both\"\ntype = \"Sprite2D\"\nname = \"Both\"\nparent = \"root\"\n\n[node.props]\ntexture = \"res://a.png\"\natlas = \"res://sheet.ptatlas\"\nframe = \"player\"\n",
     )
     .unwrap();
     let mut session = GameSession::open(&dir.join("scenes").join("main.ptscn"), true).unwrap();
@@ -379,18 +379,37 @@ main_scene = "res://scenes/main.ptscn"
     ];
     std::fs::write(dir.join("assets").join("sheet.png"), png_bytes).unwrap();
 
-    let atlas_json = r#"{
-  "sheet": "res://assets/sheet.png",
-  "frames": {
-    "grass": { "frame": { "x": 0, "y": 0, "w": 16, "h": 16 } },
-    "stone": { "frame": { "x": 16, "y": 0, "w": 16, "h": 16 } },
-    "dirt": { "frame": { "x": 32, "y": 0, "w": 16, "h": 16 } },
-    "flower": { "frame": { "x": 48, "y": 0, "w": 16, "h": 16 } }
-  }
-}"#;
-    std::fs::write(dir.join("assets").join("sheet.atlas.json"), atlas_json).unwrap();
+    let atlas_toml = r#"format_version = 1
+texture = "res://assets/sheet.png"
+size = [64, 16]
 
-    let mut doc = pite_scene::TileMapDoc::new("res://assets/sheet.atlas.json", 16, 16);
+[frames.grass]
+x = 0
+y = 0
+w = 16
+h = 16
+
+[frames.stone]
+x = 16
+y = 0
+w = 16
+h = 16
+
+[frames.dirt]
+x = 32
+y = 0
+w = 16
+h = 16
+
+[frames.flower]
+x = 48
+y = 0
+w = 16
+h = 16
+"#;
+    std::fs::write(dir.join("assets").join("sheet.ptatlas"), atlas_toml).unwrap();
+
+    let mut doc = pite_scene::TileMapDoc::new("res://assets/sheet.ptatlas", 16, 16);
     let mut ground = pite_scene::TileMapLayer::new("Ground");
     ground
         .tiles

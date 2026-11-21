@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn roundtrip_tilemap_toml() {
-        let toml_src = r#"atlas = "res://assets/tileset.atlas.json"
+        let toml_src = r#"atlas = "res://assets/tileset.ptatlas"
 tile_size = [16, 16]
 
 [[layer]]
@@ -266,7 +266,7 @@ tiles = [
 ]
 "#;
         let doc = parse_tilemap_str(toml_src).unwrap();
-        assert_eq!(doc.atlas, "res://assets/tileset.atlas.json");
+        assert_eq!(doc.atlas, "res://assets/tileset.ptatlas");
         assert_eq!(doc.tile_size, [16, 16]);
         assert_eq!(doc.layers.len(), 2);
         assert_eq!(doc.get_cell(0, 0, 0), Some("grass"));
@@ -304,7 +304,7 @@ tiles = [
 
     #[test]
     fn mutations() {
-        let mut doc = TileMapDoc::new("res://tiles.atlas.json", 16, 16);
+        let mut doc = TileMapDoc::new("res://tiles.ptatlas", 16, 16);
         doc.layers.push(TileMapLayer::new("main"));
         assert_eq!(doc.get_cell(0, 0, 0), None);
 

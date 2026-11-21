@@ -187,10 +187,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         std::fs::write(
-            dir.join("assets").join("sheet.atlas.json"),
-            r#"{"texture":"sheet.png","size":[64,32],
-                "frames":{"player":{"x":0,"y":0,"w":32,"h":32},
-                          "enemy":{"x":32,"y":0,"w":32,"h":32}}}"#,
+            dir.join("assets").join("sheet.ptatlas"),
+            r#"format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.player]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.enemy]
+x = 32
+y = 0
+w = 32
+h = 32
+"#,
         )
         .unwrap();
         dir
@@ -200,7 +213,7 @@ mod tests {
     fn texture_and_atlas_are_mutually_exclusive() {
         let err = resolve_sprite_source(
             Some("res://a.png"),
-            Some("res://sheet.atlas.json"),
+            Some("res://sheet.ptatlas"),
             Some("player"),
         )
         .unwrap_err()
@@ -210,7 +223,7 @@ mod tests {
 
     #[test]
     fn frame_requires_an_atlas_and_atlas_requires_a_frame() {
-        let err = resolve_sprite_source(None, Some("res://sheet.atlas.json"), None)
+        let err = resolve_sprite_source(None, Some("res://sheet.ptatlas"), None)
             .unwrap_err()
             .to_string();
         assert!(err.contains("requires a `frame`"), "got: {err}");
@@ -239,17 +252,16 @@ mod tests {
             SpriteSource::Empty
         );
         assert_eq!(
-            resolve_sprite_source(None, Some("res://sheet.atlas.json"), Some("player")).unwrap(),
+            resolve_sprite_source(None, Some("res://sheet.ptatlas"), Some("player")).unwrap(),
             SpriteSource::Atlas {
-                atlas: "res://sheet.atlas.json".to_string(),
+                atlas: "res://sheet.ptatlas".to_string(),
                 frame: "player".to_string()
             }
         );
         assert_eq!(
-            resolve_sprite_source(Some(""), Some("res://sheet.atlas.json"), Some("player"))
-                .unwrap(),
+            resolve_sprite_source(Some(""), Some("res://sheet.ptatlas"), Some("player")).unwrap(),
             SpriteSource::Atlas {
-                atlas: "res://sheet.atlas.json".to_string(),
+                atlas: "res://sheet.ptatlas".to_string(),
                 frame: "player".to_string()
             }
         );
@@ -262,13 +274,13 @@ mod tests {
             AtlasUse {
                 scene: "res://scenes/main.ptscn".to_string(),
                 node: "player".to_string(),
-                atlas: "res://assets/sheet.atlas.json".to_string(),
+                atlas: "res://assets/sheet.ptatlas".to_string(),
                 frame: "player".to_string(),
             },
             AtlasUse {
                 scene: "res://scenes/main.ptscn".to_string(),
                 node: "ghost".to_string(),
-                atlas: "res://assets/sheet.atlas.json".to_string(),
+                atlas: "res://assets/sheet.ptatlas".to_string(),
                 frame: "ghost".to_string(),
             },
         ];
@@ -290,7 +302,7 @@ mod tests {
         let uses = vec![AtlasUse {
             scene: "res://scenes/main.ptscn".to_string(),
             node: "player".to_string(),
-            atlas: "res://assets/nope.atlas.json".to_string(),
+            atlas: "res://assets/nope.ptatlas".to_string(),
             frame: "player".to_string(),
         }];
         let (errors, warnings) = atlas_report(&dir, &uses, &[]);
@@ -304,12 +316,32 @@ mod tests {
     fn report_checks_animations() {
         let dir = project("anim");
         std::fs::write(
-            dir.join("assets").join("sheet.atlas.json"),
-            r#"{"texture":"sheet.png","size":[64,32],
-                "frames":{"f1":{"x":0,"y":0,"w":32,"h":32},
-                          "f2":{"x":32,"y":0,"w":32,"h":32}},
-                "animations":{"walk":{"frames":["f1","f2"],"fps":8.0,"loop":true},
-                             "idle":{"frames":["f1"],"fps":4.0}}}"#,
+            dir.join("assets").join("sheet.ptatlas"),
+            r#"format_version = 1
+texture = "sheet.png"
+size = [64, 32]
+
+[frames.f1]
+x = 0
+y = 0
+w = 32
+h = 32
+
+[frames.f2]
+x = 32
+y = 0
+w = 32
+h = 32
+
+[animations.walk]
+frames = ["f1", "f2"]
+fps = 8.0
+loop = true
+
+[animations.idle]
+frames = ["f1"]
+fps = 4.0
+"#,
         )
         .unwrap();
 
@@ -317,13 +349,13 @@ mod tests {
             AnimationUse {
                 scene: "res://scenes/main.ptscn".to_string(),
                 node: "hero".to_string(),
-                atlas: "res://assets/sheet.atlas.json".to_string(),
+                atlas: "res://assets/sheet.ptatlas".to_string(),
                 animation: "walk".to_string(),
             },
             AnimationUse {
                 scene: "res://scenes/main.ptscn".to_string(),
                 node: "npc".to_string(),
-                atlas: "res://assets/sheet.atlas.json".to_string(),
+                atlas: "res://assets/sheet.ptatlas".to_string(),
                 animation: "jump".to_string(),
             },
         ];
@@ -352,7 +384,7 @@ mod tests {
     fn sheet_path_follows_the_sidecar() {
         let dir = project("sheet");
         assert_eq!(
-            sheet_path(&dir, "res://assets/sheet.atlas.json"),
+            sheet_path(&dir, "res://assets/sheet.ptatlas"),
             dir.join("assets").join("sheet.png")
         );
         std::fs::remove_dir_all(&dir).ok();

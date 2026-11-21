@@ -370,7 +370,7 @@ impl EditorApp {
         {
             if payload.rel_path.ends_with(".py") {
                 true
-            } else if payload.rel_path.ends_with(".atlas.json") {
+            } else if payload.rel_path.ends_with(".ptatlas") {
                 type_name == "Sprite2D" || type_name == "AnimatedSprite2D"
             } else if payload.rel_path.ends_with(".png") {
                 type_name == "Sprite2D"
@@ -435,13 +435,13 @@ impl EditorApp {
                     self.viewport_dirty = true;
                     self.log(format!("Attached script {res_path} to {target}"));
                 } else if payload.rel_path.ends_with(".png")
-                    || payload.rel_path.ends_with(".atlas.json")
+                    || payload.rel_path.ends_with(".ptatlas")
                 {
                     let res_path = format!("res://{}", payload.rel_path);
                     self.session.host().with_tree_mut(|t| {
                         if let Some(n) = t.get_mut(&target) {
                             if n.type_name == "Sprite2D" {
-                                if payload.rel_path.ends_with(".atlas.json") {
+                                if payload.rel_path.ends_with(".ptatlas") {
                                     n.props.insert(
                                         "atlas".to_string(),
                                         pite_core::PropValue::Str(res_path.clone()),
@@ -453,7 +453,7 @@ impl EditorApp {
                                     );
                                 }
                             } else if n.type_name == "AnimatedSprite2D"
-                                && payload.rel_path.ends_with(".atlas.json")
+                                && payload.rel_path.ends_with(".ptatlas")
                             {
                                 n.props.insert(
                                     "atlas".to_string(),

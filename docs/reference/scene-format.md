@@ -79,7 +79,7 @@ prefix = "e1_"
 
 - **Design Resolution**: The window size declared in `pite.toml` establishes the design resolution. The viewport scales content uniformly to fit the window while maintaining aspect ratio via letterboxing. Input coordinates map through the same projection.
 - **Sprite2D**: Renders its `texture` centered at the node's global position, scaled by camera zoom and window scale. If a texture is missing, a magenta placeholder quad renders with a one-time console warning.
-- **AnimatedSprite2D**: Renders flipbook animations from an atlas sidecar (`.atlas.json`), advancing frames according to the animation's configured frame rate and playback speed.
+- **AnimatedSprite2D**: Renders flipbook animations from an atlas sidecar (`.ptatlas`), advancing frames according to the animation's configured frame rate and playback speed.
 - **Camera2D**: The first active `Camera2D` in the scene centers the viewport on its global position. The optional `zoom` property (`float`, default `1.0`) scales the viewport.
 - **Transform Propagation**: Global positions are computed by accumulating local `position` vectors along ancestor chains, so moving or rotating a parent node carries all descendants naturally.
 
@@ -104,6 +104,6 @@ prefix = "e1_"
 ## Tilemaps
 
 - `TileMap2D` displays multi-layer grid tilemaps configured in an external `.ptmap` sidecar (`tilemap = "res://maps/level.ptmap"`).
-- The `.ptmap` file defines the sprite atlas (`atlas = "res://…atlas.json"`), tile dimensions (`tile_size = [width, height]`), and layer definitions (`[[layer]]`).
+- The `.ptmap` file defines the sprite atlas (`atlas = "res://…ptatlas"`), tile dimensions (`tile_size = [width, height]`), and layer definitions (`[[layer]]`).
 - Layers declare `name`, visibility, collision settings (`collision_layer`, `collision_mask`), and sparse cell coordinates: `tiles = [[col, row, "frame"], …]`.
 - When collisions are enabled, contiguous solid tiles are automatically merged into optimized static box colliders in Rapier2D to eliminate internal edge collisions.

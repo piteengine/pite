@@ -4,6 +4,12 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+- **Atlas Sidecars Switched to `.ptatlas`**:
+    - Changed sprite-sheet atlas sidecar extension from `.atlas.json` to `.ptatlas` across the engine.
+    - Switched atlas serialization to strict TOML with `format_version = 1`.
+    - Automated migration via `pite check --reimport-assets` which converts legacy `.atlas.json` sidecars to `.ptatlas`, updates references in `.ptscn`, `.ptmap`, and `.py`, and removes legacy files.
+    - `pite check` emits a diagnostic warning when legacy `.atlas.json` files are detected.
+
 - **CLI Output Design Pass**:
     - Human messages are built from typed styled spans (bold paths, cyan identifiers, dim secondary text) instead of markup embedded in strings; JSON receives the plain concatenation.
     - Diagnostic cards use `Error:` / `Warning:`, `Why:`, and `Fix:` only — the `Hint:` field and its duplicated guidance were folded into `Fix:`.

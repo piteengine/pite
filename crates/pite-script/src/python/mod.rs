@@ -51,7 +51,7 @@ fn raycast(
     }
 }
 
-/// Frame names in a sprite-sheet atlas (`res://…atlas.json`).
+/// Frame names in a sprite-sheet atlas (`res://…ptatlas`).
 #[pyfunction]
 fn frames(atlas_ref: &str) -> PyResult<Vec<String>> {
     let root = crate::project_dir().ok_or_else(|| {
@@ -1414,7 +1414,7 @@ class Listener(pite.Node2D):
                 std::sync::Arc::new(crate::host::ScriptHost::new(pite_core::NodeTree::new()));
             crate::host::set_current_host(host.clone());
 
-            let mut doc = pite_scene::tilemap::TileMapDoc::new("res://tiles.atlas.json", 16, 16);
+            let mut doc = pite_scene::tilemap::TileMapDoc::new("res://tiles.ptatlas", 16, 16);
             let layer = pite_scene::tilemap::TileMapLayer::new("ground");
             doc.layers.push(layer);
             doc.set_cell(0, 1, 2, "grass");

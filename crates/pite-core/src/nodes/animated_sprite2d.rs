@@ -15,10 +15,10 @@ pub static PROPS: &[PropSchema] = &[
     PropSchema {
         key: "atlas",
         label: "Atlas",
-        doc: "Path to a spritesheet sidecar (`.atlas.json`).",
+        doc: "Path to a spritesheet sidecar (`.ptatlas`).",
         default_value: DefaultPropVal::Str(""),
         hint: PropHint::Asset {
-            filter: &["atlas.json", "json"],
+            filter: &["ptatlas"],
         },
         read_only: false,
     },
