@@ -26,7 +26,7 @@ graph TD
         Renderer["2D Renderer (pite-render / wgpu)"]
         Audio["Audio System (pite-audio / symphonia)"]
         SceneIO["Scene TOML & Cache (pite-scene)"]
-        AssetReg["Asset UID Registry (pite-assets)"]
+        AssetReg["Asset Manifest Registry (pite-assets)"]
         ProjectMeta["Project Config (pite-project)"]
     end
 
@@ -75,7 +75,7 @@ The engine is structured as a modular Rust workspace consisting of 13 focused cr
 | `pite-render`       | 2D batch sprite and text renderer built directly on [wgpu](https://wgpu.rs/).                                         |
 | `pite-audio`        | Audio engine decoding WAV, OGG Vorbis, MP3, and FLAC via `symphonia` and `cpal`, with silent simulation fallback.     |
 | `pite-scene`        | Human-readable `.ptscn` TOML parsing, validation, byte-stable serialization, and binary disk cache.                   |
-| `pite-assets`       | Asset import pipeline, header validation, UID tracking (`assets.pite.toml`), and reference reconciliation.            |
+| `pite-assets`       | Asset import pipeline, header validation, asset manifest (`assets.pite.toml`), and reference reconciliation.          |
 | `pite-project`      | Project manifest loader (`pite.toml`), `res://` path resolver, and starter templates.                                 |
 | `pite-export`       | Self-contained game bundler, standalone asset collection, and CPython runtime packager.                               |
 | `pite-player`       | Lean game runner binary without editor dependencies for distribution builds.                                          |
@@ -149,4 +149,4 @@ Pite maintains strict data guarantees across your filesystem:
 - **Byte-Stable Serialization**: `.ptscn` files serialize properties in deterministic sorted order. Opening, saving, and closing a scene in the editor produces zero unintended git diffs.
 - **Instance Preservation**: Instantiated sub-scenes (`[[instance]]`) remain modular references in TOML. Node overrides are stored as individual diffs rather than baking sub-trees into duplicate nodes.
 - **Derived Binary Cache**: For instant boot times, Pite caches compiled scene binaries beside the source file in `_cache/<name>.<hash>.bin`. The TOML source remains authoritative; touching a `.ptscn` file automatically invalidates and rebuilds the cache.
-- **UID Registry**: When files move on disk, `pite check --reimport-assets` uses content hashes recorded in `assets.pite.toml` to automatically rewrite `res://` references across all scene and script files.
+- **Asset Manifest**: When files move on disk, `pite check --reimport-assets` uses content hashes recorded in `assets.pite.toml` to automatically rewrite `res://` references across all scene and script files.

@@ -111,7 +111,24 @@ pub fn run(
                 .iter()
                 .map(|file| (file.hash.as_str(), file.res_path.as_str()))
                 .collect();
+            let manifest_path = root.join(pite_assets::MANIFEST_FILE);
+            let manifest_exists = manifest_path.is_file();
             let registry = pite_assets::load_registry(root).unwrap_or_default();
+
+            if !reimport_assets {
+                if !manifest_exists && !scanned.is_empty() {
+                    findings.push(Finding::assets_manifest_missing());
+                } else if manifest_exists {
+                    let (_, scan_report) = pite_assets::reconcile(&registry, &scanned);
+                    if !scan_report.added.is_empty()
+                        || !scan_report.removed.is_empty()
+                        || !scan_report.renamed.is_empty()
+                        || !scan_report.changed.is_empty()
+                    {
+                        findings.push(Finding::assets_manifest_stale());
+                    }
+                }
+            }
 
             let mut walker = Walker::new(root, &manifest.props, &registry, &by_hash);
             if manifest.project.icon.starts_with("res://") {

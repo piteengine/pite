@@ -46,7 +46,7 @@ struct WalkResult {
 
 fn run_ref(
     root: &Path,
-    registry: &pite_assets::UidRegistry,
+    registry: &pite_assets::AssetRegistry,
     by_hash: &HashMap<&str, &str>,
 ) -> WalkResult {
     run_ref_with_props(root, registry, by_hash, &HashMap::new())
@@ -54,7 +54,7 @@ fn run_ref(
 
 fn run_ref_with_props(
     root: &Path,
-    registry: &pite_assets::UidRegistry,
+    registry: &pite_assets::AssetRegistry,
     by_hash: &HashMap<&str, &str>,
     custom_props: &HashMap<String, String>,
 ) -> WalkResult {
@@ -89,7 +89,7 @@ fn run_ref_with_props(
 #[test]
 fn missing_asset_is_error() {
     let root = fixture_root(1);
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let by_hash: HashMap<&str, &str> = HashMap::new();
     let result = run_ref(&root, &registry, &by_hash);
     assert!(
@@ -110,7 +110,7 @@ fn present_asset_is_clean() {
     let root = fixture_root(2);
     std::fs::write(root.join("assets").join("gone.png"), b"fake-png-bytes")
         .expect("write fixture asset");
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let by_hash: HashMap<&str, &str> = HashMap::new();
     let result = run_ref(&root, &registry, &by_hash);
     assert!(
@@ -144,7 +144,7 @@ fn instanced_scene_appears_once_in_the_cache() {
         "{FIXTURE_SCENE}\n[[instance]]\nscene = \"res://scenes/child.ptscn\"\nparent = \"root\"\n"
     );
     std::fs::write(root.join("scenes").join("main.ptscn"), main).expect("write main scene");
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let by_hash: HashMap<&str, &str> = HashMap::new();
     let result = run_ref(&root, &registry, &by_hash);
     let files: HashSet<&str> = result
@@ -182,7 +182,7 @@ fn prop_references_leave_no_orphan() {
         .iter()
         .map(|file| (file.res_path.as_str(), file))
         .collect();
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let by_hash: HashMap<&str, &str> = HashMap::new();
     let result = run_ref(&root, &registry, &by_hash);
     assert!(
@@ -240,7 +240,7 @@ fn played_literals_count_as_references() {
         .map(|file| (file.res_path.as_str(), file))
         .collect();
     let by_hash: HashMap<&str, &str> = HashMap::new();
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let result = run_ref(&root, &registry, &by_hash);
     assert!(
         result.referenced.contains("res://assets/hit.wav"),
@@ -274,7 +274,7 @@ fn check_validates_audio_multiformat() {
     std::fs::write(root.join("assets").join("bad.mp3"), b"ID3_NOT_A_VALID_MP3").unwrap();
 
     let by_hash: HashMap<&str, &str> = HashMap::new();
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let result = run_ref(&root, &registry, &by_hash);
     assert!(result.referenced.contains("res://assets/music.ogg"));
     assert!(result.referenced.contains("res://assets/bad.mp3"));
@@ -328,7 +328,7 @@ fn third_party_import_warns_once() {
     )
     .expect("write vendored");
     let by_hash: HashMap<&str, &str> = HashMap::new();
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let result = run_ref(&root, &registry, &by_hash);
     assert!(result.errors.is_empty(), "got: {:?}", result.errors);
     assert_eq!(result.warnings.len(), 1, "got: {:?}", result.warnings);
@@ -355,7 +355,7 @@ fn custom_props_are_validated() {
     let by_hash: HashMap<&str, &str> = HashMap::new();
     let result = run_ref_with_props(
         &root,
-        &pite_assets::UidRegistry::default(),
+        &pite_assets::AssetRegistry::default(),
         &by_hash,
         &custom,
     );
@@ -425,7 +425,7 @@ tiles = [[0, 0, "grass"], [1, 0, "dirt"]]
     .expect("write tilemap");
 
     let by_hash: HashMap<&str, &str> = HashMap::new();
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let custom_props = HashMap::new();
     let mut walker = Walker::new(&root, &custom_props, &registry, &by_hash);
     walker.walk("res://scenes/main.ptscn");
@@ -474,7 +474,7 @@ animation = "idle"
     .unwrap();
 
     let by_hash: HashMap<&str, &str> = HashMap::new();
-    let registry = pite_assets::UidRegistry::default();
+    let registry = pite_assets::AssetRegistry::default();
     let custom_props = HashMap::new();
     let mut walker = Walker::new(&root, &custom_props, &registry, &by_hash);
     walker.walk("res://scenes/main.ptscn");
@@ -494,5 +494,72 @@ animation = "idle"
         report_warnings.is_empty(),
         "got report warnings: {report_warnings:?}"
     );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn check_warns_on_missing_and_stale_assets_manifest() {
+    let root = fixture_root(999);
+    std::fs::write(
+        root.join("pite.toml"),
+        "[project]\nname = \"test\"\npite_version = \"0.4.0\"\nmain_scene = \"res://scenes/main.ptscn\"\n",
+    )
+    .unwrap();
+    let png_bytes = [
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01, 0x02,
+    ];
+    std::fs::write(root.join("assets").join("hero.png"), &png_bytes).unwrap();
+    std::fs::write(
+        root.join("scenes").join("main.ptscn"),
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Sprite2D\"\nname = \"Main\"\n\n[node.props]\ntexture = \"res://assets/hero.png\"\n",
+    )
+    .unwrap();
+
+    let mut ui = crate::ui::Ui::silent();
+    let outcome = super::run(&mut ui, Some(root.to_str().unwrap()), false, false).unwrap();
+    let data = outcome.data.expect("outcome data");
+    let check_data: super::report::CheckData = serde_json::from_value(data).unwrap();
+    assert!(
+        check_data.diagnostics.iter().any(|f| f
+            .message
+            .to_string()
+            .contains("Asset manifest assets.pite.toml is missing")),
+        "diagnostics: {:?}",
+        check_data.diagnostics
+    );
+
+    // Now run with reimport_assets: true -> generates assets.pite.toml
+    let mut ui2 = crate::ui::Ui::silent();
+    let outcome2 = super::run(&mut ui2, Some(root.to_str().unwrap()), true, false).unwrap();
+    let check_data2: super::report::CheckData =
+        serde_json::from_value(outcome2.data.unwrap()).unwrap();
+    assert!(
+        !check_data2
+            .diagnostics
+            .iter()
+            .any(|f| f.message.to_string().contains("assets.pite.toml")),
+        "diagnostics after reimport: {:?}",
+        check_data2.diagnostics
+    );
+    assert!(root.join("assets.pite.toml").is_file());
+
+    // Modify asset content without reimporting -> stale
+    let mut modified_png = png_bytes.to_vec();
+    modified_png.extend_from_slice(b"extra bytes");
+    std::fs::write(root.join("assets").join("hero.png"), &modified_png).unwrap();
+
+    let mut ui3 = crate::ui::Ui::silent();
+    let outcome3 = super::run(&mut ui3, Some(root.to_str().unwrap()), false, false).unwrap();
+    let check_data3: super::report::CheckData =
+        serde_json::from_value(outcome3.data.unwrap()).unwrap();
+    assert!(
+        check_data3.diagnostics.iter().any(|f| f
+            .message
+            .to_string()
+            .contains("Asset manifest assets.pite.toml is out of sync")),
+        "diagnostics after file change: {:?}",
+        check_data3.diagnostics
+    );
+
     let _ = std::fs::remove_dir_all(&root);
 }

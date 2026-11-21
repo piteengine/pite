@@ -1,0 +1,14 @@
+[[asset]]
+path = "res://assets/gem.png"
+hash = "d188d21336c3ec13"
+size = 829
+
+[[asset]]
+path = "res://assets/player.png"
+hash = "47de05b125981169"
+size = 3295
+
+[[asset]]
+path = "res://sfx/coin.wav"
+hash = "84e5f83154ddc21e"
+size = 16632

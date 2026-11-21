@@ -1,6 +1,6 @@
 # pite-assets
 
-Asset import subsystem and UID manifest registry for the [Pite](https://github.com/piteengine/pite) game engine: `res://` path resolution, `Importer` trait, content-addressed UID tracking, and automatic asset re-import rewrite tooling.
+Asset import subsystem and manifest registry for the [Pite](https://github.com/piteengine/pite) game engine: `res://` path resolution, `Importer` trait, content-addressed move tracking, and automatic asset re-import rewrite tooling.
 
 ## Versioning
 

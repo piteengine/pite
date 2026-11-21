@@ -181,6 +181,9 @@ impl EditorApp {
                 |m| (m.project.window_width, m.project.window_height),
             );
         let custom_props = Self::load_custom_props(project_dir.as_deref());
+        if let Some(dir) = &project_dir {
+            let _ = pite_assets::reimport_project(dir);
+        }
         Ok(Self {
             session,
             scene_path: scene.to_path_buf(),

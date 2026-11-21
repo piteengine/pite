@@ -1,0 +1,9 @@
+[[asset]]
+path = "res://assets/sheet.png"
+hash = "cd69113972c4728c"
+size = 315
+
+[[asset]]
+path = "res://sfx/hit.wav"
+hash = "ebff1dc8314998e2"
+size = 7982

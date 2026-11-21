@@ -194,11 +194,49 @@ impl Finding {
                 .plain("Could not reimport ")
                 .strong(asset)
                 .plain("."),
-            Spans::text("The importer could not parse the file or update its UID entry."),
+            Spans::text("The importer could not parse the file or update its manifest entry."),
             Spans::new()
                 .plain("Make sure the file is readable and not corrupted, then rerun ")
                 .info("pite check --reimport-assets")
                 .plain("."),
+        )
+    }
+
+    pub fn assets_manifest_missing() -> Self {
+        Self::warning(
+            Kind::Asset,
+            Location::file(pite_assets::MANIFEST_FILE),
+            Spans::new()
+                .plain("Asset manifest ")
+                .strong(pite_assets::MANIFEST_FILE)
+                .plain(" is missing."),
+            Spans::new()
+                .plain("Pite tracks asset content hashes in ")
+                .info(pite_assets::MANIFEST_FILE)
+                .plain(" to enable rename detection and keep references synchronized."),
+            Spans::new()
+                .plain("Run ")
+                .info("pite check --reimport-assets")
+                .plain(" to generate it, and commit it to version control."),
+        )
+    }
+
+    pub fn assets_manifest_stale() -> Self {
+        Self::warning(
+            Kind::Asset,
+            Location::file(pite_assets::MANIFEST_FILE),
+            Spans::new()
+                .plain("Asset manifest ")
+                .strong(pite_assets::MANIFEST_FILE)
+                .plain(" is out of sync with files on disk."),
+            Spans::new()
+                .plain("One or more assets have been added, modified, renamed, or deleted since ")
+                .info(pite_assets::MANIFEST_FILE)
+                .plain(" was last updated."),
+            Spans::new()
+                .plain("Run ")
+                .info("pite check --reimport-assets")
+                .plain(" to update it, and commit the changes."),
         )
     }
 

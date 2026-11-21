@@ -71,7 +71,7 @@ enum Command {
         /// Path to the project root directory; defaults to current directory.
         #[arg(value_name = "PATH")]
         path: Option<String>,
-        /// Re-scan assets, reconcile UID registry, and update references before checking.
+        /// Re-scan assets, reconcile asset manifest, and update references before checking.
         #[arg(long, default_value_t = false)]
         reimport_assets: bool,
         /// Treat warnings as errors and exit with a non-zero status.

@@ -13,7 +13,7 @@ A standard Pite project organizes scenes, scripts, assets, and project settings 
 ```text
 my-game/
 ├── pite.toml               # Project manifest & configuration
-├── assets.pite.toml        # Local asset registry & UID mapping (gitignored)
+├── assets.pite.toml        # Asset manifest & content-hash mapping
 ├── scenes/                 # Scene tree files (.ptscn)
 │   ├── main.ptscn          # Initial entry scene
 │   └── _cache/             # Binary scene cache (derived, gitignored)
@@ -121,12 +121,12 @@ All project assets (sprites, textures, sprite sheet atlases, and audio clips) ar
 - `texture = "res://assets/player.png"`
 - `pite.play("res://sfx/coin.wav")`
 
-### The UID Registry
+### The Asset Manifest
 
 Running `pite check --reimport-assets` scans all assets, computes content hashes, and maintains an `assets.pite.toml` registry file:
 
-- **Rename Tracking**: When files are moved or renamed, the registry reconciles paths using asset UIDs, enabling automatic reference updates across scenes and scripts.
-- **Local Import Cache**: This file serves as a local development cache and is excluded from source control and exports.
+- **Rename Tracking**: When files are moved or renamed, the registry reconciles paths using content hashes, enabling automatic reference updates across scenes and scripts.
+- **Committed Metadata**: `assets.pite.toml` is committed to version control so rename detection and reference verification work seamlessly across machines, teammates, and CI.
 
 Learn more in the [Assets Guide](../guides/assets).
 
@@ -158,7 +158,6 @@ A standard `.gitignore` for Pite projects:
 ```gitignore title=".gitignore"
 # Pite runtime and scene cache
 _cache/
-assets.pite.toml
 .pitetoolchain/
 
 # Build and export distributions

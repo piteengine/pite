@@ -5,7 +5,7 @@ title: Assets
 
 # Assets Guide
 
-Manage textures, sprite sheet atlases, and audio clips using project-relative resource paths and UID-backed tracking.
+Manage textures, sprite sheet atlases, and audio clips using project-relative resource paths and content-hash tracking.
 
 Pite provides an asset pipeline designed to make asset referencing clear and resilient to file renames and folder reorganizations.
 
@@ -22,7 +22,7 @@ Using project-relative paths ensures that your scenes and code remain portable a
 
 ---
 
-## The UID Registry
+## The Asset Manifest
 
 Renaming or moving an asset file outside the editor often breaks path references in traditional engines. Pite avoids this through an automatic asset registry.
 
@@ -31,14 +31,13 @@ When you run `pite check --reimport-assets`, Pite inspects your files, calculate
 ```toml title="assets.pite.toml"
 [[asset]]
 path = "assets/player.png"
-uid = "a8f3b201"
-hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+hash = "e3b0c44298fc1c14"
 size = 4096
 ```
 
-- **Opaque UIDs**: Each unique file is assigned a stable UID.
-- **Safe Renames**: If you move `assets/player.png` to `assets/characters/player.png`, the engine recognizes the file by its hash/UID.
-- **Local Import Cache**: `assets.pite.toml` is a local cache file that is safely excluded from version control and game exports.
+- **Content Hashing**: Each unique file is indexed by its 64-bit FNV-1a content hash.
+- **Safe Renames**: If you move `assets/player.png` to `assets/characters/player.png`, the engine recognizes the file by its hash.
+- **Committed to Version Control**: `assets.pite.toml` is committed to git so developers, pre-commit hooks, and CI workflows can verify references and detect renames without requiring manual reimports beforehand.
 
 ---
 
@@ -54,7 +53,7 @@ This command:
 
 1. Re-scans project files for supported formats by inspecting magic header bytes.
 2. Updates `assets.pite.toml` with current paths and hashes.
-3. Automatically rewrites all quoted `res://` paths in `.ptscn` scenes and `.py` scripts whenever a known UID has moved to a new path.
+3. Automatically rewrites all quoted `res://` paths in `.ptscn` scenes and `.py` scripts whenever an asset has moved to a new path.
 
 `pite check` without the `--reimport-assets` flag never alters files on disk.
 

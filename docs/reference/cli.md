@@ -129,7 +129,7 @@ pite check [PATH] [--reimport-assets] [--strict]
 | Flag                | Description                                                                                                  |
 | :------------------ | :----------------------------------------------------------------------------------------------------------- |
 | `[PATH]`            | Path to project root. Defaults to current directory.                                                         |
-| `--reimport-assets` | Re-scan project assets, reconcile the UID registry (`assets.pite.toml`), and rewrite moved asset references. |
+| `--reimport-assets` | Re-scan project assets, reconcile asset manifest (`assets.pite.toml`), and rewrite moved asset refs.         |
 | `--strict`          | Promote all warnings to errors, exiting with a non-zero exit status if any warning is reported.              |
 
 Diagnostics are rendered as cards with a colored severity label (`Error:` / `Warning:`) followed by aligned `At:`, `Why:`, and `Fix:` fields: `Why:` explains how the problem was detected and `Fix:` what to do. `-v` also prints a `Checking scene caches:` block with one row per scene file, even when a scene is instanced by another. `--reimport-assets` prints a cyan `Reimporting assets:` block with one row per added, updated, renamed, or removed asset (renames include rewritten-reference counts); when nothing changed it says `Nothing to change.` The scene-cache, reimport, and check bars then print as one contiguous group at the bottom. Machine-readable output is available through the global `--json` flag.

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Asset scanning, UID tracking, rename reconciliation, and reimporting for Pite.
+//! Asset scanning, rename reconciliation, and reimporting for Pite.
 //!
 //! A single `assets.pite.toml` manifest file at the project root maps `res://` paths
-//! to persistent, opaque 64-bit hexadecimal identifiers (UIDs). Scans are content-aware:
-//! identical file hashes preserve their UID across filesystem renames and moves, while
+//! to content hashes and file metadata. Scans are content-aware:
+//! identical file hashes track filesystem renames and moves, while
 //! modified file bytes trigger reimporting.
 
 pub mod atlas;
@@ -13,8 +13,6 @@ pub use atlas::{AnimationUse, AtlasUse, SpriteSource};
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -24,9 +22,6 @@ pub const MANIFEST_FILE: &str = "assets.pite.toml";
 
 /// 8-byte PNG signature every valid `.png` file must start with.
 const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-
-/// Opaque UID generator state ensuring uniqueness within and across asset scans.
-static UID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Trait implemented by asset importers to validate and ingest specific file types.
 pub trait Importer: Send + Sync {
@@ -129,8 +124,6 @@ impl Importer for FlacImporter {
 pub struct AssetEntry {
     /// Project-relative resource path (e.g., `"res://sprites/player.png"`).
     pub path: String,
-    /// Stable opaque 16-character hexadecimal identifier.
-    pub uid: String,
     /// Hexadecimal FNV-1a content hash computed during the last scan.
     pub hash: String,
     /// File size in bytes.
@@ -144,44 +137,32 @@ struct ManifestDoc {
     asset: Vec<AssetEntry>,
 }
 
-/// In-memory asset UID registry mapping resource paths to [`AssetEntry`] records.
+/// In-memory asset registry mapping resource paths to [`AssetEntry`] records.
 #[derive(Debug, Default, Clone)]
-pub struct UidRegistry {
+pub struct AssetRegistry {
     by_path: HashMap<String, AssetEntry>,
 }
 
-impl UidRegistry {
-    /// Registers or updates the UID assigned to a given resource path.
-    pub fn register(&mut self, path: impl Into<String>, uid: impl Into<String>) {
+/// Backward-compatibility alias for [`AssetRegistry`].
+pub type UidRegistry = AssetRegistry;
+
+impl AssetRegistry {
+    /// Registers or updates the asset entry for a given resource path.
+    pub fn register(&mut self, path: impl Into<String>, hash: impl Into<String>, size: u64) {
         let path = path.into();
-        let uid = uid.into();
-        match self.by_path.get_mut(&path) {
-            Some(entry) => entry.uid = uid,
-            None => {
-                self.by_path.insert(
-                    path.clone(),
-                    AssetEntry {
-                        path,
-                        uid,
-                        hash: String::new(),
-                        size: 0,
-                    },
-                );
-            }
-        }
-    }
-
-    /// Retrieves the UID corresponding to a given `res://` path, if registered.
-    pub fn get(&self, path: &str) -> Option<&str> {
-        self.by_path.get(path).map(|e| e.uid.as_str())
-    }
-
-    /// Finds the `res://` path assigned to a given UID, if present in the registry.
-    pub fn path_for_uid(&self, uid: &str) -> Option<&str> {
+        let hash = hash.into();
         self.by_path
-            .values()
-            .find(|e| e.uid == uid)
-            .map(|e| e.path.as_str())
+            .insert(path.clone(), AssetEntry { path, hash, size });
+    }
+
+    /// Retrieves the asset entry corresponding to a given `res://` path, if registered.
+    pub fn get(&self, path: &str) -> Option<&AssetEntry> {
+        self.by_path.get(path)
+    }
+
+    /// Retrieves the content hash corresponding to a given `res://` path, if registered.
+    pub fn hash(&self, path: &str) -> Option<&str> {
+        self.by_path.get(path).map(|e| e.hash.as_str())
     }
 
     /// Iterates over all registered asset entries.
@@ -212,7 +193,7 @@ pub fn default_importers() -> Vec<Box<dyn Importer>> {
 }
 
 /// FNV-1a 64-bit, rendered as 16 lowercase hex chars. Hashes file bytes
-/// and mints uids alike, with zero extra dependencies.
+/// with zero extra dependencies.
 fn fnv1a_hex(bytes: &[u8]) -> String {
     let mut hash: u64 = 14695981039346656037;
     for b in bytes {
@@ -220,18 +201,6 @@ fn fnv1a_hex(bytes: &[u8]) -> String {
         hash = hash.wrapping_mul(1099511628211);
     }
     format!("{hash:016x}")
-}
-
-/// Mint an opaque 16-lowercase-hex uid bound to `path` plus wall-clock,
-/// pid, and an atomic counter so back-to-back scans never collide.
-fn new_uid(path: &str) -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let count = UID_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let pid = std::process::id();
-    fnv1a_hex(format!("{path}:{nanos}:{pid}:{count}").as_bytes())
 }
 
 /// One importer-matched file found under the project root.
@@ -344,21 +313,23 @@ pub fn scan_files(root: &Path) -> Result<Vec<ScannedFile>> {
 }
 
 /// Load the manifest; a missing file means an empty registry, not an error.
-pub fn load_registry(root: &Path) -> Result<UidRegistry> {
+pub fn load_registry(root: &Path) -> Result<AssetRegistry> {
     let path = root.join(MANIFEST_FILE);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(UidRegistry::default()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(AssetRegistry::default())
+        }
         Err(err) => {
             return Err(err).with_context(|| format!("read {}", path.display()));
         }
     };
     if text.trim().is_empty() {
-        return Ok(UidRegistry::default());
+        return Ok(AssetRegistry::default());
     }
     let doc: ManifestDoc =
         toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
-    let mut reg = UidRegistry::default();
+    let mut reg = AssetRegistry::default();
     for entry in doc.asset {
         reg.by_path.insert(entry.path.clone(), entry);
     }
@@ -366,7 +337,7 @@ pub fn load_registry(root: &Path) -> Result<UidRegistry> {
 }
 
 /// Save the manifest with entries always sorted by path (diffable).
-pub fn save_registry(root: &Path, reg: &UidRegistry) -> Result<()> {
+pub fn save_registry(root: &Path, reg: &AssetRegistry) -> Result<()> {
     let mut entries: Vec<&AssetEntry> = reg.iter().collect();
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     let doc = ManifestDoc {
@@ -378,12 +349,12 @@ pub fn save_registry(root: &Path, reg: &UidRegistry) -> Result<()> {
     Ok(())
 }
 
-/// Pure manifest-vs-files diff, no IO. Same path + same hash keeps the
-/// uid; same path + new hash is `changed`; a manifest path missing from
+/// Pure manifest-vs-files diff, no IO. Same path + same hash is unchanged;
+/// same path + new hash is `changed`; a manifest path missing from
 /// disk but shadowed by an unclaimed file with equal (hash, size) is a
-/// `rename` (uid travels); otherwise `removed` / `added` (fresh uid).
-pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, ScanReport) {
-    let mut next = UidRegistry::default();
+/// `rename`; otherwise `removed` / `added`.
+pub fn reconcile(old: &AssetRegistry, files: &[ScannedFile]) -> (AssetRegistry, ScanReport) {
+    let mut next = AssetRegistry::default();
     let mut added = Vec::new();
     let mut renamed = Vec::new();
     let mut removed = Vec::new();
@@ -410,7 +381,6 @@ pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, Scan
                         (*old_path).to_string(),
                         AssetEntry {
                             path: (*old_path).to_string(),
-                            uid: entry.uid.clone(),
                             hash: file.hash.clone(),
                             size: file.size,
                         },
@@ -421,7 +391,6 @@ pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, Scan
                         (*old_path).to_string(),
                         AssetEntry {
                             path: (*old_path).to_string(),
-                            uid: entry.uid.clone(),
                             hash: file.hash.clone(),
                             size: file.size,
                         },
@@ -466,7 +435,6 @@ pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, Scan
                     file.res_path.clone(),
                     AssetEntry {
                         path: file.res_path.clone(),
-                        uid: orphan.uid.clone(),
                         hash: file.hash.clone(),
                         size: file.size,
                     },
@@ -484,13 +452,11 @@ pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, Scan
         if used.contains(&idx) {
             continue;
         }
-        let uid = new_uid(&file.res_path);
         added.push(file.res_path.clone());
         next.by_path.insert(
             file.res_path.clone(),
             AssetEntry {
                 path: file.res_path.clone(),
-                uid,
                 hash: file.hash.clone(),
                 size: file.size,
             },
@@ -515,7 +481,7 @@ pub fn reconcile(old: &UidRegistry, files: &[ScannedFile]) -> (UidRegistry, Scan
 }
 
 /// Load + scan + reconcile + save in one step.
-pub fn scan_project(root: &Path) -> Result<(UidRegistry, ScanReport)> {
+pub fn scan_project(root: &Path) -> Result<(AssetRegistry, ScanReport)> {
     let old = load_registry(root)?;
     let files = scan_files(root)?;
     let (next, report) = reconcile(&old, &files);
@@ -637,7 +603,7 @@ pub fn apply_renames_detailed(
 /// Scan, re-run the matching importer over every `changed`/`added` path
 /// (one failure never aborts the rest), rewrite refs for `renamed`
 /// paths, save, and return the fresh registry plus the report.
-pub fn reimport_project(root: &Path) -> Result<(UidRegistry, ReimportReport)> {
+pub fn reimport_project(root: &Path) -> Result<(AssetRegistry, ReimportReport)> {
     let (reg, scan) = scan_project(root)?;
     let importers = default_importers();
     let mut targets: Vec<&String> = scan.changed.iter().chain(scan.added.iter()).collect();
@@ -727,7 +693,8 @@ pub fn played_assets(text: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEST_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -764,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_keeps_uid() {
+    fn rename_tracks_content_hash() {
         let root = test_dir("rename");
         let old_fs = root.join("a.png");
         std::fs::write(&old_fs, valid_png(b"hello")).unwrap();
@@ -772,7 +739,7 @@ mod tests {
         let (reg1, rep1) = scan_project(&root).unwrap();
         assert_eq!(rep1.added, vec!["res://a.png".to_string()]);
         assert!(rep1.renamed.is_empty());
-        let uid1 = reg1.get("res://a.png").unwrap().to_string();
+        let hash1 = reg1.get("res://a.png").unwrap().hash.clone();
 
         std::fs::rename(&old_fs, root.join("b.png")).unwrap();
         let (reg2, rep2) = scan_project(&root).unwrap();
@@ -782,8 +749,8 @@ mod tests {
         );
         assert!(rep2.added.is_empty());
         assert!(rep2.removed.is_empty());
-        let uid2 = reg2.get("res://b.png").unwrap().to_string();
-        assert_eq!(uid1, uid2);
+        let hash2 = reg2.get("res://b.png").unwrap().hash.clone();
+        assert_eq!(hash1, hash2);
         assert!(reg2.get("res://a.png").is_none());
 
         cleanup(&root);
@@ -966,7 +933,6 @@ mod tests {
                 .iter()
                 .find(|e| e.path == entry.path)
                 .expect("entry survives round-trip");
-            assert_eq!(again.uid, entry.uid);
             assert_eq!(again.hash, entry.hash);
             assert_eq!(again.size, entry.size);
         }
@@ -1023,11 +989,34 @@ mod tests {
         let script = std::fs::read_to_string(root.join("play.py")).unwrap();
         assert!(script.contains("'res://new.png'"));
         assert!(script.contains("bare res://old.png"));
-        assert_eq!(
-            reg.path_for_uid(reg.get("res://new.png").unwrap()),
-            Some("res://new.png")
-        );
+        assert!(reg.get("res://new.png").is_some());
 
+        cleanup(&root);
+    }
+
+    #[test]
+    fn legacy_manifest_with_uid_is_supported_and_stripped_on_save() {
+        let root = test_dir("legacy_uid");
+        let legacy_toml = r#"
+[[asset]]
+path = "res://a.png"
+uid = "0123456789abcdef"
+hash = "e3b0c44298fc1c14"
+size = 123
+"#;
+        std::fs::write(root.join(MANIFEST_FILE), legacy_toml).unwrap();
+        let reg = load_registry(&root).unwrap();
+        assert_eq!(reg.len(), 1);
+        let entry = reg.get("res://a.png").unwrap();
+        assert_eq!(entry.path, "res://a.png");
+        assert_eq!(entry.hash, "e3b0c44298fc1c14");
+        assert_eq!(entry.size, 123);
+
+        save_registry(&root, &reg).unwrap();
+        let saved = std::fs::read_to_string(root.join(MANIFEST_FILE)).unwrap();
+        assert!(!saved.contains("uid ="));
+        assert!(saved.contains("res://a.png"));
+        assert!(saved.contains("e3b0c44298fc1c14"));
         cleanup(&root);
     }
 

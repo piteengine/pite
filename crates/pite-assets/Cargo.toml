@@ -1,6 +1,6 @@
 [package]
 name = "pite-assets"
-description = "Asset import pipeline and UID manifest registry for Pite game assets."
+description = "Asset import pipeline and manifest registry for Pite game assets."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
 # AGENTS.md — Pite
 
-Rust workspace (resolver 2, edition 2021, rust-version 1.95). Scene-tree game engine (not ECS): Rust core + embedded Python 3.12 + eframe/egui editor. `target/`, scene `_cache/`, `assets.pite.toml` are gitignored — never commit them.
+Rust workspace (resolver 2, edition 2021, rust-version 1.95). Scene-tree game engine (not ECS): Rust core + embedded Python 3.12 + eframe/egui editor. `target/`, scene `_cache/` are gitignored — never commit them. `assets.pite.toml` is committed.
 
 ## Commands in CI Order
 
@@ -21,12 +21,12 @@ bash scripts/check-examples.sh
 
 ## Architecture by Crate Role
 
-`pite` (the `pite` binary, in `crates/pite-cli/`) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, uid registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
+`pite` (the `pite` binary, in `crates/pite-cli/`) → `pite-runtime` (window, main loop, hot reload) → `pite-core` (node tree, handles, lifecycle) + `pite-scene` (TOML load/validate/cache) + `pite-script` (embedded `pite` module) + `pite-physics` (pure-Rust rapier2d 2D physics subsystem) + `pite-render` (`Renderer2D` wgpu seam) + `pite-assets` (`Importer` trait, asset registry) + `pite-audio` (WAV/OGG/MP3/FLAC, silent-simulation fallback) + `pite-project` (`pite.toml`, `res://`, templates) + `pite-export` (binary + resolved content) + `pite-player` (lean run-only binary — the runtime without the editor) + `pite-editor` (egui panels, LSP client). Docs in `docs/` are authoritative per topic: `scene-format`, `scripting-api`, `assets`, `editor`, `manifest`, `export`, `lsp`.
 
 ## Gotchas agents miss
 
 - **Scenes**: `.ptscn` TOML is source of truth; binary `_cache/<stem>.<hash>.bin` beside it is derived. Node ids are human strings, never UUIDs. Unknown `props` warn and survive saves (forward compat) — don't "clean" them. Saves are byte-stable (sorted prop keys); `[[instance]]` entries stay as entries with edits recorded as `"node.prop"` overrides, never inlined.
-- **Assets**: all refs are `res://` project-relative strings; absolute paths are forbidden. After renaming/moving an asset outside the editor, run `pite check --reimport-assets` (rewrites refs by uid); `check` without `--reimport-assets` never writes. Orphan-asset warnings only consider scenes transitively reachable from `main_scene`.
+- **Assets**: all refs are `res://` project-relative strings; absolute paths are forbidden. `assets.pite.toml` tracks content hashes and is committed to git. After renaming/moving an asset outside the editor, run `pite check --reimport-assets` (rewrites refs by content hash); `check` without `--reimport-assets` never writes. Orphan-asset warnings only consider scenes transitively reachable from `main_scene`.
 - **Deps**: exports drop `site-packages`; third-party imports die in an export unless vendored (`pite vendor add pkg==ver` → project `vendor/`, pinned in `[vendor]`). `pite check` warns per offending import; non-vendored sibling modules need `[export] include` to ship.
 - **Scripts**: one file = one class inheriting `pite.*`, `snake_case`. Missing `_ready`/`_process` is a no-op, never an error. Cross-node calls go through `get_node("../Name")`; a miss raises `KeyError`. Signals are typed (`pite.signal(int)`); `Button.pressed` and `Timer.timeout` (fires each `wait_time` seconds, looping; non-positive never fires) are engine-owned — just `connect`, don't declare.
 - **Logging**: `tracing` everywhere — never `println!`/`log::` in engine code.

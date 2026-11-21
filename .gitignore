@@ -3,7 +3,6 @@
 **/*.rs.bk
 .codegraph/
 .omo/
-assets.pite.toml
 _cache/
 .pitetoolchain/
 examples/*/dist/

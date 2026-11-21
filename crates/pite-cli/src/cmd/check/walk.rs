@@ -12,7 +12,7 @@ use super::report::CacheEntry;
 pub struct Walker<'a> {
     root: &'a Path,
     custom_props: &'a HashMap<String, String>,
-    uid_registry: &'a pite_assets::UidRegistry,
+    asset_registry: &'a pite_assets::AssetRegistry,
     by_hash: &'a HashMap<&'a str, &'a str>,
     pub findings: Vec<Finding>,
     pub cache: Vec<CacheEntry>,
@@ -27,13 +27,13 @@ impl<'a> Walker<'a> {
     pub fn new(
         root: &'a Path,
         custom_props: &'a HashMap<String, String>,
-        uid_registry: &'a pite_assets::UidRegistry,
+        asset_registry: &'a pite_assets::AssetRegistry,
         by_hash: &'a HashMap<&'a str, &'a str>,
     ) -> Self {
         Self {
             root,
             custom_props,
-            uid_registry,
+            asset_registry,
             by_hash,
             findings: Vec::new(),
             cache: Vec::new(),
@@ -322,7 +322,7 @@ impl<'a> Walker<'a> {
                 continue;
             }
             let moved_to = self
-                .uid_registry
+                .asset_registry
                 .iter()
                 .find(|entry| entry.path == reference)
                 .and_then(|entry| {
