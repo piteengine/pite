@@ -201,7 +201,7 @@ impl GameSession {
             self.tilemap_cache.clear();
         }
         let (cam, _) = self.camera_view();
-        r.set_camera(cam.0, cam.1, self.effective_zoom());
+        r.set_camera(cam, self.effective_zoom());
 
         // One walk: every renderable node becomes a `NodeDraw`, drawn in tree
         // order (matching Godot's z-order — reorder the tree to reorder draws).
@@ -236,8 +236,7 @@ impl GameSession {
                             r.draw_sprite_tinted(
                                 &sheet.to_string_lossy(),
                                 Some(&frame),
-                                pos.0,
-                                pos.1,
+                                pos,
                                 rotation as f64,
                                 z_index,
                                 modulate,
@@ -251,8 +250,7 @@ impl GameSession {
                                 r.draw_sprite_tinted(
                                     &resolved.to_string_lossy(),
                                     None,
-                                    pos.0,
-                                    pos.1,
+                                    pos,
                                     rotation as f64,
                                     z_index,
                                     modulate,
@@ -301,8 +299,7 @@ impl GameSession {
                                 r.draw_sprite_tinted(
                                     &sheet.to_string_lossy(),
                                     Some(frame_name),
-                                    pos.0,
-                                    pos.1,
+                                    pos,
                                     rotation as f64,
                                     z_index,
                                     modulate,
@@ -318,7 +315,7 @@ impl GameSession {
                     pos,
                     z_index,
                 } => {
-                    r.draw_text_layered(&text, pos.0, pos.1, size, color, z_index)?;
+                    r.draw_text_layered(&text, pos, size, color, z_index)?;
                 }
                 NodeDraw::Button {
                     text,
@@ -328,16 +325,9 @@ impl GameSession {
                     extent: (w, h),
                     z_index,
                 } => {
-                    r.draw_rect_layered(pos.0, pos.1, w, h, color, z_index)?;
+                    r.draw_rect_layered(pos, (w, h), color, z_index)?;
                     if !text.is_empty() {
-                        r.draw_text_layered(
-                            &text,
-                            pos.0,
-                            pos.1,
-                            size,
-                            [255, 255, 255, 255],
-                            z_index,
-                        )?;
+                        r.draw_text_layered(&text, pos, size, [255, 255, 255, 255], z_index)?;
                     }
                 }
                 NodeDraw::TileMap { id, pos, z_index } => {
@@ -446,8 +436,7 @@ impl GameSession {
                                                     &baked.sheet_str,
                                                     tile.uv,
                                                     (tile_w as f32, tile_h as f32),
-                                                    pos.0 + tile.local_x,
-                                                    pos.1 + tile.local_y,
+                                                    (pos.0 + tile.local_x, pos.1 + tile.local_y),
                                                     0.0,
                                                     layer_z,
                                                 )?;
@@ -467,8 +456,7 @@ impl GameSession {
                                                 &baked.sheet_str,
                                                 tile.uv,
                                                 (tile_w as f32, tile_h as f32),
-                                                pos.0 + tile.local_x,
-                                                pos.1 + tile.local_y,
+                                                (pos.0 + tile.local_x, pos.1 + tile.local_y),
                                                 0.0,
                                                 layer_z,
                                             )?;

@@ -946,7 +946,7 @@ mod tests {
             .import(good_mp3_id3.to_string_lossy().as_ref())
             .is_ok());
         let good_mp3_sync = root.join("good_sync.mp3");
-        std::fs::write(&good_mp3_sync, &[0xFF, 0xFB, 0x90, 0x64]).unwrap();
+        std::fs::write(&good_mp3_sync, [0xFF, 0xFB, 0x90, 0x64]).unwrap();
         assert!(Mp3Importer
             .import(good_mp3_sync.to_string_lossy().as_ref())
             .is_ok());

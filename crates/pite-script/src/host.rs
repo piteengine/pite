@@ -6,6 +6,7 @@ use std::sync::{Mutex, RwLock};
 
 use anyhow::Context as _;
 use pite_core::{NodeId, NodeTree, SignalRegistry, Vec2};
+use pite_scene::TileMapDoc;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
@@ -38,21 +39,39 @@ pub(crate) fn bound_target(callable: &Bound<'_, PyAny>) -> anyhow::Result<(Strin
     Ok((node_path, name))
 }
 
+type TileSet = std::collections::HashSet<(
+    usize, // Layer
+    i32,   // Column
+    i32,   // Row
+)>;
+type PyInstanceRegistry = HashMap<String, Py<PyAny>>;
+type SignalSource = (
+    String, // Source
+    String, // Signal Name
+);
+type SignalConnectionRegistry = HashMap<
+    SignalSource,
+    Vec<(
+        String, // Target
+        String, // Method Name
+    )>,
+>;
+
 /// Central host managing embedded Python script execution, node proxies, and signal routing.
 pub struct ScriptHost {
     tree: Mutex<NodeTree>,
-    instances: Mutex<HashMap<String, Py<PyAny>>>,
+    instances: Mutex<PyInstanceRegistry>,
     signals: Mutex<HashMap<String, SignalRegistry>>,
-    connections: Mutex<HashMap<(String, String), Vec<(String, String)>>>,
-    callable_connections: Mutex<HashMap<(String, String), Vec<Py<PyAny>>>>,
+    connections: Mutex<SignalConnectionRegistry>,
+    callable_connections: Mutex<HashMap<SignalSource, Vec<Py<PyAny>>>>,
     proxy_cache: Mutex<HashMap<(String, String), Py<NodeProxy>>>,
     /// Declared custom props from `[props]`: `name -> type name`. Populated
     /// by `GameSession::open` from the project manifest. Read by
     /// `set_custom_property` to validate writes.
     custom_prop_schema: RwLock<HashMap<String, String>>,
-    tilemaps: Mutex<HashMap<String, pite_scene::TileMapDoc>>,
+    tilemaps: Mutex<HashMap<String, TileMapDoc>>,
     tilemap_versions: Mutex<HashMap<String, u64>>,
-    dirty_tile_chunks: Mutex<HashMap<String, std::collections::HashSet<(usize, i32, i32)>>>,
+    dirty_tile_chunks: Mutex<HashMap<String, TileSet>>,
 }
 
 /// Permitted primitive types for signal argument payloads.
@@ -110,7 +129,7 @@ impl ScriptHost {
                 tracing::error!(node = %node, key = %key, "node missing; returning type default");
                 return T::default();
             };
-            if let Some(v) = n.props.get(key).and_then(|v| extract(v)) {
+            if let Some(v) = n.props.get(key).and_then(&extract) {
                 return v;
             }
             #[cfg(not(test))]

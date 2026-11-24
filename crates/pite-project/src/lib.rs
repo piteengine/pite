@@ -103,7 +103,7 @@ fn default_window_height() -> u32 {
 /// Export settings. Everything defaults. `platforms` was removed in 0.1.1
 /// (export never read it); manifests that still carry it parse untouched
 /// and warn via `validate_manifest`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExportConfig {
     #[serde(default)]
     pub binary_name: Option<String>,
@@ -111,16 +111,6 @@ pub struct ExportConfig {
     pub include: Vec<String>,
     #[serde(flatten, default)]
     pub extra: HashMap<String, toml::Value>,
-}
-
-impl Default for ExportConfig {
-    fn default() -> Self {
-        Self {
-            binary_name: None,
-            include: Vec::new(),
-            extra: HashMap::new(),
-        }
-    }
 }
 
 /// One pinned package in `[vendor]`. `sha256` covers the stored artifact:

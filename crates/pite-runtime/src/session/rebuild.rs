@@ -28,11 +28,13 @@ fn slot_still_valid(
     }
 }
 
+type EngineSignal<'a> = (&'a str, &'a [(&'a str, &'a [&'a str])]);
+
 /// Engine-owned signals every node of that type declares before `_ready`
 /// runs. Subclasses that re-declare `pressed`/`timeout` still work
 /// (`declare_signals` is idempotent). Adding a new engine signal = one
 /// row here, no code change in `rebuild`.
-const ENGINE_SIGNALS: &[(&str, &[(&str, &[&str])])] = &[
+const ENGINE_SIGNALS: &[EngineSignal] = &[
     ("Button", &[("pressed", &[])]),
     ("Timer", &[("timeout", &[])]),
     (
@@ -150,18 +152,17 @@ impl GameSession {
 
         self.rebuild_physics();
 
-        let all_nodes: Vec<(NodeId, String, Option<(PathBuf, String)>)> =
-            self.host.with_tree(|tree| {
-                tree.iter()
-                    .map(|node| {
-                        let script = node.script.as_ref().and_then(|s| {
-                            resolve_script(&s.path, &self.scene_dir, self.project_dir.as_deref())
-                                .map(|p| (p, s.class_name.clone()))
-                        });
-                        (node.id.clone(), node.type_name.clone(), script)
-                    })
-                    .collect()
-            });
+        let all_nodes: Vec<_> = self.host.with_tree(|tree| {
+            tree.iter()
+                .map(|node| {
+                    let script = node.script.as_ref().and_then(|s| {
+                        resolve_script(&s.path, &self.scene_dir, self.project_dir.as_deref())
+                            .map(|p| (p, s.class_name.clone()))
+                    });
+                    (node.id.clone(), node.type_name.clone(), script)
+                })
+                .collect()
+        });
 
         let mut olds: HashMap<String, InstanceSlot> = HashMap::new();
         for slot in self.instances.drain(..) {

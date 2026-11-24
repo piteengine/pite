@@ -125,7 +125,7 @@ pub fn archive_path(spec: &BundleSpec) -> PathBuf {
     toolchain_dir()
         .join(spec.platform)
         .join(PINNED_PYTHON)
-        .join(&spec.file)
+        .join(spec.file)
 }
 
 /// Fetch the pinned archive into the toolchain cache and verify it.
@@ -200,7 +200,7 @@ pub fn verify(spec: &BundleSpec, path: &Path, progress: &mut dyn Progress) -> Re
 pub(crate) fn download(url: &str, dest: &Path) -> Result<()> {
     use std::io::IsTerminal;
     let tool = downloader()?;
-    let mut cmd = std::process::Command::new(&tool);
+    let mut cmd = std::process::Command::new(tool);
     cmd.args(["--fail", "--location", "--retry", "3", "--retry-delay", "3"]);
     if std::io::stderr().is_terminal() {
         cmd.arg("--progress-bar");
@@ -269,7 +269,7 @@ pub fn stage(
     std::fs::create_dir_all(&work).with_context(|| format!("cannot create {}", work.display()))?;
     unpack(spec, archive, &work)?;
 
-    let lib_src = work.join(ARCHIVE_ROOT).join(&spec.lib);
+    let lib_src = work.join(ARCHIVE_ROOT).join(spec.lib);
     if !lib_src.is_file() {
         bail!(
             "archive {} does not contain {ARCHIVE_ROOT}/{}",
@@ -288,7 +288,7 @@ pub fn stage(
     std::fs::copy(&lib_src, &lib).with_context(|| format!("cannot copy {}", lib_src.display()))?;
     strip_debug(&lib);
 
-    let stdlib_dir = work.join(ARCHIVE_ROOT).join(&spec.stdlib);
+    let stdlib_dir = work.join(ARCHIVE_ROOT).join(spec.stdlib);
     if !stdlib_dir.is_dir() {
         bail!(
             "archive {} does not contain {ARCHIVE_ROOT}/{}",

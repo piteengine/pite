@@ -127,7 +127,7 @@ pub fn node_type_icon(type_name: &str) -> Icon {
 /// automatically land in the right family without an editor change.
 pub fn node_type_color(type_name: &str) -> egui::Color32 {
     let chain = pite_core::inheritance_chain(type_name);
-    let has = |name: &str| chain.iter().any(|t| *t == name);
+    let has = |name: &str| chain.contains(&name);
 
     // `CollisionShape2D` inherits `Node2D` directly, not `CollisionObject2D`,
     // so it's the one node spelled out here — the "physics by convention"

@@ -11,12 +11,16 @@ fn dogfood_scene() -> PathBuf {
         .join("main.ptscn")
 }
 
+type LayeredCall = (String, Option<String>, (f64, f64), i32);
+type TintedCall = (String, Option<String>, (f64, f64), i32, [u8; 4]);
+type UVCall = (String, [f32; 4], (f32, f32), (f64, f64), i32);
+
 #[derive(Default)]
 struct RecordingRenderer {
     calls: Vec<(String, Option<String>, (f64, f64))>,
-    layered_calls: Vec<(String, Option<String>, (f64, f64), i32)>,
-    tinted_calls: Vec<(String, Option<String>, (f64, f64), i32, [u8; 4])>,
-    uv_calls: Vec<(String, [f32; 4], (f32, f32), (f64, f64), i32)>,
+    layered_calls: Vec<LayeredCall>,
+    tinted_calls: Vec<TintedCall>,
+    uv_calls: Vec<UVCall>,
 }
 
 impl Renderer2D for RecordingRenderer {
@@ -24,12 +28,11 @@ impl Renderer2D for RecordingRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, _rotation: f64) -> Result<()> {
-        self.calls.push((texture.to_string(), None, (x, y)));
-        self.layered_calls
-            .push((texture.to_string(), None, (x, y), 0));
+    fn draw_sprite(&mut self, texture: &str, pos: (f64, f64), _rotation: f64) -> Result<()> {
+        self.calls.push((texture.to_string(), None, pos));
+        self.layered_calls.push((texture.to_string(), None, pos, 0));
         self.tinted_calls
-            .push((texture.to_string(), None, (x, y), 0, [255, 255, 255, 255]));
+            .push((texture.to_string(), None, pos, 0, [255, 255, 255, 255]));
         Ok(())
     }
 
@@ -37,18 +40,17 @@ impl Renderer2D for RecordingRenderer {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         _rotation: f64,
     ) -> Result<()> {
         self.calls
-            .push((texture.to_string(), frame.map(str::to_string), (x, y)));
+            .push((texture.to_string(), frame.map(str::to_string), pos));
         self.layered_calls
-            .push((texture.to_string(), frame.map(str::to_string), (x, y), 0));
+            .push((texture.to_string(), frame.map(str::to_string), pos, 0));
         self.tinted_calls.push((
             texture.to_string(),
             frame.map(str::to_string),
-            (x, y),
+            pos,
             0,
             [255, 255, 255, 255],
         ));
@@ -59,23 +61,18 @@ impl Renderer2D for RecordingRenderer {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         _rotation: f64,
         z_index: i32,
     ) -> Result<()> {
         self.calls
-            .push((texture.to_string(), frame.map(str::to_string), (x, y)));
-        self.layered_calls.push((
-            texture.to_string(),
-            frame.map(str::to_string),
-            (x, y),
-            z_index,
-        ));
+            .push((texture.to_string(), frame.map(str::to_string), pos));
+        self.layered_calls
+            .push((texture.to_string(), frame.map(str::to_string), pos, z_index));
         self.tinted_calls.push((
             texture.to_string(),
             frame.map(str::to_string),
-            (x, y),
+            pos,
             z_index,
             [255, 255, 255, 255],
         ));
@@ -86,24 +83,19 @@ impl Renderer2D for RecordingRenderer {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         _rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
         self.calls
-            .push((texture.to_string(), frame.map(str::to_string), (x, y)));
-        self.layered_calls.push((
-            texture.to_string(),
-            frame.map(str::to_string),
-            (x, y),
-            z_index,
-        ));
+            .push((texture.to_string(), frame.map(str::to_string), pos));
+        self.layered_calls
+            .push((texture.to_string(), frame.map(str::to_string), pos, z_index));
         self.tinted_calls.push((
             texture.to_string(),
             frame.map(str::to_string),
-            (x, y),
+            pos,
             z_index,
             color,
         ));
@@ -115,19 +107,17 @@ impl Renderer2D for RecordingRenderer {
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
         self.uv_calls
-            .push((texture.to_string(), uv, size_px, (x, y), z_index));
+            .push((texture.to_string(), uv, size_px, pos, z_index));
         self.draw_sprite_uv_tinted(
             texture,
             uv,
             size_px,
-            x,
-            y,
+            pos,
             rotation,
             z_index,
             [255, 255, 255, 255],
@@ -139,32 +129,30 @@ impl Renderer2D for RecordingRenderer {
         texture: &str,
         _uv: [f32; 4],
         _size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         _rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
-        self.calls.push((texture.to_string(), None, (x, y)));
+        self.calls.push((texture.to_string(), None, pos));
         self.layered_calls
-            .push((texture.to_string(), None, (x, y), z_index));
+            .push((texture.to_string(), None, pos, z_index));
         self.tinted_calls
-            .push((texture.to_string(), None, (x, y), z_index, color));
+            .push((texture.to_string(), None, pos, z_index, color));
         Ok(())
     }
 
     fn draw_text(
         &mut self,
         _text: &str,
-        _x: f64,
-        _y: f64,
+        _pos: (f64, f64),
         _size: f32,
         _color: [u8; 4],
     ) -> Result<()> {
         Ok(())
     }
 
-    fn draw_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64, _color: [u8; 4]) -> Result<()> {
+    fn draw_rect(&mut self, _pos: (f64, f64), _size: (f64, f64), _color: [u8; 4]) -> Result<()> {
         Ok(())
     }
 

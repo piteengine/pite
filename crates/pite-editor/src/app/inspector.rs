@@ -457,7 +457,7 @@ impl EditorApp {
                             let is_present = node.props.0.contains_key(def.key);
                             let live_val = node.props.get(def.key);
                             let is_modified = is_present
-                                && live_val.map_or(false, |v| !def.default_value.matches(v));
+                                && live_val.is_some_and(|v| !def.default_value.matches(v));
 
                             let label_style = if is_modified {
                                 egui::RichText::new(def.label)

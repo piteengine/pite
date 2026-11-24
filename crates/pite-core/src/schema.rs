@@ -104,7 +104,7 @@ pub fn node_type_schema(type_name: &str) -> Option<&'static NodeTypeSchema> {
 }
 
 /// Computes the inheritance chain for a node type from leaf to root (e.g. `["Sprite2D", "Node2D", "Node"]`).
-pub fn inheritance_chain<'a>(type_name: &'a str) -> Vec<&'a str> {
+pub fn inheritance_chain(type_name: &str) -> Vec<&str> {
     let mut chain = Vec::new();
     let mut current = Some(type_name);
     while let Some(curr) = current {

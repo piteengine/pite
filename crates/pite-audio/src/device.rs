@@ -136,19 +136,19 @@ impl CpalBackend {
         let err_fn = |err| tracing::error!("audio output stream error: {err}");
         let stream = match format {
             cpal::SampleFormat::F32 => device.build_output_stream(
-                config.clone(),
+                config,
                 Self::data_fn::<f32>(shared.clone(), channels),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_output_stream(
-                config.clone(),
+                config,
                 Self::data_fn::<i16>(shared.clone(), channels),
                 err_fn,
                 None,
             ),
             _ => device.build_output_stream(
-                config.clone(),
+                config,
                 Self::data_fn::<u16>(shared.clone(), channels),
                 err_fn,
                 None,
@@ -242,7 +242,7 @@ mod tests {
         let audio = tone(44100, 1, 4);
         let stereo = resample(&audio, 44100, 2);
         assert_eq!(stereo.len(), 8);
-        for (i, chunk) in stereo.chunks_exact(2).enumerate() {
+        for (i, chunk) in stereo.as_chunks::<2>().0.iter().enumerate() {
             assert_eq!(chunk, &[audio.samples[i], audio.samples[i]]);
         }
     }

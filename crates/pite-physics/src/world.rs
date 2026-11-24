@@ -102,16 +102,51 @@ impl Default for PhysicsWorld {
     }
 }
 
+pub struct CollisionData {
+    pub layer: u32,
+    pub mask: u32,
+}
+
+impl Default for CollisionData {
+    fn default() -> Self {
+        Self { layer: 1, mask: 1 }
+    }
+}
+
+pub struct ColliderProps {
+    pub offset: (f32, f32),
+    pub rotation: f32,
+    pub is_sensor: bool,
+    pub friction: f32,
+    pub restitution: f32,
+}
+
+impl Default for ColliderProps {
+    fn default() -> Self {
+        Self {
+            offset: (0.0, 0.0),
+            rotation: 0.0,
+            is_sensor: false,
+            friction: 0.0,
+            restitution: 0.0,
+        }
+    }
+}
+
 impl PhysicsWorld {
     /// Creates a new 2D physics world initialized with 60 Hz fixed timestep and downward gravity.
     pub fn new() -> Self {
-        let mut character_controller = KinematicCharacterController::default();
-        character_controller.up = Vector::new(0.0, -1.0); // Standard 2D coordinate system: -Y is up
-        character_controller.offset = CharacterLength::Absolute(0.01);
-        character_controller.slide = true;
+        let character_controller = KinematicCharacterController {
+            up: Vector::new(0.0, -1.0), // Standard 2D coordinate system: -Y is up
+            offset: CharacterLength::Absolute(0.01),
+            slide: true,
+            ..Default::default()
+        };
 
-        let mut integration_parameters = IntegrationParameters::default();
-        integration_parameters.dt = 1.0 / 60.0;
+        let integration_parameters = IntegrationParameters {
+            dt: 1.0 / 60.0,
+            ..Default::default()
+        };
 
         Self {
             gravity: Vector::new(0.0, 980.0), // 980 pixels/sec^2
@@ -214,31 +249,26 @@ impl PhysicsWorld {
         body_id: &NodeId,
         shape_node_id: NodeId,
         config: ShapeConfig,
-        offset: (f32, f32),
-        rotation: f32,
-        is_sensor: bool,
-        collision_layer: u32,
-        collision_mask: u32,
-        friction: f32,
-        restitution: f32,
+        collision: &CollisionData,
+        props: ColliderProps,
     ) {
         if let Some(&body_handle) = self.node_to_body.get(body_id) {
             let shared_shape = config.to_shared_shape();
             let mut collider_builder = ColliderBuilder::new(shared_shape)
-                .translation(Vector::new(offset.0, offset.1))
-                .rotation(rotation)
-                .friction(friction)
-                .restitution(restitution)
+                .translation(Vector::new(props.offset.0, props.offset.1))
+                .rotation(props.rotation)
+                .friction(props.friction)
+                .restitution(props.restitution)
                 .active_events(ActiveEvents::COLLISION_EVENTS)
                 .active_collision_types(ActiveCollisionTypes::all());
 
-            if is_sensor || self.area_nodes.contains(body_id) {
+            if props.is_sensor || self.area_nodes.contains(body_id) {
                 collider_builder = collider_builder.sensor(true);
             }
 
             // Set collision filter groups
-            let memberships = Group::from_bits_truncate(collision_layer);
-            let filter = Group::from_bits_truncate(collision_mask);
+            let memberships = Group::from_bits_truncate(collision.layer);
+            let filter = Group::from_bits_truncate(collision.mask);
             collider_builder = collider_builder.collision_groups(InteractionGroups::new(
                 memberships,
                 filter,
@@ -265,8 +295,10 @@ impl PhysicsWorld {
                 .insert(collider_handle, shape_node_id.clone());
             self.collider_to_body
                 .insert(collider_handle, body_id.clone());
-            self.shape_configs
-                .insert(shape_node_id, (config, Vector::new(offset.0, offset.1)));
+            self.shape_configs.insert(
+                shape_node_id,
+                (config, Vector::new(props.offset.0, props.offset.1)),
+            );
         }
     }
 
@@ -278,8 +310,7 @@ impl PhysicsWorld {
         origin: (f32, f32),
         tile_size: (f32, f32),
         solid_cells: &[(i32, i32)],
-        collision_layer: u32,
-        collision_mask: u32,
+        collision: CollisionData,
     ) {
         let merged = crate::tilemap::merge_tile_cells(solid_cells);
         if merged.is_empty() {
@@ -303,13 +334,11 @@ impl PhysicsWorld {
                     width: w_world,
                     height: h_world,
                 },
-                (offset_x, offset_y),
-                0.0,
-                false,
-                collision_layer,
-                collision_mask,
-                0.0,
-                0.0,
+                &collision,
+                ColliderProps {
+                    offset: (offset_x, offset_y),
+                    ..Default::default()
+                },
             );
         }
     }
@@ -681,13 +710,11 @@ mod tests {
                 width: 200.0,
                 height: 20.0,
             },
-            (0.0, 0.0),
-            0.0,
-            false,
-            1,
-            1,
-            0.5,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps {
+                friction: 0.5,
+                ..Default::default()
+            },
         );
 
         // Character starting at y = 70 with a box 20 x 20 (bottom at y = 80)
@@ -700,13 +727,8 @@ mod tests {
                 width: 20.0,
                 height: 20.0,
             },
-            (0.0, 0.0),
-            0.0,
-            false,
-            1,
-            1,
-            0.0,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         // Move downward by 50 units (trying to reach y = 120, but floor top is at 90)
@@ -729,13 +751,8 @@ mod tests {
                 width: 10.0,
                 height: 10.0,
             },
-            (0.0, 0.0),
-            0.0,
-            false,
-            1,
-            1,
-            0.5,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         // Step for 10 frames (1/60s each)
@@ -757,13 +774,8 @@ mod tests {
             &area_id,
             NodeId::from("CoinShape"),
             ShapeConfig::Circle { radius: 20.0 },
-            (0.0, 0.0),
-            0.0,
-            true,
-            1,
-            1,
-            0.0,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         let body_id = NodeId::from("Ball");
@@ -772,13 +784,8 @@ mod tests {
             &body_id,
             NodeId::from("BallShape"),
             ShapeConfig::Circle { radius: 10.0 },
-            (0.0, 0.0),
-            0.0,
-            false,
-            1,
-            1,
-            0.0,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         world.step();
@@ -804,13 +811,8 @@ mod tests {
                 width: 50.0,
                 height: 50.0,
             },
-            (0.0, 0.0),
-            0.0,
-            true,
-            1,
-            1,
-            0.0,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         let char_id = NodeId::from("Char");
@@ -822,13 +824,8 @@ mod tests {
                 width: 20.0,
                 height: 20.0,
             },
-            (0.0, 0.0),
-            0.0,
-            false,
-            1,
-            1,
-            0.0,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         world.move_and_slide(&char_id, (0.0, 200.0), 1.0 / 60.0, (0.0, -1.0));
@@ -851,13 +848,8 @@ mod tests {
                 width: 20.0,
                 height: 100.0,
             },
-            (0.0, 0.0),
-            0.0,
-            false,
-            1,
-            1,
-            0.0,
-            0.0,
+            &CollisionData::default(),
+            ColliderProps::default(),
         );
 
         world.step(); // update query pipeline

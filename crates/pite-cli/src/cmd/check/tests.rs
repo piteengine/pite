@@ -519,7 +519,7 @@ fn check_warns_on_missing_and_stale_assets_manifest() {
     let png_bytes = [
         0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01, 0x02,
     ];
-    std::fs::write(root.join("assets").join("hero.png"), &png_bytes).unwrap();
+    std::fs::write(root.join("assets").join("hero.png"), png_bytes).unwrap();
     std::fs::write(
         root.join("scenes").join("main.ptscn"),
         "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Sprite2D\"\nname = \"Main\"\n\n[node.props]\ntexture = \"res://assets/hero.png\"\n",

@@ -221,7 +221,7 @@ pub fn decode_audio(path: &Path) -> Result<DecodedAudio> {
 
                 byte_vec.clear();
                 buf_ref.copy_bytes_to_vec_interleaved_as::<f32>(&mut byte_vec);
-                for chunk in byte_vec.chunks_exact(4) {
+                for chunk in byte_vec.as_chunks::<4>().0 {
                     let sample = f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                     samples.push(sample);
                 }

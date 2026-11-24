@@ -1008,7 +1008,7 @@ impl LspClient {
 /// Starter outcome delivered to the UI thread.
 pub enum LspOutcome {
     Ready {
-        client: LspClient,
+        client: Box<LspClient>,
         warning: Option<String>,
     },
     Failed(String),
@@ -1076,7 +1076,10 @@ fn start_blocking(root_dir: Option<&Path>, script: &Path) -> LspOutcome {
         server_version,
     );
     client.bridge = bridge;
-    LspOutcome::Ready { client, warning }
+    LspOutcome::Ready {
+        client: Box::new(client),
+        warning,
+    }
 }
 
 #[cfg(test)]

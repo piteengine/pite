@@ -136,16 +136,11 @@ fn scan_string(text: &[u8], i: usize, raw: bool) -> usize {
 }
 
 fn scan_number(text: &[u8], mut j: usize) -> usize {
-    while j < text.len() {
-        let c = text[j];
-        if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
-            j += 1;
-        } else if (c == b'+' || c == b'-')
-            && matches!(text.get(j.wrapping_sub(1)), Some(b'e' | b'E'))
-        {
-            j += 1;
-        } else {
-            break;
+    while let Some(&c) = text.get(j) {
+        match c {
+            b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'.' => j += 1,
+            b'+' | b'-' if j > 0 && matches!(text[j - 1], b'e' | b'E') => j += 1,
+            _ => break,
         }
     }
     j

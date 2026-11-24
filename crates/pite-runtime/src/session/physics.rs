@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use pite_core::{global_position, Node, PropValue};
-use pite_physics::{PhysicsWorld, ShapeConfig};
+use pite_physics::{
+    world::{ColliderProps, CollisionData},
+    PhysicsWorld, ShapeConfig,
+};
 
 use super::GameSession;
 
@@ -125,8 +128,10 @@ impl GameSession {
                                     (pos.0 as f32, pos.1 as f32),
                                     tile_size,
                                     &solid_cells,
-                                    layer.collision_layer,
-                                    layer.collision_mask,
+                                    CollisionData {
+                                        layer: layer.collision_layer,
+                                        mask: layer.collision_mask,
+                                    },
                                 );
                             }
                         }
@@ -223,13 +228,14 @@ impl GameSession {
                     &body.id,
                     node.id.clone(),
                     config,
-                    offset,
-                    shape_rot,
-                    is_sensor,
-                    layer,
-                    mask,
-                    friction,
-                    restitution,
+                    &CollisionData { layer, mask },
+                    ColliderProps {
+                        offset,
+                        rotation: shape_rot,
+                        is_sensor,
+                        friction,
+                        restitution,
+                    },
                 );
             }
         });

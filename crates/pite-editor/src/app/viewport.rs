@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::time::Instant;
 
-use eframe::egui;
-use pite_core::PropValue;
+use eframe::egui::{self};
+use pite_core::{PropValue, Vec2};
 use pite_render::{OffscreenRenderer, Renderer2D};
 use pite_runtime::GameSession;
 
 use super::EditorApp;
+
+struct NodeViewportData {
+    id: String,
+    type_name: String,
+    position: Vec2,
+    text: String,
+    size: Vec2,
+}
 
 /// egui keys forwarded to the running scene, with the `pite.held` /
 /// `pite.pressed` names scripts use. Level-read each frame while playing.
@@ -222,45 +230,58 @@ impl EditorApp {
                 egui::Image::from_texture(handle).paint_at(ui, view_rect);
             }
         } else {
-            let nodes: Vec<(String, String, (f64, f64), String, (f64, f64))> =
-                self.session.host().with_tree(|t| {
-                    t.iter()
-                        .map(|n| {
-                            let pos = match n.props.get("position") {
-                                Some(PropValue::Vec2(x, y)) => (*x, *y),
-                                _ => (0.0, 0.0),
-                            };
-                            let text = match n.props.get("text") {
-                                Some(PropValue::Str(s)) => s.clone(),
-                                _ => String::new(),
-                            };
-                            let size = match n.props.get("size") {
-                                Some(PropValue::Vec2(w, h)) => (*w, *h),
-                                _ => (0.0, 0.0),
-                            };
-                            (n.id.to_string(), n.type_name.clone(), pos, text, size)
-                        })
-                        .collect()
-                });
+            let nodes = self.session.host().with_tree(|t| -> Vec<NodeViewportData> {
+                t.iter()
+                    .map(|n| {
+                        let position = match n.props.get("position") {
+                            Some(PropValue::Vec2(x, y)) => Vec2 { x: *x, y: *y },
+                            _ => Vec2::default(),
+                        };
+                        let text = match n.props.get("text") {
+                            Some(PropValue::Str(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+                        let size = match n.props.get("size") {
+                            Some(PropValue::Vec2(w, h)) => Vec2 { x: *w, y: *h },
+                            _ => Vec2::default(),
+                        };
+                        NodeViewportData {
+                            id: n.id.to_string(),
+                            type_name: n.type_name.clone(),
+                            position,
+                            text,
+                            size,
+                        }
+                    })
+                    .collect()
+            });
             let center = view_rect.center();
             painter.rect_filled(view_rect, 0.0, crate::theme::BG);
-            for (id, type_name, (x, y), text, (w, h)) in nodes {
-                let p = center + egui::Vec2::new(x as f32, y as f32);
-                let color = if type_name == "Sprite2D" || type_name == "AnimatedSprite2D" {
+            for node in nodes {
+                let p = center + egui::Vec2::new(node.position.x as f32, node.position.y as f32);
+                let color = if node.type_name == "Sprite2D" || node.type_name == "AnimatedSprite2D"
+                {
                     egui::Color32::from_rgb(111, 179, 167)
                 } else {
                     egui::Color32::from_rgb(124, 155, 184)
                 };
                 painter.circle_filled(p, 6.0, color);
-                if type_name == "Button" && w > 0.0 && h > 0.0 {
+                if node.type_name == "Button" && node.size.x > 0.0 && node.size.y > 0.0 {
                     painter.rect_stroke(
-                        egui::Rect::from_center_size(p, egui::Vec2::new(w as f32, h as f32)),
+                        egui::Rect::from_center_size(
+                            p,
+                            egui::Vec2::new(node.size.x as f32, node.size.y as f32),
+                        ),
                         4.0,
                         egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(111, 179, 167)),
                         egui::StrokeKind::Middle,
                     );
                 }
-                let caption = if text.is_empty() { id } else { text };
+                let caption = if node.text.is_empty() {
+                    node.id
+                } else {
+                    node.text
+                };
                 painter.text(
                     p + egui::Vec2::new(10.0, -10.0),
                     egui::Align2::LEFT_TOP,
@@ -372,10 +393,8 @@ impl EditorApp {
                     modified = true;
                 }
             }
-        } else if right_down {
-            if doc.erase_cell(self.tilemap_active_layer, cell.0, cell.1) {
-                modified = true;
-            }
+        } else if right_down && doc.erase_cell(self.tilemap_active_layer, cell.0, cell.1) {
+            modified = true;
         }
 
         if modified {

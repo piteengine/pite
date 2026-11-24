@@ -263,15 +263,15 @@ impl EditorApp {
                         let last =
                             cursor_byte.and_then(|off| self.code_text[..off].chars().next_back());
                         let is_word = matches!(last, Some(c) if c.is_alphanumeric() || c == '_');
-                        let paren_at = cursor_byte
-                            .filter(|&off| self.code_text[..off].chars().next_back() == Some('('));
+                        let paren_at =
+                            cursor_byte.filter(|&off| self.code_text[..off].ends_with('('));
                         self.code_changed(paren_at);
-                        if grew && last == Some('.') {
-                            self.request_completion_at(cursor_byte);
-                        } else if grew && is_word {
-                            self.request_completion_at(cursor_byte);
-                        } else if grew && !is_word {
-                            self.close_completion();
+                        if grew {
+                            if last == Some('.') || is_word {
+                                self.request_completion_at(cursor_byte);
+                            } else if !is_word {
+                                self.close_completion();
+                            }
                         }
                     }
                     if resp.has_focus() {
@@ -396,7 +396,7 @@ impl EditorApp {
                                 }
                             }
                         }
-                        self.lsp = Some(client);
+                        self.lsp = Some(*client);
                     }
                     LspOutcome::Failed(msg) => {
                         self.log(msg);

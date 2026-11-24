@@ -17,7 +17,7 @@ const FULL_UV: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 pub trait Renderer2D {
     fn begin_frame(&mut self) -> Result<()>;
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, rotation: f64) -> Result<()>;
+    fn draw_sprite(&mut self, texture: &str, pos: (f64, f64), rotation: f64) -> Result<()>;
     /// Draw `texture`, optionally from one named atlas frame, rotated by
     /// `rotation` radians around the sprite center. The default impl
     /// forwards to `draw_sprite`, so impls without atlas support stay
@@ -26,12 +26,11 @@ pub trait Renderer2D {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
     ) -> Result<()> {
         let _ = frame;
-        self.draw_sprite(texture, x, y, rotation)
+        self.draw_sprite(texture, pos, rotation)
     }
     /// Draw `texture`, optionally from one named atlas frame, at explicit
     /// `z_index`. Higher z_index values draw on top. Ties fall back to
@@ -40,20 +39,11 @@ pub trait Renderer2D {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
-        self.draw_sprite_tinted(
-            texture,
-            frame,
-            x,
-            y,
-            rotation,
-            z_index,
-            [255, 255, 255, 255],
-        )
+        self.draw_sprite_tinted(texture, frame, pos, rotation, z_index, [255, 255, 255, 255])
     }
     /// Draw `texture`, optionally from one named atlas frame, at explicit
     /// `z_index` and modulated by `color` (RGBA). Higher z_index values draw
@@ -62,14 +52,13 @@ pub trait Renderer2D {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
         let _ = (z_index, color);
-        self.draw_sprite_frame(texture, frame, x, y, rotation)
+        self.draw_sprite_frame(texture, frame, pos, rotation)
     }
     /// Draw `texture` using pre-resolved normalized `uv` rect `[u_min, v_min, u_max, v_max]`
     /// and pixel dimensions `size_px: (f32, f32)`. Higher z_index values draw on top.
@@ -78,8 +67,7 @@ pub trait Renderer2D {
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
@@ -87,8 +75,7 @@ pub trait Renderer2D {
             texture,
             uv,
             size_px,
-            x,
-            y,
+            pos,
             rotation,
             z_index,
             [255, 255, 255, 255],
@@ -96,48 +83,46 @@ pub trait Renderer2D {
     }
     /// Draw `texture` using pre-resolved normalized `uv` rect `[u_min, v_min, u_max, v_max]`
     /// and pixel dimensions `size_px: (f32, f32)` modulated by `color` (RGBA).
+    // Intentional: Item is private and arguments are semantically separated.
+    #[allow(clippy::too_many_arguments)]
     fn draw_sprite_uv_tinted(
         &mut self,
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
         let _ = (uv, size_px, color);
-        self.draw_sprite_layered(texture, None, x, y, rotation, z_index)
+        self.draw_sprite_layered(texture, None, pos, rotation, z_index)
     }
-    fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()>;
+    fn draw_text(&mut self, text: &str, pos: (f64, f64), size: f32, color: [u8; 4]) -> Result<()>;
     fn draw_text_layered(
         &mut self,
         text: &str,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         size: f32,
         color: [u8; 4],
         z_index: i32,
     ) -> Result<()> {
         let _ = z_index;
-        self.draw_text(text, x, y, size, color)
+        self.draw_text(text, pos, size, color)
     }
-    fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()>;
+    fn draw_rect(&mut self, pos: (f64, f64), size: (f64, f64), color: [u8; 4]) -> Result<()>;
     fn draw_rect_layered(
         &mut self,
-        x: f64,
-        y: f64,
-        w: f64,
-        h: f64,
+        pos: (f64, f64),
+        size: (f64, f64),
         color: [u8; 4],
         z_index: i32,
     ) -> Result<()> {
         let _ = z_index;
-        self.draw_rect(x, y, w, h, color)
+        self.draw_rect(pos, size, color)
     }
     fn end_frame(&mut self) -> Result<()>;
-    fn set_camera(&mut self, _x: f64, _y: f64, _zoom: f64) {}
+    fn set_camera(&mut self, _pos: (f64, f64), _zoom: f64) {}
     fn reload_asset(&mut self, _path: &str) {}
     fn clear_asset_cache(&mut self) {}
 }
@@ -150,7 +135,7 @@ impl Renderer2D for NoopRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, _texture: &str, _x: f64, _y: f64, _rotation: f64) -> Result<()> {
+    fn draw_sprite(&mut self, _texture: &str, _pos: (f64, f64), _rotation: f64) -> Result<()> {
         Ok(())
     }
 
@@ -158,8 +143,7 @@ impl Renderer2D for NoopRenderer {
         &mut self,
         _texture: &str,
         _frame: Option<&str>,
-        _x: f64,
-        _y: f64,
+        _pos: (f64, f64),
         _rotation: f64,
         _z_index: i32,
         _color: [u8; 4],
@@ -170,15 +154,14 @@ impl Renderer2D for NoopRenderer {
     fn draw_text(
         &mut self,
         _text: &str,
-        _x: f64,
-        _y: f64,
+        _pos: (f64, f64),
         _size: f32,
         _color: [u8; 4],
     ) -> Result<()> {
         Ok(())
     }
 
-    fn draw_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64, _color: [u8; 4]) -> Result<()> {
+    fn draw_rect(&mut self, _pos: (f64, f64), _size: (f64, f64), _color: [u8; 4]) -> Result<()> {
         Ok(())
     }
 
@@ -846,8 +829,8 @@ impl SharedQueue {
             .write_buffer(&self.instance_buf, 0, bytemuck::cast_slice(instances));
     }
 
-    fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.cam = (x, y);
+    fn set_camera(&mut self, pos: (f64, f64), zoom: f64) {
+        self.cam = pos;
         self.zoom = if zoom > 0.0 { zoom } else { 1.0 };
     }
 
@@ -989,6 +972,8 @@ impl SharedQueue {
         Ok(())
     }
 
+    // Intentional: Item is private and arguments are semantically separated.
+    #[allow(clippy::too_many_arguments)]
     fn queue_sprite_uv(
         &mut self,
         texture: &str,
@@ -1015,15 +1000,14 @@ impl SharedQueue {
         Ok(())
     }
 
-    fn queue_rect(&mut self, world: (f64, f64), w: f64, h: f64, color: [u8; 4]) {
-        self.queue_rect_layered(world, w, h, color, 0);
+    fn queue_rect(&mut self, world: (f64, f64), size: (f64, f64), color: [u8; 4]) {
+        self.queue_rect_layered(world, size, color, 0);
     }
 
     fn queue_rect_layered(
         &mut self,
         world: (f64, f64),
-        w: f64,
-        h: f64,
+        size: (f64, f64),
         color: [u8; 4],
         z_index: i32,
     ) {
@@ -1041,7 +1025,7 @@ impl SharedQueue {
         let texture_id = self.texture_id_for(key);
         let order = self.next_order();
         self.queue_list.push(QueuedSprite {
-            size_world: Some((w.max(1.0), h.max(1.0))),
+            size_world: Some((size.0.max(1.0), size.1.max(1.0))),
             color,
             ..QueuedSprite::plain(texture_id, world, z_index, order)
         });
@@ -1202,8 +1186,8 @@ impl Renderer2D for WgpuRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, rotation: f64) -> Result<()> {
-        self.shared.queue_sprite(texture, (x, y), rotation as f32);
+    fn draw_sprite(&mut self, texture: &str, pos: (f64, f64), rotation: f64) -> Result<()> {
+        self.shared.queue_sprite(texture, pos, rotation as f32);
         Ok(())
     }
 
@@ -1211,46 +1195,35 @@ impl Renderer2D for WgpuRenderer {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
     ) -> Result<()> {
         self.shared
-            .queue_sprite_frame(texture, frame, (x, y), rotation as f32)
+            .queue_sprite_frame(texture, frame, pos, rotation as f32)
     }
 
     fn draw_sprite_layered(
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
-        self.draw_sprite_tinted(
-            texture,
-            frame,
-            x,
-            y,
-            rotation,
-            z_index,
-            [255, 255, 255, 255],
-        )
+        self.draw_sprite_tinted(texture, frame, pos, rotation, z_index, [255, 255, 255, 255])
     }
 
     fn draw_sprite_tinted(
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
         self.shared
-            .queue_sprite_tinted(texture, frame, (x, y), rotation as f32, z_index, color)
+            .queue_sprite_tinted(texture, frame, pos, rotation as f32, z_index, color)
     }
 
     fn draw_sprite_uv(
@@ -1258,8 +1231,7 @@ impl Renderer2D for WgpuRenderer {
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
@@ -1267,8 +1239,7 @@ impl Renderer2D for WgpuRenderer {
             texture,
             uv,
             size_px,
-            x,
-            y,
+            pos,
             rotation,
             z_index,
             [255, 255, 255, 255],
@@ -1280,57 +1251,46 @@ impl Renderer2D for WgpuRenderer {
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
-        self.shared.queue_sprite_uv(
-            texture,
-            uv,
-            size_px,
-            (x, y),
-            rotation as f32,
-            z_index,
-            color,
-        )
+        self.shared
+            .queue_sprite_uv(texture, uv, size_px, pos, rotation as f32, z_index, color)
     }
 
-    fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
-        self.shared.queue_rect((x, y), w, h, color);
+    fn draw_rect(&mut self, pos: (f64, f64), size: (f64, f64), color: [u8; 4]) -> Result<()> {
+        self.shared.queue_rect(pos, size, color);
         Ok(())
     }
 
     fn draw_rect_layered(
         &mut self,
-        x: f64,
-        y: f64,
-        w: f64,
-        h: f64,
+        pos: (f64, f64),
+        size: (f64, f64),
         color: [u8; 4],
         z_index: i32,
     ) -> Result<()> {
-        self.shared.queue_rect_layered((x, y), w, h, color, z_index);
+        self.shared.queue_rect_layered(pos, size, color, z_index);
         Ok(())
     }
 
-    fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
-        self.shared.draw_text_queued(text, (x, y), size, color);
+    fn draw_text(&mut self, text: &str, pos: (f64, f64), size: f32, color: [u8; 4]) -> Result<()> {
+        self.shared.draw_text_queued(text, pos, size, color);
         Ok(())
     }
 
     fn draw_text_layered(
         &mut self,
         text: &str,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         size: f32,
         color: [u8; 4],
         z_index: i32,
     ) -> Result<()> {
         self.shared
-            .draw_text_queued_layered(text, (x, y), size, color, z_index);
+            .draw_text_queued_layered(text, pos, size, color, z_index);
         Ok(())
     }
 
@@ -1356,8 +1316,8 @@ impl Renderer2D for WgpuRenderer {
         Ok(())
     }
 
-    fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.shared.set_camera(x, y, zoom);
+    fn set_camera(&mut self, pos: (f64, f64), zoom: f64) {
+        self.shared.set_camera(pos, zoom);
     }
 
     fn reload_asset(&mut self, path: &str) {
@@ -1429,7 +1389,7 @@ impl OffscreenRenderer {
 
     pub fn render_to_rgba(&mut self) -> Result<Vec<u8>> {
         let (w, h) = (self.width, self.height);
-        let padded_bytes_per_row: u32 = ((w * 4 + 255) / 256) * 256;
+        let padded_bytes_per_row: u32 = (w * 4).div_ceil(256) * 256;
         let buffer_size: u64 = padded_bytes_per_row as u64 * h as u64;
         let draw_cmd = self.render_queued_to_target();
         let mut encoder = self
@@ -1500,8 +1460,8 @@ impl Renderer2D for OffscreenRenderer {
         Ok(())
     }
 
-    fn draw_sprite(&mut self, texture: &str, x: f64, y: f64, rotation: f64) -> Result<()> {
-        self.shared.queue_sprite(texture, (x, y), rotation as f32);
+    fn draw_sprite(&mut self, texture: &str, pos: (f64, f64), rotation: f64) -> Result<()> {
+        self.shared.queue_sprite(texture, pos, rotation as f32);
         Ok(())
     }
 
@@ -1509,46 +1469,35 @@ impl Renderer2D for OffscreenRenderer {
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
     ) -> Result<()> {
         self.shared
-            .queue_sprite_frame(texture, frame, (x, y), rotation as f32)
+            .queue_sprite_frame(texture, frame, pos, rotation as f32)
     }
 
     fn draw_sprite_layered(
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
-        self.draw_sprite_tinted(
-            texture,
-            frame,
-            x,
-            y,
-            rotation,
-            z_index,
-            [255, 255, 255, 255],
-        )
+        self.draw_sprite_tinted(texture, frame, pos, rotation, z_index, [255, 255, 255, 255])
     }
 
     fn draw_sprite_tinted(
         &mut self,
         texture: &str,
         frame: Option<&str>,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
         self.shared
-            .queue_sprite_tinted(texture, frame, (x, y), rotation as f32, z_index, color)
+            .queue_sprite_tinted(texture, frame, pos, rotation as f32, z_index, color)
     }
 
     fn draw_sprite_uv(
@@ -1556,8 +1505,7 @@ impl Renderer2D for OffscreenRenderer {
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
     ) -> Result<()> {
@@ -1565,8 +1513,7 @@ impl Renderer2D for OffscreenRenderer {
             texture,
             uv,
             size_px,
-            x,
-            y,
+            pos,
             rotation,
             z_index,
             [255, 255, 255, 255],
@@ -1578,57 +1525,46 @@ impl Renderer2D for OffscreenRenderer {
         texture: &str,
         uv: [f32; 4],
         size_px: (f32, f32),
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         rotation: f64,
         z_index: i32,
         color: [u8; 4],
     ) -> Result<()> {
-        self.shared.queue_sprite_uv(
-            texture,
-            uv,
-            size_px,
-            (x, y),
-            rotation as f32,
-            z_index,
-            color,
-        )
+        self.shared
+            .queue_sprite_uv(texture, uv, size_px, pos, rotation as f32, z_index, color)
     }
 
-    fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, color: [u8; 4]) -> Result<()> {
-        self.shared.queue_rect((x, y), w, h, color);
+    fn draw_rect(&mut self, pos: (f64, f64), size: (f64, f64), color: [u8; 4]) -> Result<()> {
+        self.shared.queue_rect(pos, size, color);
         Ok(())
     }
 
     fn draw_rect_layered(
         &mut self,
-        x: f64,
-        y: f64,
-        w: f64,
-        h: f64,
+        pos: (f64, f64),
+        size: (f64, f64),
         color: [u8; 4],
         z_index: i32,
     ) -> Result<()> {
-        self.shared.queue_rect_layered((x, y), w, h, color, z_index);
+        self.shared.queue_rect_layered(pos, size, color, z_index);
         Ok(())
     }
 
-    fn draw_text(&mut self, text: &str, x: f64, y: f64, size: f32, color: [u8; 4]) -> Result<()> {
-        self.shared.draw_text_queued(text, (x, y), size, color);
+    fn draw_text(&mut self, text: &str, pos: (f64, f64), size: f32, color: [u8; 4]) -> Result<()> {
+        self.shared.draw_text_queued(text, pos, size, color);
         Ok(())
     }
 
     fn draw_text_layered(
         &mut self,
         text: &str,
-        x: f64,
-        y: f64,
+        pos: (f64, f64),
         size: f32,
         color: [u8; 4],
         z_index: i32,
     ) -> Result<()> {
         self.shared
-            .draw_text_queued_layered(text, (x, y), size, color, z_index);
+            .draw_text_queued_layered(text, pos, size, color, z_index);
         Ok(())
     }
 
@@ -1638,8 +1574,8 @@ impl Renderer2D for OffscreenRenderer {
         Ok(())
     }
 
-    fn set_camera(&mut self, x: f64, y: f64, zoom: f64) {
-        self.shared.set_camera(x, y, zoom);
+    fn set_camera(&mut self, pos: (f64, f64), zoom: f64) {
+        self.shared.set_camera(pos, zoom);
     }
 
     fn reload_asset(&mut self, path: &str) {
@@ -1891,14 +1827,15 @@ mod tests {
         r.draw_sprite_frame(
             "../../examples/minimal-2d/assets/sheet.png",
             Some("player"),
-            0.0,
-            0.0,
+            (0.0, 0.0),
             0.0,
         )
         .expect("queue sprite");
         let rgba = r.render_to_rgba().expect("offscreen readback");
         let seen: std::collections::HashSet<[u8; 4]> = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| [c[0], c[1], c[2], c[3]])
             .collect();
         assert!(
@@ -1918,8 +1855,7 @@ mod tests {
         r.draw_sprite_tinted(
             "../../examples/minimal-2d/assets/sheet.png",
             Some("player"),
-            0.0,
-            0.0,
+            (0.0, 0.0),
             0.0,
             0,
             [255, 0, 0, 255],
@@ -1927,7 +1863,9 @@ mod tests {
         .expect("queue sprite tinted");
         let rgba = r.render_to_rgba().expect("offscreen readback");
         let seen: std::collections::HashSet<[u8; 4]> = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| [c[0], c[1], c[2], c[3]])
             .collect();
         // Authored green was [74, 222, 128, 255]. Modulated by [255, 0, 0, 255] -> green & blue become 0!
@@ -1947,8 +1885,7 @@ mod tests {
         r.draw_sprite_frame(
             "../../examples/minimal-2d/assets/sheet.png",
             Some("player"),
-            0.0,
-            0.0,
+            (0.0, 0.0),
             0.0,
         )
         .expect("queue sprite");

@@ -589,8 +589,7 @@ pub fn gutter_marks(errors: &[String]) -> Vec<(usize, String)> {
         let last = err
             .lines()
             .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .last()
+            .rfind(|l| !l.is_empty())
             .unwrap_or("");
         let mut line_no: Option<usize> = None;
         for (idx, _) in err.match_indices("line ") {
@@ -1049,7 +1048,7 @@ prefix = "e1_"
         let sub = add_node(&mut tree, Some(root.clone()), "Node2D", "sub").unwrap();
         place_node(&mut tree, &NodeId::from("a".to_string()), &sub, 0).unwrap();
         assert_eq!(children_of(&tree, "main"), vec!["c", "b", "sub"]);
-        assert_eq!(children_of(&tree, &sub.to_string()), vec!["a"]);
+        assert_eq!(children_of(&tree, sub.as_ref()), vec!["a"]);
     }
 
     #[test]
