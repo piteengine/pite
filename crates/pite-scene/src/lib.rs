@@ -11,16 +11,17 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use pite_core::{Color, NodeDesc, NodeId, NodeTree, PropValue, Props, ScriptRef};
 use serde::{Deserialize, Serialize};
 
 pub mod cache;
 pub mod color;
+mod error;
 pub mod tilemap;
 
 pub use cache::{CacheStatus, CACHE_VERSION};
 pub use color::{format_hex_color, parse_hex_color};
+pub use error::{Result, SceneError};
 pub use tilemap::{
     load_tilemap, map_to_world, parse_tilemap_str, save_tilemap, world_to_map, TileCell,
     TileMapDoc, TileMapLayer,
@@ -79,24 +80,33 @@ pub fn migrate(from: u32, _doc: &toml::Value) -> Result<()> {
     if from == FORMAT_VERSION {
         return Ok(());
     }
-    anyhow::bail!("unsupported scene format_version {from} (engine supports {FORMAT_VERSION})");
+    Err(SceneError::UnsupportedFormatVersion {
+        found: from,
+        supported: FORMAT_VERSION,
+    })
 }
 
 pub fn parse_scene_str(text: &str) -> Result<SceneDoc> {
-    let raw: toml::Value = toml::from_str(text).context("scene is not valid TOML")?;
+    let raw: toml::Value = toml::from_str(text).map_err(SceneError::InvalidToml)?;
     let version = raw
         .get("format_version")
         .and_then(toml::Value::as_integer)
         .unwrap_or(0);
     migrate(version as u32, &raw)?;
-    let doc: SceneDoc = raw.try_into().context("scene does not match schema")?;
+    let doc: SceneDoc = raw.try_into().map_err(SceneError::InvalidSchema)?;
     Ok(doc)
 }
 
 pub fn load_scene(path: &Path) -> Result<SceneDoc> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("cannot read scene {}", path.display()))?;
-    parse_scene_str(&text).with_context(|| format!("cannot parse scene {}", path.display()))
+    let text = std::fs::read_to_string(path).map_err(|source| SceneError::Io {
+        op: "read",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    parse_scene_str(&text).map_err(|e| SceneError::ParseFile {
+        path: path.to_path_buf(),
+        source: Box::new(e),
+    })
 }
 
 /// Load with the binary cache: a valid cache wins; a missing cache parses
@@ -104,8 +114,11 @@ pub fn load_scene(path: &Path) -> Result<SceneDoc> {
 /// TOML, rewrites the cache, and reports the fallback loudly via the
 /// returned warning — never silently. TOML stays source of truth.
 pub fn load_cached(path: &Path) -> Result<(SceneDoc, CacheStatus, Option<String>)> {
-    let bytes =
-        std::fs::read(path).with_context(|| format!("cannot read scene {}", path.display()))?;
+    let bytes = std::fs::read(path).map_err(|source| SceneError::Io {
+        op: "read",
+        path: path.to_path_buf(),
+        source,
+    })?;
     let source_hash = cache::fnv1a_u64(&bytes);
     let source_hex = format!("{source_hash:016x}");
     let cache_path = cache::cache_path_for(path, &source_hex);
@@ -130,24 +143,28 @@ pub fn load_cached(path: &Path) -> Result<(SceneDoc, CacheStatus, Option<String>
                 }
                 Err(e) => {
                     rebuilt_reason = Some(format!(
-                        "scene cache {} ignored ({e:#}); rebuilding from TOML",
+                        "scene cache {} ignored ({e}); rebuilding from TOML",
                         cache_path.display()
                     ));
                 }
             },
             Err(e) => {
                 rebuilt_reason = Some(format!(
-                    "scene cache {} unreadable ({e:#}); rebuilding from TOML",
+                    "scene cache {} unreadable ({e}); rebuilding from TOML",
                     cache_path.display()
                 ));
             }
         }
     }
 
-    let text = std::str::from_utf8(&bytes)
-        .with_context(|| format!("cannot parse scene {}", path.display()))?;
-    let doc =
-        parse_scene_str(text).with_context(|| format!("cannot parse scene {}", path.display()))?;
+    let text = std::str::from_utf8(&bytes).map_err(|source| SceneError::InvalidUtf8 {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let doc = parse_scene_str(text).map_err(|e| SceneError::ParseFile {
+        path: path.to_path_buf(),
+        source: Box::new(e),
+    })?;
 
     let payload = cache::encode(&doc, source_hash, bytes.len() as u64);
     let mut warning = rebuilt_reason.clone();
@@ -184,7 +201,7 @@ pub fn load_scene_cached(path: &Path) -> Result<SceneDoc> {
 }
 
 pub fn save_scene(doc: &SceneDoc) -> Result<String> {
-    toml::to_string(doc).context("cannot serialize scene")
+    Ok(toml::to_string(doc)?)
 }
 
 /// Structural validation. Missing script = placeholder, never a load
@@ -312,8 +329,10 @@ pub fn to_node_tree(doc: &SceneDoc) -> Result<NodeTree> {
     let mut tree = NodeTree::new();
     for desc in descs_from_doc(doc) {
         let id_str = desc.id.to_string();
-        tree.insert(desc)
-            .map_err(|e| anyhow::anyhow!("node {id_str:?}: {e}"))?;
+        tree.insert(desc).map_err(|source| SceneError::TreeInsert {
+            context: format!("node {id_str:?}"),
+            source,
+        })?;
     }
     Ok(tree)
 }
@@ -336,21 +355,19 @@ pub fn instantiate(
             .map(|p| NodeId::from(format!("{prefix}{}", p.as_str())));
     }
     for (key, value) in overrides {
-        let (node_id, prop) = key.split_once('.').with_context(|| {
-            format!(
-                "override {key:?} must be \"node_id.prop\" in {}",
-                scene_path.display()
-            )
-        })?;
+        let (node_id, prop) =
+            key.split_once('.')
+                .ok_or_else(|| SceneError::InvalidOverrideKey {
+                    key: key.clone(),
+                    path: scene_path.to_path_buf(),
+                })?;
         let target = format!("{prefix}{node_id}");
         let desc = descs
             .iter_mut()
             .find(|d| d.id.as_str() == target)
-            .with_context(|| {
-                format!(
-                    "override target {target:?} not found in {}",
-                    scene_path.display()
-                )
+            .ok_or_else(|| SceneError::UnknownOverrideTarget {
+                target,
+                path: scene_path.to_path_buf(),
             })?;
         desc.props.insert(prop.to_string(), toml_to_prop(value));
     }
@@ -362,7 +379,11 @@ pub fn resolve_scene_ref(
     scene_dir: &Path,
     project_dir: Option<&Path>,
 ) -> Result<PathBuf> {
-    pite_core::resolve_project_ref(project_dir, scene_dir, scene_ref).map_err(anyhow::Error::from)
+    Ok(pite_core::resolve_project_ref(
+        project_dir,
+        scene_dir,
+        scene_ref,
+    )?)
 }
 
 /// Build the full runtime tree: host nodes plus every `[[instance]]`
@@ -394,7 +415,10 @@ pub fn build_tree(
                 desc.parent = Some(NodeId::from(attach_at.clone()));
             }
             tree.insert(desc.clone())
-                .map_err(|e| anyhow::anyhow!("instance of {}: {e}", inst.scene))?;
+                .map_err(|source| SceneError::TreeInsert {
+                    context: format!("instance of {}", inst.scene),
+                    source,
+                })?;
         }
     }
     Ok(tree)

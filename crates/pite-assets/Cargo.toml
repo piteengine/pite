@@ -18,7 +18,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-anyhow.workspace = true
+thiserror.workspace = true
 pite-core.workspace = true
 serde.workspace = true
 toml.workspace = true

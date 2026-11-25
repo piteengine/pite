@@ -7,14 +7,15 @@
 //! modified file bytes trigger reimporting.
 
 pub mod atlas;
+mod error;
 
 pub use atlas::{atlas_report, load_sidecar, resolve_sprite_source, sheet_path};
 pub use atlas::{AnimationUse, AtlasUse, SpriteSource};
+pub use error::{AssetError, Result};
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// The asset registry manifest filename located at the project root.
@@ -32,6 +33,20 @@ pub trait Importer: Send + Sync {
     fn import(&self, path: &str) -> Result<()>;
 }
 
+fn read_asset_bytes(path: &str) -> Result<Vec<u8>> {
+    std::fs::read(path).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            AssetError::NotFound(PathBuf::from(path))
+        } else {
+            AssetError::Io {
+                op: "read",
+                path: PathBuf::from(path),
+                source,
+            }
+        }
+    })
+}
+
 /// Asset importer for PNG raster images.
 pub struct PngImporter;
 
@@ -41,9 +56,12 @@ impl Importer for PngImporter {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        let bytes = read_asset_bytes(path)?;
         if bytes.len() < PNG_SIG.len() || bytes[..PNG_SIG.len()] != PNG_SIG {
-            anyhow::bail!("not a PNG asset: {path}");
+            return Err(AssetError::InvalidFormat {
+                format: "PNG",
+                path: PathBuf::from(path),
+            });
         }
         Ok(())
     }
@@ -58,9 +76,12 @@ impl Importer for WavImporter {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        let bytes = read_asset_bytes(path)?;
         if bytes.len() < 12 || bytes[0..4] != *b"RIFF" || bytes[8..12] != *b"WAVE" {
-            anyhow::bail!("not a WAV asset: {path}");
+            return Err(AssetError::InvalidFormat {
+                format: "WAV",
+                path: PathBuf::from(path),
+            });
         }
         Ok(())
     }
@@ -75,9 +96,12 @@ impl Importer for OggImporter {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        let bytes = read_asset_bytes(path)?;
         if bytes.len() < 4 || bytes[0..4] != *b"OggS" {
-            anyhow::bail!("not an OGG asset: {path}");
+            return Err(AssetError::InvalidFormat {
+                format: "OGG",
+                path: PathBuf::from(path),
+            });
         }
         Ok(())
     }
@@ -92,11 +116,14 @@ impl Importer for Mp3Importer {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        let bytes = read_asset_bytes(path)?;
         let is_id3 = bytes.len() >= 3 && &bytes[0..3] == b"ID3";
         let is_sync = bytes.len() >= 2 && bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0;
         if !is_id3 && !is_sync {
-            anyhow::bail!("not an MP3 asset: {path}");
+            return Err(AssetError::InvalidFormat {
+                format: "MP3",
+                path: PathBuf::from(path),
+            });
         }
         Ok(())
     }
@@ -111,9 +138,12 @@ impl Importer for FlacImporter {
     }
 
     fn import(&self, path: &str) -> Result<()> {
-        let bytes = std::fs::read(path).with_context(|| format!("asset not found: {path}"))?;
+        let bytes = read_asset_bytes(path)?;
         if bytes.len() < 4 || bytes[0..4] != *b"fLaC" {
-            anyhow::bail!("not a FLAC asset: {path}");
+            return Err(AssetError::InvalidFormat {
+                format: "FLAC",
+                path: PathBuf::from(path),
+            });
         }
         Ok(())
     }
@@ -254,7 +284,10 @@ fn is_skipped_dir(name: &str) -> bool {
 fn res_path_for(root: &Path, fs_path: &Path) -> Result<String> {
     let rel = fs_path
         .strip_prefix(root)
-        .with_context(|| format!("path {} outside root {}", fs_path.display(), root.display()))?;
+        .map_err(|_| AssetError::OutsideRoot {
+            path: fs_path.to_path_buf(),
+            root: root.to_path_buf(),
+        })?;
     let joined = rel
         .components()
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -271,10 +304,17 @@ pub fn scan_files(root: &Path) -> Result<Vec<ScannedFile>> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries =
-            std::fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))?;
+        let entries = std::fs::read_dir(&dir).map_err(|source| AssetError::Io {
+            op: "read dir",
+            path: dir.clone(),
+            source,
+        })?;
         for entry in entries {
-            let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
+            let entry = entry.map_err(|source| AssetError::Io {
+                op: "read entry in",
+                path: dir.clone(),
+                source,
+            })?;
             let fs_path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
@@ -298,8 +338,11 @@ pub fn scan_files(root: &Path) -> Result<Vec<ScannedFile>> {
             if !importers.iter().any(|i| i.match_ext(&ext)) {
                 continue;
             }
-            let bytes = std::fs::read(&fs_path)
-                .with_context(|| format!("read asset {}", fs_path.display()))?;
+            let bytes = std::fs::read(&fs_path).map_err(|source| AssetError::Io {
+                op: "read",
+                path: fs_path.clone(),
+                source,
+            })?;
             out.push(ScannedFile {
                 res_path: res_path_for(root, &fs_path)?,
                 fs_path,
@@ -320,15 +363,19 @@ pub fn load_registry(root: &Path) -> Result<AssetRegistry> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             return Ok(AssetRegistry::default())
         }
-        Err(err) => {
-            return Err(err).with_context(|| format!("read {}", path.display()));
+        Err(source) => {
+            return Err(AssetError::Io {
+                op: "read",
+                path,
+                source,
+            });
         }
     };
     if text.trim().is_empty() {
         return Ok(AssetRegistry::default());
     }
     let doc: ManifestDoc =
-        toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        toml::from_str(&text).map_err(|source| AssetError::TomlParse { path, source })?;
     let mut reg = AssetRegistry::default();
     for entry in doc.asset {
         reg.by_path.insert(entry.path.clone(), entry);
@@ -343,9 +390,13 @@ pub fn save_registry(root: &Path, reg: &AssetRegistry) -> Result<()> {
     let doc = ManifestDoc {
         asset: entries.into_iter().cloned().collect(),
     };
-    let text = toml::to_string(&doc).context("serialize asset manifest")?;
-    std::fs::write(root.join(MANIFEST_FILE), text)
-        .with_context(|| format!("write {}", root.join(MANIFEST_FILE).display()))?;
+    let text = toml::to_string(&doc)?;
+    let path = root.join(MANIFEST_FILE);
+    std::fs::write(&path, text).map_err(|source| AssetError::Io {
+        op: "write",
+        path,
+        source,
+    })?;
     Ok(())
 }
 
@@ -537,10 +588,17 @@ pub fn apply_renames_detailed(
     let mut targets: Vec<(String, PathBuf)> = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries =
-            std::fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))?;
+        let entries = std::fs::read_dir(&dir).map_err(|source| AssetError::Io {
+            op: "read dir",
+            path: dir.clone(),
+            source,
+        })?;
         for entry in entries {
-            let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
+            let entry = entry.map_err(|source| AssetError::Io {
+                op: "read entry in",
+                path: dir.clone(),
+                source,
+            })?;
             let fs_path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
@@ -586,7 +644,11 @@ pub fn apply_renames_detailed(
         if total == 0 {
             continue;
         }
-        std::fs::write(fs_path, current).with_context(|| format!("write {}", fs_path.display()))?;
+        std::fs::write(fs_path, current).map_err(|source| AssetError::Io {
+            op: "write",
+            path: fs_path.clone(),
+            source,
+        })?;
         for (rewrite, count) in rewrites.iter_mut().zip(counts) {
             if count > 0 {
                 rewrite.references += count;
@@ -660,15 +722,25 @@ pub fn migrate_legacy_atlases(root: &Path) -> Result<Vec<(String, String)>> {
                 }
                 continue;
             }
-            if name.ends_with(".atlas.json") {
-                let text = std::fs::read_to_string(&path)
-                    .with_context(|| format!("read legacy atlas {}", path.display()))?;
-                let toml_text = pite_render::atlas::migrate_legacy_json_to_toml(&text)
-                    .with_context(|| format!("migrate legacy atlas {}", path.display()))?;
-                let stem = name.strip_suffix(".atlas.json").unwrap();
+            if let Some(stem) = name.strip_suffix(".atlas.json") {
+                let text = std::fs::read_to_string(&path).map_err(|source| AssetError::Io {
+                    op: "read legacy atlas",
+                    path: path.clone(),
+                    source,
+                })?;
+                let toml_text =
+                    pite_render::atlas::migrate_legacy_json_to_toml(&text).map_err(|source| {
+                        AssetError::Atlas {
+                            context: format!("migrate legacy atlas {}", path.display()),
+                            message: format!("{source:#}"),
+                        }
+                    })?;
                 let ptatlas_path = path.with_file_name(format!("{stem}.ptatlas"));
-                std::fs::write(&ptatlas_path, toml_text)
-                    .with_context(|| format!("write migrated atlas {}", ptatlas_path.display()))?;
+                std::fs::write(&ptatlas_path, toml_text).map_err(|source| AssetError::Io {
+                    op: "write migrated atlas",
+                    path: ptatlas_path.clone(),
+                    source,
+                })?;
                 let _ = std::fs::remove_file(&path);
                 let old_res = res_path_for(root, &path)?;
                 let new_res = res_path_for(root, &ptatlas_path)?;

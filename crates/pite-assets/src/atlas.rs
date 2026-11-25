@@ -9,8 +9,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
 use pite_render::atlas::{self, Atlas};
+
+use crate::{AssetError, Result};
 
 /// Where a `Sprite2D` gets its pixels.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,10 +36,12 @@ pub fn resolve_sprite_source(
     let atlas_ref = atlas_ref.filter(|s| !s.is_empty());
     let frame = frame.filter(|s| !s.is_empty());
     match (texture, atlas_ref, frame) {
-        (Some(_), Some(_), _) => bail!("`texture` and `atlas` are mutually exclusive"),
-        (None, Some(_), None) => bail!("`atlas` requires a `frame`"),
-        (Some(_), None, Some(_)) => bail!("`frame` requires an `atlas`"),
-        (None, None, Some(_)) => bail!("`frame` requires an `atlas`"),
+        (Some(_), Some(_), _) => Err(AssetError::SpriteSource(
+            "`texture` and `atlas` are mutually exclusive",
+        )),
+        (None, Some(_), None) => Err(AssetError::SpriteSource("`atlas` requires a `frame`")),
+        (Some(_), None, Some(_)) => Err(AssetError::SpriteSource("`frame` requires an `atlas`")),
+        (None, None, Some(_)) => Err(AssetError::SpriteSource("`frame` requires an `atlas`")),
         (Some(texture), None, None) => Ok(SpriteSource::Texture(texture.to_string())),
         (None, Some(atlas_ref), Some(frame)) => Ok(SpriteSource::Atlas {
             atlas: atlas_ref.to_string(),
@@ -67,7 +70,7 @@ pub struct AnimationUse {
 }
 
 fn atlas_path(root: &Path, atlas_ref: &str) -> Result<PathBuf> {
-    pite_core::resolve_project_ref(Some(root), root, atlas_ref).map_err(anyhow::Error::from)
+    Ok(pite_core::resolve_project_ref(Some(root), root, atlas_ref)?)
 }
 
 /// Check every atlas reference in the project: unknown frames and animations are
@@ -96,7 +99,12 @@ pub fn atlas_report(
             .push(anim_use);
     }
     for (atlas_ref, (uses, anim_uses)) in by_atlas {
-        let loaded = atlas_path(root, atlas_ref).and_then(|path| atlas::load_atlas(&path));
+        let loaded = atlas_path(root, atlas_ref).and_then(|path| {
+            atlas::load_atlas(&path).map_err(|source| AssetError::Atlas {
+                context: format!("load atlas {}", path.display()),
+                message: format!("{source:#}"),
+            })
+        });
         let mut referenced_frames: Vec<&str> = Vec::new();
         let mut referenced_anims: Vec<&str> = Vec::new();
 
@@ -165,9 +173,15 @@ pub fn sheet_path(root: &Path, atlas_ref: &str) -> Result<PathBuf> {
 /// Load and validate one atlas sidecar, naming the file on failure.
 pub fn load_sidecar(root: &Path, atlas_ref: &str) -> Result<Atlas> {
     let path = atlas_path(root, atlas_ref)?;
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("cannot read atlas {}", path.display()))?;
-    atlas::parse_atlas(&text).with_context(|| format!("cannot parse atlas {}", path.display()))
+    let text = std::fs::read_to_string(&path).map_err(|source| AssetError::Io {
+        op: "read atlas",
+        path: path.clone(),
+        source,
+    })?;
+    atlas::parse_atlas(&text).map_err(|source| AssetError::Atlas {
+        context: format!("cannot parse atlas {}", path.display()),
+        message: format!("{source:#}"),
+    })
 }
 
 #[cfg(test)]

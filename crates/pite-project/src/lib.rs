@@ -9,11 +9,14 @@
 
 #![forbid(unsafe_code)]
 
+mod error;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+pub use error::{ProjectError, Result};
 
 /// Standard manifest filename located at the root of every Pite project.
 pub const MANIFEST_FILE: &str = "pite.toml";
@@ -127,9 +130,11 @@ pub struct VendorEntry {
 /// Loads and parses a `pite.toml` manifest from the given directory.
 pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
     let path = dir.join(MANIFEST_FILE);
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))
+    let text = std::fs::read_to_string(&path).map_err(|source| ProjectError::Io {
+        path: path.clone(),
+        source,
+    })?;
+    toml::from_str(&text).map_err(|source| ProjectError::TomlParse { path, source })
 }
 
 /// Write the manifest back to `dir/pite.toml`. Serializes through
@@ -137,12 +142,10 @@ pub fn load_manifest(dir: &Path) -> Result<PiteManifest> {
 /// `extra` keys aboard; known fields land alphabetically on disk.
 pub fn save_manifest(dir: &Path, manifest: &PiteManifest) -> Result<()> {
     let path = dir.join(MANIFEST_FILE);
-    let value =
-        toml::Value::try_from(manifest).with_context(|| "cannot encode manifest as TOML")?;
-    let mut text =
-        toml::to_string_pretty(&value).with_context(|| "cannot render manifest as TOML")?;
+    let value = toml::Value::try_from(manifest)?;
+    let mut text = toml::to_string_pretty(&value)?;
     text.push('\n');
-    std::fs::write(&path, text).with_context(|| format!("cannot write {}", path.display()))
+    std::fs::write(&path, text).map_err(|source| ProjectError::Io { path, source })
 }
 
 /// Replacement for a deprecated manifest key, if any. Empty today: the
@@ -276,14 +279,25 @@ fn extract_zip_template(zip_bytes: &[u8], dest: &Path, project_name: &str) -> Re
         }
         let outpath = dest.join(&rel_path);
         if file.is_dir() {
-            std::fs::create_dir_all(&outpath)?;
+            std::fs::create_dir_all(&outpath).map_err(|source| ProjectError::Io {
+                path: outpath,
+                source,
+            })?;
         } else {
             if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).map_err(|source| ProjectError::Io {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
             }
             if rel_path.as_os_str() == MANIFEST_FILE {
                 let mut contents = String::new();
-                std::io::Read::read_to_string(&mut file, &mut contents)?;
+                std::io::Read::read_to_string(&mut file, &mut contents).map_err(|source| {
+                    ProjectError::Io {
+                        path: outpath.clone(),
+                        source,
+                    }
+                })?;
                 let customized = if let Some(first_line) =
                     contents.lines().find(|l| l.trim().starts_with("name = "))
                 {
@@ -291,10 +305,20 @@ fn extract_zip_template(zip_bytes: &[u8], dest: &Path, project_name: &str) -> Re
                 } else {
                     contents
                 };
-                std::fs::write(&outpath, customized)?;
+                std::fs::write(&outpath, customized).map_err(|source| ProjectError::Io {
+                    path: outpath,
+                    source,
+                })?;
             } else {
-                let mut outfile = std::fs::File::create(&outpath)?;
-                std::io::copy(&mut file, &mut outfile)?;
+                let mut outfile =
+                    std::fs::File::create(&outpath).map_err(|source| ProjectError::Io {
+                        path: outpath.clone(),
+                        source,
+                    })?;
+                std::io::copy(&mut file, &mut outfile).map_err(|source| ProjectError::Io {
+                    path: outpath,
+                    source,
+                })?;
             }
         }
     }
@@ -312,9 +336,9 @@ pub fn blank_scene() -> String {
 pub fn create_project(dest: &Path, name: &str, template: Option<&str>) -> Result<PathBuf> {
     if let Some(t) = template {
         if t != "minimal-2d" && t != "gem-collector" {
-            anyhow::bail!(
-                "unknown template {t:?} (supported: \"minimal-2d\", \"gem-collector\", or omit for blank)"
-            );
+            return Err(ProjectError::UnknownTemplate {
+                name: t.to_string(),
+            });
         }
     }
     let dir = if dest.file_name().map(|n| n == name).unwrap_or(false) {
@@ -323,7 +347,7 @@ pub fn create_project(dest: &Path, name: &str, template: Option<&str>) -> Result
         dest.join(name)
     };
     if dir.exists() {
-        anyhow::bail!("{} already exists", dir.display());
+        return Err(ProjectError::AlreadyExists { path: dir });
     }
     match template {
         Some("gem-collector") => {
@@ -333,15 +357,27 @@ pub fn create_project(dest: &Path, name: &str, template: Option<&str>) -> Result
             extract_zip_template(TEMPLATE_MINIMAL_2D_ZIP, &dir, name)?;
         }
         None => {
-            std::fs::create_dir_all(dir.join("scenes"))
-                .with_context(|| "cannot create project dirs")?;
-            std::fs::create_dir_all(dir.join("scripts"))?;
-            std::fs::create_dir_all(dir.join("assets"))?;
+            for sub in ["scenes", "scripts", "assets"] {
+                let sub_dir = dir.join(sub);
+                std::fs::create_dir_all(&sub_dir).map_err(|source| ProjectError::Io {
+                    path: sub_dir,
+                    source,
+                })?;
+            }
+            let manifest_path = dir.join(MANIFEST_FILE);
             std::fs::write(
-                dir.join(MANIFEST_FILE),
+                &manifest_path,
                 TEMPLATE_PITE_TOML.replace("TEMPLATE_NAME", name),
-            )?;
-            std::fs::write(dir.join("scenes").join("main.ptscn"), blank_scene())?;
+            )
+            .map_err(|source| ProjectError::Io {
+                path: manifest_path,
+                source,
+            })?;
+            let scene_path = dir.join("scenes").join("main.ptscn");
+            std::fs::write(&scene_path, blank_scene()).map_err(|source| ProjectError::Io {
+                path: scene_path,
+                source,
+            })?;
         }
         Some(_) => unreachable!(),
     }

@@ -7,9 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-
-use crate::{SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION};
+use crate::{Result, SceneDoc, SceneError, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION};
 
 /// Cache container version. A bump rebuilds every cache from TOML
 /// instead of misreading it.
@@ -265,14 +263,20 @@ struct Cursor<'a> {
     pos: usize,
 }
 
+fn corrupt(reason: impl Into<String>) -> SceneError {
+    SceneError::CacheCorrupt {
+        reason: reason.into(),
+    }
+}
+
 impl<'a> Cursor<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let end = self
             .pos
             .checked_add(n)
-            .context("scene cache is corrupt (truncated)")?;
+            .ok_or_else(|| corrupt("truncated"))?;
         if end > self.b.len() {
-            anyhow::bail!("scene cache is corrupt (truncated)");
+            return Err(corrupt("truncated"));
         }
         let slice = &self.b[self.pos..end];
         self.pos = end;
@@ -306,14 +310,14 @@ impl<'a> Cursor<'a> {
     fn str(&mut self) -> Result<String> {
         let len = self.u32()? as usize;
         let bytes = self.take(len)?;
-        String::from_utf8(bytes.to_vec()).context("scene cache is corrupt (bad UTF-8)")
+        String::from_utf8(bytes.to_vec()).map_err(|_| corrupt("bad UTF-8"))
     }
 
     fn opt_str(&mut self) -> Result<Option<String>> {
         match self.u8()? {
             0 => Ok(None),
             1 => Ok(Some(self.str()?)),
-            tag => anyhow::bail!("scene cache is corrupt (bad option tag {tag})"),
+            tag => Err(corrupt(format!("bad option tag {tag}"))),
         }
     }
 }
@@ -322,7 +326,7 @@ const MAX_TOML_DEPTH: usize = 128;
 
 fn get_toml_value(cur: &mut Cursor<'_>, depth: usize) -> Result<toml::Value> {
     if depth > MAX_TOML_DEPTH {
-        anyhow::bail!("scene cache is corrupt (nesting exceeds {MAX_TOML_DEPTH} levels)");
+        return Err(corrupt(format!("nesting exceeds {MAX_TOML_DEPTH} levels")));
     }
     match cur.u8()? {
         0 => Ok(toml::Value::String(cur.str()?)),
@@ -331,7 +335,7 @@ fn get_toml_value(cur: &mut Cursor<'_>, depth: usize) -> Result<toml::Value> {
         3 => Ok(toml::Value::Boolean(match cur.u8()? {
             0 => false,
             1 => true,
-            tag => anyhow::bail!("scene cache is corrupt (bad bool tag {tag})"),
+            tag => return Err(corrupt(format!("bad bool tag {tag}"))),
         })),
         4 => {
             let len = cur.u32()? as usize;
@@ -353,12 +357,10 @@ fn get_toml_value(cur: &mut Cursor<'_>, depth: usize) -> Result<toml::Value> {
         }
         6 => {
             let raw = cur.str()?;
-            let dt: toml::value::Datetime = raw
-                .parse()
-                .context("scene cache is corrupt (bad datetime)")?;
+            let dt: toml::value::Datetime = raw.parse().map_err(|_| corrupt("bad datetime"))?;
             Ok(toml::Value::Datetime(dt))
         }
-        tag => anyhow::bail!("scene cache is corrupt (bad value tag {tag})"),
+        tag => Err(corrupt(format!("bad value tag {tag}"))),
     }
 }
 
@@ -369,7 +371,7 @@ fn get_script(cur: &mut Cursor<'_>) -> Result<Option<SceneScript>> {
             path: cur.str()?,
             class: cur.str()?,
         })),
-        tag => anyhow::bail!("scene cache is corrupt (bad script tag {tag})"),
+        tag => Err(corrupt(format!("bad script tag {tag}"))),
     }
 }
 
@@ -443,42 +445,31 @@ pub fn decode(bytes: &[u8]) -> Result<(SceneDoc, CacheHeader)> {
     let mut cur = Cursor { b: bytes, pos: 0 };
     let magic = cur
         .take(MAGIC.len())
-        .context("scene cache is corrupt (truncated header)")?;
+        .map_err(|_| corrupt("truncated header"))?;
     if magic != MAGIC {
-        anyhow::bail!("scene cache is corrupt (bad magic)");
+        return Err(corrupt("bad magic"));
     }
     let header = CacheHeader {
-        cache_version: cur
-            .u32()
-            .context("scene cache is corrupt (truncated header)")?,
-        format_version: cur
-            .u32()
-            .context("scene cache is corrupt (truncated header)")?,
-        source_len: cur
-            .u64()
-            .context("scene cache is corrupt (truncated header)")?,
-        source_hash: cur
-            .u64()
-            .context("scene cache is corrupt (truncated header)")?,
+        cache_version: cur.u32().map_err(|_| corrupt("truncated header"))?,
+        format_version: cur.u32().map_err(|_| corrupt("truncated header"))?,
+        source_len: cur.u64().map_err(|_| corrupt("truncated header"))?,
+        source_hash: cur.u64().map_err(|_| corrupt("truncated header"))?,
     };
     if header.cache_version != CACHE_VERSION {
-        anyhow::bail!(
-            "scene cache has cache version {} (engine uses {CACHE_VERSION})",
-            header.cache_version
-        );
+        return Err(SceneError::CacheVersionMismatch {
+            found: header.cache_version,
+            supported: CACHE_VERSION,
+        });
     }
     if header.format_version != FORMAT_VERSION {
-        anyhow::bail!(
-            "scene cache has scene format_version {} (engine uses {FORMAT_VERSION})",
-            header.format_version
-        );
+        return Err(SceneError::CacheFormatMismatch {
+            found: header.format_version,
+            supported: FORMAT_VERSION,
+        });
     }
     let doc = get_doc(&mut cur)?;
     if cur.pos != bytes.len() {
-        anyhow::bail!(
-            "scene cache is corrupt ({} trailing bytes)",
-            bytes.len() - cur.pos
-        );
+        return Err(corrupt(format!("{} trailing bytes", bytes.len() - cur.pos)));
     }
     Ok((doc, header))
 }

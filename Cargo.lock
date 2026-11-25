@@ -3210,10 +3210,10 @@ dependencies = [
 name = "pite-assets"
 version = "0.4.0"
 dependencies = [
- "anyhow",
  "pite-core",
  "pite-render",
  "serde",
+ "thiserror 2.0.21",
  "toml",
 ]
 
@@ -3260,7 +3260,6 @@ dependencies = [
 name = "pite-export"
 version = "0.4.0"
 dependencies = [
- "anyhow",
  "crc32fast",
  "pite-assets",
  "pite-core",
@@ -3269,6 +3268,7 @@ dependencies = [
  "pite-runtime",
  "pite-scene",
  "sha2",
+ "thiserror 2.0.21",
  "toml",
  "tracing",
  "zip",
@@ -3300,10 +3300,10 @@ dependencies = [
 name = "pite-project"
 version = "0.4.0"
 dependencies = [
- "anyhow",
  "pite-core",
  "pite-scene",
  "serde",
+ "thiserror 2.0.21",
  "toml",
  "zip",
 ]
@@ -3348,7 +3348,6 @@ dependencies = [
 name = "pite-scene"
 version = "0.4.0"
 dependencies = [
- "anyhow",
  "pite-core",
  "serde",
  "thiserror 2.0.21",

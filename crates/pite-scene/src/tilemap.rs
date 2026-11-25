@@ -7,8 +7,9 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::{Result, SceneError};
 
 fn default_true() -> bool {
     true
@@ -216,20 +217,33 @@ pub fn map_to_world(cell: (i32, i32), origin: (f64, f64), tile_size: (f64, f64))
 
 /// Parses a tilemap document from a TOML string.
 pub fn parse_tilemap_str(text: &str) -> Result<TileMapDoc> {
-    toml::from_str(text).context("invalid tilemap TOML")
+    toml::from_str(text).map_err(SceneError::InvalidTilemapToml)
 }
 
 /// Loads and validates a `.ptmap` file from disk.
 pub fn load_tilemap(path: &Path) -> Result<TileMapDoc> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("cannot read tilemap {}", path.display()))?;
-    parse_tilemap_str(&text).with_context(|| format!("cannot parse tilemap {}", path.display()))
+    let text = std::fs::read_to_string(path).map_err(|source| SceneError::TilemapIo {
+        op: "read",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    parse_tilemap_str(&text).map_err(|err| match err {
+        SceneError::InvalidTilemapToml(source) => SceneError::ParseTilemap {
+            path: path.to_path_buf(),
+            source,
+        },
+        other => other,
+    })
 }
 
 /// Serializes and writes a [`TileMapDoc`] to disk at the specified path.
 pub fn save_tilemap(path: &Path, doc: &TileMapDoc) -> Result<()> {
-    let text = toml::to_string(doc).context("cannot serialize tilemap")?;
-    std::fs::write(path, text).with_context(|| format!("cannot write tilemap {}", path.display()))
+    let text = toml::to_string(doc)?;
+    std::fs::write(path, text).map_err(|source| SceneError::TilemapIo {
+        op: "write",
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 #[cfg(test)]

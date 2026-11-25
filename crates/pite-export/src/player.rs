@@ -10,8 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
-
+use crate::error::{io_err, ExportError, Result};
 use crate::platform_label;
 use crate::progress::Progress;
 
@@ -134,7 +133,7 @@ pub fn download_and_extract_player(platform: &str, progress: &mut dyn Progress) 
         std::env::var("PITE_VERSION").unwrap_or_else(|_| format!("v{}", env!("CARGO_PKG_VERSION")));
     let target_dir = player_dir(platform);
     std::fs::create_dir_all(&target_dir)
-        .with_context(|| format!("cannot create {}", target_dir.display()))?;
+        .map_err(|e| io_err(format!("cannot create {}", target_dir.display()), e))?;
 
     let archive_name = player_archive_name(platform, &tag);
     let archive_path = target_dir.join(&archive_name);
@@ -182,10 +181,10 @@ pub fn download_and_extract_player(platform: &str, progress: &mut dyn Progress) 
         }
     }
 
-    bail!(
+    Err(ExportError::Message(format!(
         "unpacked player archive for {platform} into {}, but could not find {bin_name}",
         target_dir.display()
-    )
+    )))
 }
 
 /// Ensure a player binary is available for `platform`, checking cache first and
@@ -205,8 +204,12 @@ fn download_file(url: &str, dest: &Path, platform: &str) -> Result<()> {
     use std::io::IsTerminal;
     if let Some(path_str) = url.strip_prefix("file://") {
         let src = Path::new(path_str);
-        std::fs::copy(src, dest)
-            .with_context(|| format!("cannot copy {} to {}", src.display(), dest.display()))?;
+        std::fs::copy(src, dest).map_err(|e| {
+            io_err(
+                format!("cannot copy {} to {}", src.display(), dest.display()),
+                e,
+            )
+        })?;
         return Ok(());
     }
 
@@ -224,39 +227,33 @@ fn download_file(url: &str, dest: &Path, platform: &str) -> Result<()> {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => {
             let _ = std::fs::remove_file(dest);
-            bail!(
+            Err(ExportError::Message(format!(
                 "download of {url} failed ({status}). Export needs a pite-player binary for \
-                 {platform}; retry with network access, or pass --binary with a player binary.",
-            );
+                 {platform}; retry with network access, or pass --binary with a player binary."
+            )))
         }
         Err(e) => {
             let _ = std::fs::remove_file(dest);
-            bail!(
+            Err(ExportError::Message(format!(
                 "cannot run {tool} to download {url}: {e}. Export needs a pite-player binary for \
                  {platform}; or pass --binary with a player binary."
-            );
+            )))
         }
     }
 }
 
 fn downloader() -> Result<&'static str> {
-    for tool in ["curl", "curl.exe"] {
-        if std::process::Command::new(tool)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
-        {
-            return Ok(tool);
-        }
-    }
-    bail!("curl is required to download pite-player; install curl or pass --binary")
+    crate::python_bundle::find_curl().ok_or_else(|| {
+        ExportError::Message(
+            "curl is required to download pite-player; install curl or pass --binary".into(),
+        )
+    })
 }
 
 fn unpack_zip(archive: &Path, dest: &Path) -> Result<()> {
     let file = std::fs::File::open(archive)
-        .with_context(|| format!("cannot open {}", archive.display()))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .with_context(|| format!("cannot read zip {}", archive.display()))?;
+        .map_err(|e| io_err(format!("cannot open {}", archive.display()), e))?;
+    let mut zip = zip::ZipArchive::new(file)?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
         let path = match entry.enclosed_name() {
@@ -264,13 +261,17 @@ fn unpack_zip(archive: &Path, dest: &Path) -> Result<()> {
             None => continue,
         };
         if entry.is_dir() {
-            std::fs::create_dir_all(&path)?;
+            std::fs::create_dir_all(&path)
+                .map_err(|e| io_err(format!("cannot create {}", path.display()), e))?;
         } else {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| io_err(format!("cannot create {}", parent.display()), e))?;
             }
-            let mut outfile = std::fs::File::create(&path)?;
-            std::io::copy(&mut entry, &mut outfile)?;
+            let mut outfile = std::fs::File::create(&path)
+                .map_err(|e| io_err(format!("cannot create {}", path.display()), e))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| io_err(format!("cannot write {}", path.display()), e))?;
             #[cfg(unix)]
             if let Some(mode) = entry.unix_mode() {
                 use std::os::unix::fs::PermissionsExt;
@@ -291,15 +292,15 @@ fn unpack_tar(archive: &Path, dest: &Path) -> Result<()> {
         .output();
     match out {
         Ok(o) if o.status.success() => Ok(()),
-        Ok(o) => bail!(
+        Ok(o) => Err(ExportError::Message(format!(
             "cannot unpack {} with tar ({}); install tar or pass --binary",
             archive.display(),
             o.status
-        ),
-        Err(e) => bail!(
+        ))),
+        Err(e) => Err(ExportError::Message(format!(
             "cannot run {tar} to unpack {}: {e}; pass --binary with a player binary",
             archive.display()
-        ),
+        ))),
     }
 }
 

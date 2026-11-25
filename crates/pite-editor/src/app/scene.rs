@@ -42,7 +42,7 @@ impl EditorApp {
             .session
             .host()
             .with_tree(|tree| ops::build_doc(tree, source.as_ref(), Some(refs)));
-        match built.and_then(|doc| pite_scene::save_scene(&doc)) {
+        match built.and_then(|doc| Ok(pite_scene::save_scene(&doc)?)) {
             Ok(text) => match ops::save_text(&self.scene_path, &text) {
                 Ok(()) => {
                     self.viewport_dirty = true;

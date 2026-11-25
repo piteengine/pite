@@ -11,12 +11,13 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+use crate::error::{io_err, ExportError, Result};
 use crate::platform_label;
 use crate::progress::Progress;
 
@@ -138,7 +139,7 @@ pub fn ensure_archive(spec: &BundleSpec, progress: &mut dyn Progress) -> Result<
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .with_context(|| format!("cannot create {}", parent.display()))?;
+            .map_err(|e| io_err(format!("cannot create {}", parent.display()), e))?;
     }
     progress.pending(&format!(
         "downloading pinned Python {} runtime for {} ({})...",
@@ -175,7 +176,8 @@ pub fn verify(spec: &BundleSpec, path: &Path, progress: &mut dyn Progress) -> Re
         "verifying pinned Python runtime ({})...",
         spec.file
     ));
-    let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| io_err(format!("cannot read {}", path.display()), e))?;
     let actual = sha256_hex(&bytes);
     if actual.eq_ignore_ascii_case(spec.sha256) {
         progress.complete(&format!("verified pinned Python runtime ({})", spec.file));
@@ -183,24 +185,33 @@ pub fn verify(spec: &BundleSpec, path: &Path, progress: &mut dyn Progress) -> Re
     }
     progress.warn(&format!("checksum mismatch for {}", path.display()));
     if spec.sha256 == "REPLACE_WINDOWS_SHA256" {
-        bail!(
+        return Err(ExportError::Message(format!(
             "no pinned checksum recorded for {} (expected placeholder); refusing to use {}",
             spec.file,
             path.display()
-        );
+        )));
     }
-    bail!(
+    Err(ExportError::Message(format!(
         "checksum mismatch for {}: expected {}, got {}. Delete the cached file and retry.",
         path.display(),
         spec.sha256,
         actual
-    )
+    )))
+}
+
+pub(crate) fn find_curl() -> Option<&'static str> {
+    ["curl", "curl.exe"].into_iter().find(|tool| {
+        Command::new(tool)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    })
 }
 
 pub(crate) fn download(url: &str, dest: &Path) -> Result<()> {
     use std::io::IsTerminal;
     let tool = downloader()?;
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = Command::new(tool);
     cmd.args(["--fail", "--location", "--retry", "3", "--retry-delay", "3"]);
     if std::io::stderr().is_terminal() {
         cmd.arg("--progress-bar");
@@ -210,39 +221,29 @@ pub(crate) fn download(url: &str, dest: &Path) -> Result<()> {
     let result = cmd.arg(url).arg("--output").arg(dest).status();
     match result {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => bail!(
-            "download of {url} failed ({}). Export needs network access to fetch the \
+        Ok(status) => Err(ExportError::Message(format!(
+            "download of {url} failed ({status}). Export needs network access to fetch the \
              pinned Python; retry with network, or pass --no-bundle-python to keep the \
-             system-Python requirement.",
-            status
-        ),
-        Err(e) => bail!(
+             system-Python requirement."
+        ))),
+        Err(e) => Err(ExportError::Message(format!(
             "cannot run {tool} to download {url}: {e}. Export needs network access to \
              fetch the pinned Python; or pass --no-bundle-python to keep the \
              system-Python requirement."
-        ),
+        ))),
     }
 }
 
 fn downloader() -> Result<&'static str> {
-    for tool in ["curl", "curl.exe"] {
-        if Command::new(tool)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
-        {
-            return Ok(tool);
-        }
-    }
-    bail!(
-        "no downloader found (need curl). Fetch {} manually into {} , or pass \
-         --no-bundle-python to keep the system-Python requirement.",
-        LINUX.file,
-        toolchain_dir().display()
-    )
+    find_curl().ok_or_else(|| {
+        ExportError::Message(format!(
+            "no downloader found (need curl). Fetch {} manually into {} , or pass \
+             --no-bundle-python to keep the system-Python requirement.",
+            LINUX.file,
+            toolchain_dir().display()
+        ))
+    })
 }
-
-use std::process::Command;
 
 /// What an exported directory needs to find the bundled interpreter.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,35 +267,38 @@ pub fn stage(
     ));
     let work = dest.join(".staging");
     let _ = std::fs::remove_dir_all(&work);
-    std::fs::create_dir_all(&work).with_context(|| format!("cannot create {}", work.display()))?;
+    std::fs::create_dir_all(&work)
+        .map_err(|e| io_err(format!("cannot create {}", work.display()), e))?;
     unpack(spec, archive, &work)?;
 
     let lib_src = work.join(ARCHIVE_ROOT).join(spec.lib);
     if !lib_src.is_file() {
-        bail!(
+        return Err(ExportError::Message(format!(
             "archive {} does not contain {ARCHIVE_ROOT}/{}",
             archive.display(),
             spec.lib
-        );
+        )));
     }
     let lib_dir = dest.join("lib");
-    std::fs::create_dir_all(&lib_dir)?;
+    std::fs::create_dir_all(&lib_dir)
+        .map_err(|e| io_err(format!("cannot create {}", lib_dir.display()), e))?;
     let lib_name = lib_src
         .file_name()
         .expect("lib file has a name")
         .to_string_lossy()
         .into_owned();
     let lib = lib_dir.join(&lib_name);
-    std::fs::copy(&lib_src, &lib).with_context(|| format!("cannot copy {}", lib_src.display()))?;
+    std::fs::copy(&lib_src, &lib)
+        .map_err(|e| io_err(format!("cannot copy {}", lib_src.display()), e))?;
     strip_debug(&lib);
 
     let stdlib_dir = work.join(ARCHIVE_ROOT).join(spec.stdlib);
     if !stdlib_dir.is_dir() {
-        bail!(
+        return Err(ExportError::Message(format!(
             "archive {} does not contain {ARCHIVE_ROOT}/{}",
             archive.display(),
             spec.stdlib
-        );
+        )));
     }
     let stdlib_zip = dest.join(spec.zip_name);
     zip_dir(&stdlib_dir, &stdlib_zip)?;
@@ -363,15 +367,15 @@ fn unpack(_spec: &BundleSpec, archive: &Path, work: &Path) -> Result<()> {
         .output();
     match out {
         Ok(o) if o.status.success() => Ok(()),
-        Ok(o) => bail!(
+        Ok(o) => Err(ExportError::Message(format!(
             "cannot unpack {} with tar ({}); install tar or pass --no-bundle-python",
             archive.display(),
             o.status
-        ),
-        Err(e) => bail!(
+        ))),
+        Err(e) => Err(ExportError::Message(format!(
             "cannot run {tar} to unpack {}: {e}; or pass --no-bundle-python",
             archive.display()
-        ),
+        ))),
     }
 }
 
@@ -383,22 +387,25 @@ fn zip_dir(dir: &Path, zip_path: &Path) -> Result<()> {
     collect(dir, dir, &mut entries)?;
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let file = std::fs::File::create(zip_path)
-        .with_context(|| format!("cannot write {}", zip_path.display()))?;
+        .map_err(|e| io_err(format!("cannot write {}", zip_path.display()), e))?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     for (name, path) in &entries {
-        let data =
-            std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+        let data = std::fs::read(path)
+            .map_err(|e| io_err(format!("cannot read {}", path.display()), e))?;
         zip.start_file(name, options)?;
-        zip.write_all(&data)?;
+        zip.write_all(&data)
+            .map_err(|e| io_err(format!("cannot write zip entry {name}"), e))?;
     }
-    zip.finish().context("cannot finish the stdlib zip")?;
+    zip.finish()?;
     Ok(())
 }
 
 fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
-    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
-        let entry = entry?;
+    for entry in
+        std::fs::read_dir(dir).map_err(|e| io_err(format!("cannot read {}", dir.display()), e))?
+    {
+        let entry = entry.map_err(|e| io_err(format!("cannot read {}", dir.display()), e))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if EXCLUDED.contains(&name.as_str()) {
             continue;

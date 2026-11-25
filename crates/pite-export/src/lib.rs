@@ -5,17 +5,19 @@
 //! packaging the lean `pite-player` runner, referenced assets, and a portable
 //! CPython 3.12 environment requiring no system dependencies on players' machines.
 
+mod error;
 pub mod player;
 pub mod progress;
 pub mod python_bundle;
 
+pub use error::{ExportError, Result};
 pub use player::{candidate_player_names, player_bin_name};
 pub use progress::Progress;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use error::io_err;
 use pite_assets::played_assets;
 use pite_render::atlas::{sheet_for_sidecar, SIDECAR_EXT};
 
@@ -132,10 +134,9 @@ pub fn export_project(
     progress: &mut dyn Progress,
 ) -> Result<ExportReport> {
     if !SUPPORTED_PLATFORMS.contains(&opts.platform.as_str()) {
-        anyhow::bail!(
-            "unsupported export platform {:?} (supported: linux, windows, macos)",
-            opts.platform
-        );
+        return Err(ExportError::UnsupportedPlatform {
+            platform: opts.platform.clone(),
+        });
     }
     let manifest = pite_project::load_manifest(root)?;
     let game_name = manifest
@@ -148,7 +149,7 @@ pub fn export_project(
             .join(format!("{game_name}-{}", opts.platform))
     });
     if out.exists() {
-        anyhow::bail!("{} exists; remove it or pass --out <dir>", out.display());
+        return Err(ExportError::OutputExists { path: out });
     }
     let mut owned = ExportDir {
         path: out.clone(),
@@ -161,8 +162,10 @@ pub fn export_project(
     };
     let game_dir = out.join("game");
     let bin_dir = out.join("bin");
-    std::fs::create_dir_all(&game_dir)?;
-    std::fs::create_dir_all(&bin_dir)?;
+    std::fs::create_dir_all(&game_dir)
+        .map_err(|e| io_err(format!("cannot create {}", game_dir.display()), e))?;
+    std::fs::create_dir_all(&bin_dir)
+        .map_err(|e| io_err(format!("cannot create {}", bin_dir.display()), e))?;
 
     // The player binary and the interpreter are separate sections: each is
     // fetched (or reused from the cache) before any game content is copied.
@@ -171,16 +174,12 @@ pub fn export_project(
 
     let staged = if opts.bundle_python {
         progress.section("Python");
-        let spec = python_bundle::pinned(&opts.platform).with_context(|| {
-            format!(
-                "no pinned Python build for {}; pass --no-bundle-python to require \
-                 system Python 3.12 instead",
-                opts.platform
-            )
-        })?;
+        let spec =
+            python_bundle::pinned(&opts.platform).ok_or_else(|| ExportError::NoBundledPython {
+                platform: opts.platform.clone(),
+            })?;
         let archive = python_bundle::ensure_archive(&spec, progress)?;
-        let mut staged = python_bundle::stage(&spec, &archive, &out.join("python"), progress)
-            .context("cannot stage the bundled Python")?;
+        let mut staged = python_bundle::stage(&spec, &archive, &out.join("python"), progress)?;
         if opts.platform == "windows" {
             // Windows resolves DLLs from the exe's own directory before
             // PATH, so the interpreter DLL lives next to the binary and
@@ -193,24 +192,20 @@ pub fn export_project(
                 .into_owned();
             let dest = bin_dir.join(&dll);
             std::fs::copy(&staged.lib, &dest)
-                .context("cannot place the interpreter DLL next to the binary")?;
-            std::fs::remove_file(&staged.lib)?;
+                .map_err(|e| io_err("cannot place the interpreter DLL next to the binary", e))?;
+            std::fs::remove_file(&staged.lib)
+                .map_err(|e| io_err(format!("cannot remove {}", staged.lib.display()), e))?;
             staged.lib = dest;
         }
         if let Some(pth) = spec.pth_name {
             let pth_body = windows_pth(&bin_dir, &staged)?;
             std::fs::write(bin_dir.join(pth), pth_body)
-                .context("cannot write the interpreter loader config")?;
+                .map_err(|e| io_err("cannot write the interpreter loader config", e))?;
         }
         Some(staged)
     } else {
         if !opts.skip_python_check && find_python().is_none() {
-            anyhow::bail!(
-                "export needs system Python 3.12 on PATH (or PITE_PYTHON); \
-                 the target machine must have it too. Pass --skip-python-check \
-                 for cross-machine builds, or drop --no-bundle-python to ship a \
-                 pinned interpreter."
-            );
+            return Err(ExportError::MissingSystemPython);
         }
         None
     };
@@ -220,28 +215,31 @@ pub fn export_project(
     progress.section("Files");
     progress.step(&format!("copying {} project files", files.len()));
     for abs in &files {
-        let rel = abs.strip_prefix(root).with_context(|| {
-            format!("export cannot reach outside the project: {}", abs.display())
-        })?;
+        let rel = abs
+            .strip_prefix(root)
+            .map_err(|_| ExportError::OutsideProject { path: abs.clone() })?;
         let dest = game_dir.join(rel);
         if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| io_err(format!("cannot create {}", parent.display()), e))?;
         }
-        std::fs::copy(abs, &dest)?;
+        std::fs::copy(abs, &dest)
+            .map_err(|e| io_err(format!("cannot copy {}", abs.display()), e))?;
         progress.detail(&format!("Copied {}", rel_to(root, abs)));
     }
-    std::fs::copy(
-        root.join(pite_project::MANIFEST_FILE),
-        game_dir.join(pite_project::MANIFEST_FILE),
-    )?;
+    let manifest_src = root.join(pite_project::MANIFEST_FILE);
+    std::fs::copy(&manifest_src, game_dir.join(pite_project::MANIFEST_FILE))
+        .map_err(|e| io_err(format!("cannot copy {}", manifest_src.display()), e))?;
 
     let bin_dest = bin_dir.join(&bin_name);
-    std::fs::copy(&binary_src, &bin_dest)?;
+    std::fs::copy(&binary_src, &bin_dest)
+        .map_err(|e| io_err(format!("cannot copy {}", binary_src.display()), e))?;
     python_bundle::strip_debug(&bin_dest);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&bin_dest, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(&bin_dest, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| io_err(format!("cannot chmod {}", bin_dest.display()), e))?;
     }
 
     let main_rel = if manifest.project.main_scene.starts_with("res://") {
@@ -252,20 +250,24 @@ pub fn export_project(
         manifest.project.main_scene.clone()
     };
     if opts.platform == "windows" {
+        let bat = out.join("run.bat");
         std::fs::write(
-            out.join("run.bat"),
+            &bat,
             windows_launcher(&game_name, &bin_name, &main_rel, staged.as_ref()),
-        )?;
+        )
+        .map_err(|e| io_err(format!("cannot write {}", bat.display()), e))?;
     } else {
         let sh = out.join("run.sh");
         std::fs::write(
             &sh,
             unix_launcher(&game_name, &bin_name, &main_rel, &out, staged.as_ref()),
-        )?;
+        )
+        .map_err(|e| io_err(format!("cannot write {}", sh.display()), e))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755))?;
+            std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755))
+                .map_err(|e| io_err(format!("cannot chmod {}", sh.display()), e))?;
         }
     }
     let python = match staged {
@@ -274,10 +276,9 @@ pub fn export_project(
         },
         None => PythonChoice::System,
     };
-    std::fs::write(
-        out.join("README.txt"),
-        readme(&game_name, &opts.platform, &python),
-    )?;
+    let readme_path = out.join("README.txt");
+    std::fs::write(&readme_path, readme(&game_name, &opts.platform, &python))
+        .map_err(|e| io_err(format!("cannot write {}", readme_path.display()), e))?;
 
     owned.commit();
     Ok(ExportReport {
@@ -341,21 +342,23 @@ fn windows_pth(bin_dir: &Path, bundle: &python_bundle::StagedBundle) -> Result<S
     let python_dir = bundle
         .root
         .file_name()
-        .context("staged python directory has a name")?
+        .ok_or_else(|| ExportError::Message("staged python directory has no name".into()))?
         .to_string_lossy();
     let zip = bundle
         .stdlib_zip
         .file_name()
-        .context("staged stdlib zip has a name")?
+        .ok_or_else(|| ExportError::Message("staged stdlib zip has no name".into()))?
         .to_string_lossy();
-    let parent = bin_dir.parent().context("bin directory has a parent")?;
+    let parent = bin_dir
+        .parent()
+        .ok_or_else(|| ExportError::Message("bin directory has no parent".into()))?;
     if bundle.root.parent() != Some(parent) {
-        anyhow::bail!(
+        return Err(ExportError::Message(format!(
             "staged python directory {} is not a sibling of {}; the loader config \
              cannot name a relative path to the stdlib",
             bundle.root.display(),
             bin_dir.display()
-        );
+        )));
     }
     Ok(format!("..\\{python_dir}\\{zip}\r\n.\r\n"))
 }
@@ -406,7 +409,7 @@ fn select_binary_from(
 ) -> Result<PathBuf> {
     if let Some(p) = &opts.binary {
         if !p.is_file() {
-            anyhow::bail!("engine binary not found: {}", p.display());
+            return Err(ExportError::BinaryNotFound { path: p.clone() });
         }
         let name = p
             .file_name()
@@ -429,18 +432,16 @@ fn select_binary_from(
     }
     match player::ensure_player_binary(&opts.platform, progress) {
         Ok(path) => Ok(path),
-        Err(e) => {
-            anyhow::bail!(
-                "export needs a pite-player binary for {} next to {} (engine bundles ship player \
-                 binaries for all platforms), or pass --binary with a player binary; \
-                 download fallback failed: {e:#}",
-                opts.platform,
-                current_exe
-                    .as_deref()
-                    .unwrap_or(Path::new("pite"))
-                    .display()
-            )
-        }
+        Err(e) => Err(ExportError::Message(format!(
+            "export needs a pite-player binary for {} next to {} (engine bundles ship player \
+             binaries for all platforms), or pass --binary with a player binary; \
+             download fallback failed: {e}",
+            opts.platform,
+            current_exe
+                .as_deref()
+                .unwrap_or(Path::new("pite"))
+                .display()
+        ))),
     }
 }
 
@@ -475,9 +476,11 @@ fn readme(game: &str, platform: &str, python: &PythonChoice) -> String {
 
 /// Every file under `dir`, recursively.
 fn stage_tree(dir: &Path, out: &mut std::collections::HashSet<PathBuf>) -> Result<()> {
-    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
+    for entry in
+        std::fs::read_dir(dir).map_err(|e| io_err(format!("cannot read {}", dir.display()), e))?
+    {
         let path = entry
-            .with_context(|| format!("cannot list entry in {}", dir.display()))?
+            .map_err(|e| io_err(format!("cannot list entry in {}", dir.display()), e))?
             .path();
         if path.is_dir() {
             stage_tree(&path, out)?;
@@ -496,35 +499,47 @@ fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Res
         if !visited.insert(scene_ref.clone()) {
             continue;
         }
-        let scene_path = resolve_ref(root, None, &scene_ref)
-            .with_context(|| format!("export cannot resolve scene {scene_ref:?}"))?;
+        let scene_path = resolve_ref(root, None, &scene_ref).ok_or_else(|| {
+            ExportError::UnresolvedReference {
+                kind: "scene",
+                reference: scene_ref.clone(),
+            }
+        })?;
         files.insert(scene_path.clone());
         let scene_dir = scene_path
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| root.to_path_buf());
-        let doc = pite_scene::load_scene(&scene_path)
-            .with_context(|| format!("export cannot parse {}", scene_path.display()))?;
+        let doc = pite_scene::load_scene(&scene_path)?;
         for node in &doc.node {
             if let Some(script) = &node.script {
-                let p = resolve_ref(root, Some(&scene_dir), &script.path)
-                    .with_context(|| format!("export cannot resolve script {:?}", script.path))?;
+                let p = resolve_ref(root, Some(&scene_dir), &script.path).ok_or_else(|| {
+                    ExportError::UnresolvedReference {
+                        kind: "script",
+                        reference: script.path.clone(),
+                    }
+                })?;
                 files.insert(p.clone());
-                for audio in played_assets(
-                    &std::fs::read_to_string(&p)
-                        .with_context(|| format!("export cannot read {}", p.display()))?,
-                ) {
-                    files.insert(
-                        resolve_ref(root, Some(&scene_dir), audio)
-                            .with_context(|| format!("export cannot resolve audio {audio:?}"))?,
-                    );
+                let script_text = std::fs::read_to_string(&p)
+                    .map_err(|e| io_err(format!("export cannot read {}", p.display()), e))?;
+                for audio in played_assets(&script_text) {
+                    files.insert(resolve_ref(root, Some(&scene_dir), audio).ok_or_else(|| {
+                        ExportError::UnresolvedReference {
+                            kind: "audio",
+                            reference: audio.to_string(),
+                        }
+                    })?);
                 }
             }
             for value in node.props.values() {
                 if let toml::Value::String(s) = value {
                     if s.starts_with("res://") {
-                        let asset = resolve_ref(root, Some(&scene_dir), s)
-                            .with_context(|| format!("export cannot resolve asset {s:?}"))?;
+                        let asset = resolve_ref(root, Some(&scene_dir), s).ok_or_else(|| {
+                            ExportError::UnresolvedReference {
+                                kind: "asset",
+                                reference: s.clone(),
+                            }
+                        })?;
                         if let Some(sheet) = atlas_sheet(&asset) {
                             files.insert(sheet);
                         }
@@ -549,7 +564,7 @@ fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Res
     let mut files: Vec<PathBuf> = files.into_iter().collect();
     for f in &files {
         if !f.is_file() {
-            anyhow::bail!("export references missing file: {}", f.display());
+            return Err(ExportError::MissingReferencedFile { path: f.clone() });
         }
     }
     files.sort();

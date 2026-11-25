@@ -34,7 +34,8 @@ pub use props::{Color, PropValue, Props, CUSTOM_PROP_TYPES};
 pub use registry::{NodeFactory, NodeTypeRegistry};
 pub use schema::{
     all_props, inheritance_chain, is_valid_custom_prop_type, node_type_schema, type_props,
-    validate_custom_prop_type, DefaultPropVal, NodeTypeSchema, PropHint, PropSchema, NODE_SCHEMAS,
+    validate_custom_prop_type, DefaultPropVal, NodeTypeSchema, PropHint, PropSchema, SchemaError,
+    NODE_SCHEMAS,
 };
 pub use signals::{SignalDef, SignalRegistry};
 pub use tree::NodeTree;

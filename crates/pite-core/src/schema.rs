@@ -3,7 +3,22 @@
 
 use std::collections::HashSet;
 
+use thiserror::Error;
+
 use crate::props::PropValue;
+
+/// Errors returned when validating custom property definitions or values against `[props]`.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum SchemaError {
+    #[error("unknown custom prop type {got:?} (want one of: {valid})")]
+    UnknownCustomPropType { got: String, valid: String },
+
+    #[error("expected {expected}, got {got}")]
+    CustomPropTypeMismatch {
+        expected: &'static str,
+        got: &'static str,
+    },
+}
 
 /// Static representation of a property's default value defined in a node schema.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -176,7 +191,10 @@ pub fn is_valid_custom_prop_type(type_str: &str) -> bool {
 /// Check a `PropValue` against a `[props]` declared type name. Errors name
 /// the expected and actual types so `pite check` and Python `set_custom_property`
 /// surface the same message.
-pub fn validate_custom_prop_type(type_str: &str, value: &PropValue) -> Result<(), String> {
+pub fn validate_custom_prop_type(
+    type_str: &str,
+    value: &PropValue,
+) -> std::result::Result<(), SchemaError> {
     let want = match type_str {
         "string" | "str" => matches!(value, PropValue::Str(_)),
         "int" | "integer" => matches!(value, PropValue::Int(_)),
@@ -185,21 +203,19 @@ pub fn validate_custom_prop_type(type_str: &str, value: &PropValue) -> Result<()
         "vec2" => matches!(value, PropValue::Vec2(_, _)),
         "color" => matches!(value, PropValue::Color(_, _, _, _)),
         other => {
-            return Err(format!(
-                "unknown custom prop type {:?} (want one of: {})",
-                other,
-                crate::CUSTOM_PROP_TYPES.join(", ")
-            ));
+            return Err(SchemaError::UnknownCustomPropType {
+                got: other.to_string(),
+                valid: crate::CUSTOM_PROP_TYPES.join(", "),
+            });
         }
     };
     if want {
         Ok(())
     } else {
-        Err(format!(
-            "expected {}, got {}",
-            canonical_type_name(type_str),
-            value.type_name()
-        ))
+        Err(SchemaError::CustomPropTypeMismatch {
+            expected: canonical_type_name(type_str),
+            got: value.type_name(),
+        })
     }
 }
 
@@ -377,7 +393,9 @@ mod tests {
         assert!(validate_custom_prop_type("color", &PropValue::Color(1, 2, 3, 4)).is_ok());
 
         // Unknown type name errors with the canonical list.
-        let err = validate_custom_prop_type("bytes", &PropValue::Str("".into())).unwrap_err();
+        let err = validate_custom_prop_type("bytes", &PropValue::Str("".into()))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("unknown custom prop type"), "got {err:?}");
         assert!(
             err.contains("string, int, number, bool, vec2, color"),
