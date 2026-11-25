@@ -287,6 +287,152 @@ pub fn sheet_for_sidecar(sidecar: &Path) -> PathBuf {
         .join(format!("{stem}.png"))
 }
 
+/// Serialize an [`Atlas`] into canonical pretty TOML after validating every frame and animation.
+pub fn serialize_atlas(atlas: &Atlas) -> Result<String> {
+    let raw = RawAtlas {
+        format_version: FORMAT_VERSION,
+        texture: atlas.texture.clone(),
+        size: [atlas.size.0, atlas.size.1],
+        frames: atlas
+            .frames
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    RawFrame {
+                        x: v.x,
+                        y: v.y,
+                        w: v.w,
+                        h: v.h,
+                    },
+                )
+            })
+            .collect(),
+        animations: atlas
+            .animations
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    RawAnimation {
+                        frames: v.frames.clone(),
+                        fps: v.fps,
+                        looping: v.looping,
+                    },
+                )
+            })
+            .collect(),
+    };
+    let text = toml::to_string_pretty(&raw).context("failed to serialize atlas to TOML")?;
+    parse_atlas(&text)?;
+    Ok(text)
+}
+
+/// Validate and write `atlas` to `path` as `.ptatlas` TOML.
+pub fn save_atlas(path: &Path, atlas: &Atlas) -> Result<()> {
+    let text = serialize_atlas(atlas)?;
+    std::fs::write(path, text).with_context(|| format!("cannot write atlas {}", path.display()))
+}
+
+/// Read image dimensions `(width, height)` from a sheet PNG without decoding full pixel buffers.
+pub fn sheet_dimensions(path: &Path) -> Result<(u32, u32)> {
+    image::image_dimensions(path)
+        .with_context(|| format!("cannot read image dimensions of {}", path.display()))
+}
+
+/// Decode a sheet image into `(width, height, rgba8)` for editor canvas preview and slicing.
+pub fn load_sheet_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
+    let img = image::open(path)
+        .with_context(|| format!("cannot load sheet image {}", path.display()))?
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    Ok((w, h, img.into_raw()))
+}
+
+/// Parameters for cutting a uniform grid of frames from a sprite sheet.
+#[derive(Debug, Clone)]
+pub struct GridSliceSpec {
+    pub sheet_size: (u32, u32),
+    pub tile_w: u32,
+    pub tile_h: u32,
+    pub offset_x: u32,
+    pub offset_y: u32,
+    pub spacing_x: u32,
+    pub spacing_y: u32,
+    pub prefix: String,
+    pub skip_transparent: bool,
+}
+
+fn cell_has_opaque_pixel(rgba: &[u8], sheet_w: u32, rect: AtlasFrame) -> bool {
+    let sw = sheet_w as usize;
+    for py in rect.y..rect.y + rect.h {
+        let row_start = (py as usize) * sw;
+        for px in rect.x..rect.x + rect.w {
+            let alpha_idx = (row_start + px as usize) * 4 + 3;
+            if rgba.get(alpha_idx).copied().unwrap_or(0) > 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Generate named [`AtlasFrame`] cells in row-major order matching `spec`.
+/// When `spec.skip_transparent` is true and `rgba` is supplied, empty cells
+/// whose pixels all have zero alpha are omitted.
+pub fn grid_slice_frames(
+    spec: &GridSliceSpec,
+    rgba: Option<&[u8]>,
+) -> Result<Vec<(String, AtlasFrame)>> {
+    if spec.tile_w == 0 || spec.tile_h == 0 {
+        anyhow::bail!("tile dimensions must be positive");
+    }
+    let (sw, sh) = spec.sheet_size;
+    if sw == 0 || sh == 0 {
+        anyhow::bail!("sheet dimensions must be positive");
+    }
+    let step_x = spec.tile_w.saturating_add(spec.spacing_x);
+    let step_y = spec.tile_h.saturating_add(spec.spacing_y);
+    let mut rects = Vec::new();
+    let mut y = spec.offset_y;
+    while y.saturating_add(spec.tile_h) <= sh {
+        let mut x = spec.offset_x;
+        while x.saturating_add(spec.tile_w) <= sw {
+            let rect = AtlasFrame {
+                x,
+                y,
+                w: spec.tile_w,
+                h: spec.tile_h,
+            };
+            let keep = if spec.skip_transparent {
+                rgba.is_none_or(|buf| cell_has_opaque_pixel(buf, sw, rect))
+            } else {
+                true
+            };
+            if keep {
+                rects.push(rect);
+            }
+            x = x.saturating_add(step_x);
+        }
+        y = y.saturating_add(step_y);
+    }
+    let width = if rects.len() >= 10 {
+        (rects.len() - 1).to_string().len()
+    } else {
+        1
+    };
+    let prefix = if spec.prefix.is_empty() {
+        "frame_"
+    } else {
+        spec.prefix.as_str()
+    };
+    Ok(rects
+        .into_iter()
+        .enumerate()
+        .map(|(i, rect)| (format!("{prefix}{i:0width$}"), rect))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,5 +664,84 @@ fps = 0.0
         assert_eq!(atlas.size, (64, 32));
         assert_eq!(atlas.frames.len(), 1);
         assert_eq!(atlas.animations.len(), 1);
+    }
+
+    #[test]
+    fn save_atlas_round_trips_and_validates() {
+        let dir = std::env::temp_dir().join(format!("pite_atlas_save_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hero.ptatlas");
+
+        let mut atlas = parse_atlas(SHEET).unwrap();
+        atlas.animations.insert(
+            "run".to_string(),
+            AtlasAnimation {
+                frames: vec!["player".to_string(), "enemy".to_string()],
+                fps: 12.0,
+                looping: true,
+            },
+        );
+        save_atlas(&path, &atlas).unwrap();
+        let reloaded = load_atlas(&path).unwrap();
+        assert_eq!(reloaded, atlas);
+
+        atlas.frames.clear();
+        assert!(save_atlas(&path, &atlas).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sheet_dimensions_and_rgba_read_temp_png() {
+        let dir = std::env::temp_dir().join(format!("pite_atlas_png_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sheet.png");
+
+        let mut img = image::RgbaImage::new(32, 16);
+        img.put_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        img.save(&path).unwrap();
+
+        assert_eq!(sheet_dimensions(&path).unwrap(), (32, 16));
+        let (w, h, rgba) = load_sheet_rgba(&path).unwrap();
+        assert_eq!((w, h), (32, 16));
+        assert_eq!(rgba.len(), 32 * 16 * 4);
+        assert_eq!(&rgba[(32 + 1) * 4..(32 + 1) * 4 + 4], &[255, 0, 0, 255]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn grid_slice_frames_handles_spacing_and_transparent_skip() {
+        let mut rgba = vec![0u8; 34 * 16 * 4];
+        // Cell (0,0) and cell (18,0) opaque; cell at x=0 opaque, second cell transparent.
+        rgba[(2 * 34 + 2) * 4 + 3] = 255;
+
+        let spec = GridSliceSpec {
+            sheet_size: (34, 16),
+            tile_w: 16,
+            tile_h: 16,
+            offset_x: 0,
+            offset_y: 0,
+            spacing_x: 2,
+            spacing_y: 0,
+            prefix: "hero_".to_string(),
+            skip_transparent: false,
+        };
+        let all = grid_slice_frames(&spec, Some(&rgba)).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].0, "hero_0");
+        assert_eq!(all[0].1.x, 0);
+        assert_eq!(all[1].1.x, 18);
+
+        let non_empty = grid_slice_frames(
+            &GridSliceSpec {
+                skip_transparent: true,
+                ..spec
+            },
+            Some(&rgba),
+        )
+        .unwrap();
+        assert_eq!(non_empty.len(), 1);
+        assert_eq!(non_empty[0].0, "hero_0");
     }
 }
