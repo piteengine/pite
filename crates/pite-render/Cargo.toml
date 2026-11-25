@@ -20,7 +20,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 ab_glyph = "0.2"
 anyhow.workspace = true
-bytemuck = { version = "1", features = ["derive"] }
+bytemuck.workspace = true
 image.workspace = true
 pollster.workspace = true
 serde.workspace = true
@@ -29,7 +29,6 @@ toml.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
 winit.workspace = true
-pite-core.workspace = true
 
 [lints]
 workspace = true

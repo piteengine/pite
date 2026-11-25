@@ -3278,11 +3278,9 @@ dependencies = [
 name = "pite-physics"
 version = "0.4.0"
 dependencies = [
- "anyhow",
  "pite-core",
  "rapier2d",
  "serde",
- "tracing",
 ]
 
 [[package]]
@@ -3316,7 +3314,6 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "image",
- "pite-core",
  "pollster",
  "serde",
  "serde_json",

@@ -18,10 +18,8 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-anyhow.workspace = true
 rapier2d.workspace = true
 serde.workspace = true
-tracing.workspace = true
 pite-core.workspace = true
 
 [lints]
