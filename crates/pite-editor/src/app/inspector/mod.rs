@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+mod atlas;
+mod atlas_ui;
 mod props;
 mod sections;
+
+pub(in crate::app) use atlas::AtlasEditorState;
 
 use eframe::egui;
 use pite_core::{NodeId, PropValue};

@@ -398,10 +398,41 @@ impl EditorApp {
                                         .cloned()
                                         .unwrap_or_else(|| def.default_value.to_prop_value());
 
-                                    if let Some(new_val) =
-                                        self.render_prop_editor(ui, &current_val, &def.hint, val_w)
-                                    {
-                                        self.set_prop(node_id, def.key, new_val);
+                                    let atlas_ref = match node.props.get("atlas") {
+                                        Some(PropValue::Str(s)) if !s.is_empty() => {
+                                            Some(s.as_str())
+                                        }
+                                        _ => None,
+                                    };
+                                    let is_atlas_picker = (section_name == "Sprite2D"
+                                        && def.key == "frame")
+                                        || (section_name == "AnimatedSprite2D"
+                                            && def.key == "animation");
+                                    let handled_by_picker = if is_atlas_picker {
+                                        if let Some(a_ref) = atlas_ref {
+                                            self.render_atlas_member_picker(
+                                                ui,
+                                                node_id,
+                                                a_ref,
+                                                def.key,
+                                                &current_val,
+                                                val_w,
+                                            )
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    };
+                                    if !handled_by_picker {
+                                        if let Some(new_val) = self.render_prop_editor(
+                                            ui,
+                                            &current_val,
+                                            &def.hint,
+                                            val_w,
+                                        ) {
+                                            self.set_prop(node_id, def.key, new_val);
+                                        }
                                     }
 
                                     if show_reset {
@@ -426,9 +457,141 @@ impl EditorApp {
                         }
                     });
                 ui.add_space(2.0);
+                if section_name == "Sprite2D" || section_name == "AnimatedSprite2D" {
+                    self.show_sprite_atlas_actions(ui, id, node_id, node);
+                }
             }
         }
         handled_keys
+    }
+
+    fn resolve_loaded_atlas(&self, atlas_ref: &str) -> Option<pite_render::atlas::Atlas> {
+        if let Some(ed) = &self.atlas_editor {
+            if ed.res_path == atlas_ref {
+                return Some(ed.atlas.clone());
+            }
+        }
+        let sidecar = self.resolve_res(atlas_ref)?;
+        pite_render::atlas::load_atlas(&sidecar).ok()
+    }
+
+    fn render_atlas_member_picker(
+        &mut self,
+        ui: &mut egui::Ui,
+        node_id: &NodeId,
+        atlas_ref: &str,
+        key: &str,
+        current: &PropValue,
+        available_w: f32,
+    ) -> bool {
+        let Some(atlas) = self.resolve_loaded_atlas(atlas_ref) else {
+            return false;
+        };
+        let mut current_str = match current {
+            PropValue::Str(s) => s.clone(),
+            _ => String::new(),
+        };
+        let options: Vec<(String, String)> = if key == "frame" {
+            atlas
+                .frames
+                .iter()
+                .map(|(n, f)| (n.clone(), format!("{n} ({}×{})", f.w, f.h)))
+                .collect()
+        } else {
+            atlas
+                .animations
+                .iter()
+                .map(|(n, a)| (n.clone(), format!("{n} ({:.0} fps)", a.fps)))
+                .collect()
+        };
+        if options.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        egui::ComboBox::from_id_salt(ui.scope_id().with(("atlas_member", key)))
+            .width((available_w - 8.0).max(40.0))
+            .selected_text(if current_str.is_empty() {
+                format!("(select {key})")
+            } else {
+                current_str.clone()
+            })
+            .show_ui(ui, |ui| {
+                for (name, label) in &options {
+                    if ui
+                        .selectable_value(&mut current_str, name.clone(), label)
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                }
+            });
+        if changed {
+            self.set_prop(node_id, key, PropValue::Str(current_str));
+        }
+        true
+    }
+
+    fn show_sprite_atlas_actions(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        node_id: &NodeId,
+        node: &Node,
+    ) {
+        let atlas_ref = match node.props.get("atlas") {
+            Some(PropValue::Str(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
+        let tex_ref = match node.props.get("texture") {
+            Some(PropValue::Str(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
+
+        if let Some(a_ref) = atlas_ref {
+            let inline_id = ui.make_persistent_id(format!("inline_atlas_{id}"));
+            let mut inline_open = ui.data_mut(|d| d.get_temp::<bool>(inline_id).unwrap_or(false));
+            let is_loaded_here = self
+                .atlas_editor
+                .as_ref()
+                .is_some_and(|e| e.res_path == a_ref);
+
+            ui.horizontal(|ui| {
+                let btn_label = if inline_open && is_loaded_here {
+                    "Hide Atlas Editor"
+                } else {
+                    "Edit Atlas…"
+                };
+                if ui.small_button(btn_label).clicked() {
+                    if inline_open && is_loaded_here {
+                        inline_open = false;
+                    } else if let Some(abs) = self.resolve_res(&a_ref) {
+                        self.open_atlas_in_inspector(abs, a_ref.clone());
+                        inline_open = true;
+                    }
+                    ui.data_mut(|d| d.insert_temp(inline_id, inline_open));
+                }
+            });
+
+            if inline_open {
+                if !is_loaded_here {
+                    if let Some(abs) = self.resolve_res(&a_ref) {
+                        self.open_atlas_in_inspector(abs, a_ref);
+                    }
+                }
+                if self.atlas_editor.is_some() {
+                    ui.separator();
+                    self.show_atlas_editor(ui, false);
+                }
+            }
+        } else if let Some(t_ref) = tex_ref {
+            if let Some(rel) = t_ref.strip_prefix("res://") {
+                if rel.to_ascii_lowercase().ends_with(".png")
+                    && ui.small_button("Create Atlas (.ptatlas)…").clicked()
+                {
+                    self.open_new_atlas_modal(rel, Some(node_id.to_string()));
+                }
+            }
+        }
     }
 
     pub(super) fn show_custom_props(
@@ -736,29 +899,88 @@ impl EditorApp {
 
         // Palette
         ui.add_space(4.0);
-        ui.label("Tile Palette:");
-        if let Some(sidecar_path) = self.resolve_res(&doc.atlas) {
-            if let Ok(atlas) = pite_render::atlas::load_atlas(&sidecar_path) {
-                egui::ScrollArea::vertical()
-                    .id_salt("tile_palette")
-                    .max_height(140.0)
-                    .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for name in atlas.names() {
-                                let selected = !self.tilemap_eraser
-                                    && self.tilemap_selected_frame.as_deref() == Some(name);
-                                if ui.selectable_label(selected, name).clicked() {
-                                    self.tilemap_selected_frame = Some(name.to_string());
-                                    self.tilemap_eraser = false;
-                                }
-                            }
-                        });
-                    });
-            } else {
-                ui.label(format!("Cannot load atlas: {}", doc.atlas));
+        let tilemap_atlas_id = ui.make_persistent_id(format!("inline_tilemap_atlas_{node_id}"));
+        let mut tilemap_atlas_open =
+            ui.data_mut(|d| d.get_temp::<bool>(tilemap_atlas_id).unwrap_or(false));
+        let is_tilemap_atlas_loaded = self
+            .atlas_editor
+            .as_ref()
+            .is_some_and(|e| e.res_path == doc.atlas);
+
+        ui.horizontal(|ui| {
+            ui.label("Tile Palette:");
+            if self.resolve_res(&doc.atlas).is_some() {
+                let lbl = if tilemap_atlas_open && is_tilemap_atlas_loaded {
+                    "Hide Atlas"
+                } else {
+                    "Edit Atlas"
+                };
+                if ui.small_button(lbl).clicked() {
+                    if tilemap_atlas_open && is_tilemap_atlas_loaded {
+                        tilemap_atlas_open = false;
+                    } else if let Some(abs) = self.resolve_res(&doc.atlas) {
+                        self.open_atlas_in_inspector(abs, doc.atlas.clone());
+                        tilemap_atlas_open = true;
+                    }
+                    ui.data_mut(|d| d.insert_temp(tilemap_atlas_id, tilemap_atlas_open));
+                }
             }
+        });
+
+        let loaded_atlas = self.resolve_loaded_atlas(&doc.atlas);
+        let sheet_tex = self
+            .atlas_editor
+            .as_ref()
+            .filter(|e| e.res_path == doc.atlas)
+            .and_then(|e| e.sheet_tex.clone());
+
+        if let Some(atlas) = loaded_atlas {
+            egui::ScrollArea::vertical()
+                .id_salt("tile_palette")
+                .max_height(140.0)
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        for name in atlas.names() {
+                            let selected = !self.tilemap_eraser
+                                && self.tilemap_selected_frame.as_deref() == Some(name);
+                            let resp = if let (Some(tex), Ok(fr)) = (&sheet_tex, atlas.frame(name))
+                            {
+                                let uv_arr = fr.uv(atlas.size);
+                                let uv = egui::Rect::from_min_max(
+                                    egui::pos2(uv_arr[0], uv_arr[1]),
+                                    egui::pos2(uv_arr[2], uv_arr[3]),
+                                );
+                                ui.add(
+                                    egui::Button::image(
+                                        egui::Image::new((tex.id(), egui::vec2(24.0, 24.0))).uv(uv),
+                                    )
+                                    .selected(selected),
+                                )
+                                .on_hover_text(name)
+                            } else {
+                                ui.selectable_label(selected, name)
+                            };
+                            if resp.clicked() {
+                                self.tilemap_selected_frame = Some(name.to_string());
+                                self.tilemap_eraser = false;
+                            }
+                        }
+                    });
+                });
         } else {
-            ui.label(format!("Invalid atlas path: {}", doc.atlas));
+            ui.label(format!("Cannot load atlas: {}", doc.atlas));
+        }
+
+        if tilemap_atlas_open {
+            if !is_tilemap_atlas_loaded {
+                if let Some(abs) = self.resolve_res(&doc.atlas) {
+                    self.open_atlas_in_inspector(abs, doc.atlas.clone());
+                }
+            }
+            if self.atlas_editor.is_some() {
+                ui.separator();
+                self.show_atlas_editor(ui, false);
+            }
         }
 
         if changed {

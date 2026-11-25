@@ -164,6 +164,7 @@ pub struct EditorApp {
     pub(super) tilemap_active_layer: usize,
     pub(super) tilemap_selected_frame: Option<String>,
     pub(super) tilemap_eraser: bool,
+    pub(super) atlas_editor: Option<inspector::AtlasEditorState>,
 }
 
 impl EditorApp {
@@ -232,6 +233,7 @@ impl EditorApp {
             tilemap_active_layer: 0,
             tilemap_selected_frame: None,
             tilemap_eraser: false,
+            atlas_editor: None,
         })
     }
 
@@ -787,8 +789,11 @@ impl eframe::App for EditorApp {
                         ui.heading("Inspector");
                         match self.selected.clone() {
                             Some(id) => self.show_inspector(ui, &id),
+                            None if self.atlas_editor.is_some() => {
+                                self.show_atlas_editor(ui, true);
+                            }
                             None => {
-                                ui.label("Select a node.");
+                                ui.label("Select a node or double-click a .ptatlas file.");
                             }
                         }
                     })

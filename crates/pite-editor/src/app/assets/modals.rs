@@ -3,8 +3,9 @@ use std::path::Path;
 
 use eframe::egui;
 
+use super::super::inspector::AtlasEditorState;
 use super::super::EditorApp;
-use super::{rename_asset_rel, AssetModal, NewFileKind};
+use super::{list_asset_dir, rename_asset_rel, AssetModal, NewFileKind};
 
 impl EditorApp {
     pub(in crate::app) fn show_asset_modals(&mut self, ctx: &egui::Context, root: &Path) {
@@ -22,6 +23,15 @@ impl EditorApp {
                 parent_rel: String,
                 name: String,
                 kind: NewFileKind,
+            },
+            CreateAtlas {
+                parent_rel: String,
+                png_rel: String,
+                atlas_name: String,
+                use_grid: bool,
+                tile_w: u32,
+                tile_h: u32,
+                assign_node: Option<String>,
             },
             Rename {
                 rel_path: String,
@@ -155,6 +165,119 @@ impl EditorApp {
                             parent_rel,
                             name,
                             kind,
+                            error,
+                        });
+                    });
+            }
+            AssetModal::NewAtlas {
+                parent_rel,
+                mut png_rel,
+                mut atlas_name,
+                mut use_grid,
+                mut tile_w,
+                mut tile_h,
+                assign_node,
+                error,
+            } => {
+                let (_, files) = list_asset_dir(root, &parent_rel);
+                let png_options: Vec<String> = files
+                    .into_iter()
+                    .filter(|f| f.name.to_ascii_lowercase().ends_with(".png"))
+                    .map(|f| f.rel_path)
+                    .collect();
+                egui::Window::new("Create Atlas (.ptatlas)")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.label(format!(
+                            "Folder: res://{}",
+                            if parent_rel.is_empty() {
+                                "(project root)"
+                            } else {
+                                &parent_rel
+                            }
+                        ));
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Sheet PNG:");
+                            if png_options.is_empty() {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut png_rel)
+                                        .hint_text("assets/sheet.png")
+                                        .desired_width(180.0),
+                                );
+                            } else {
+                                egui::ComboBox::from_id_salt("new_atlas_png_combo")
+                                    .width(180.0)
+                                    .selected_text(if png_rel.is_empty() {
+                                        "Select a PNG…"
+                                    } else {
+                                        &png_rel
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        for opt in &png_options {
+                                            if ui
+                                                .selectable_value(&mut png_rel, opt.clone(), opt)
+                                                .changed()
+                                            {
+                                                let stem = Path::new(opt)
+                                                    .file_stem()
+                                                    .and_then(|s| s.to_str())
+                                                    .unwrap_or("sheet");
+                                                atlas_name = format!("{stem}.ptatlas");
+                                            }
+                                        }
+                                    });
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Atlas File:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut atlas_name)
+                                    .hint_text("sheet.ptatlas")
+                                    .desired_width(180.0),
+                            );
+                        });
+                        ui.checkbox(&mut use_grid, "Auto-slice grid on create");
+                        if use_grid {
+                            ui.horizontal(|ui| {
+                                ui.label("Tile W:");
+                                ui.add(egui::DragValue::new(&mut tile_w).range(1..=4096));
+                                ui.label("H:");
+                                ui.add(egui::DragValue::new(&mut tile_h).range(1..=4096));
+                            });
+                        }
+                        if let Some(err) = &error {
+                            ui.colored_label(egui::Color32::from_rgb(230, 80, 80), err);
+                        }
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Create").clicked() {
+                                action = Some(Action::CreateAtlas {
+                                    parent_rel: parent_rel.clone(),
+                                    png_rel: png_rel.clone(),
+                                    atlas_name: atlas_name.clone(),
+                                    use_grid,
+                                    tile_w,
+                                    tile_h,
+                                    assign_node: assign_node.clone(),
+                                });
+                            }
+                            if ui.button("Cancel").clicked()
+                                || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                            {
+                                close = true;
+                            }
+                        });
+                        self.asset_modal = Some(AssetModal::NewAtlas {
+                            parent_rel,
+                            png_rel,
+                            atlas_name,
+                            use_grid,
+                            tile_w,
+                            tile_h,
+                            assign_node,
                             error,
                         });
                     });
@@ -384,6 +507,139 @@ impl EditorApp {
                     self.asset_modal = None;
                     self.open_asset(&target_fs);
                     self.log(format!("Created file res://{parent_rel}/{full_name}"));
+                }
+                Action::CreateAtlas {
+                    parent_rel,
+                    png_rel,
+                    atlas_name,
+                    use_grid,
+                    tile_w,
+                    tile_h,
+                    assign_node,
+                } => {
+                    let trimmed = atlas_name.trim();
+                    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
+                        self.asset_modal = Some(AssetModal::NewAtlas {
+                            parent_rel,
+                            png_rel,
+                            atlas_name,
+                            use_grid,
+                            tile_w,
+                            tile_h,
+                            assign_node,
+                            error: Some("Enter a valid .ptatlas filename".to_string()),
+                        });
+                        return;
+                    }
+                    let full_name = if trimmed.ends_with(".ptatlas") {
+                        trimmed.to_string()
+                    } else {
+                        format!("{trimmed}.ptatlas")
+                    };
+                    let png_fs = match pite_core::resolve_res(root, &format!("res://{png_rel}")) {
+                        Ok(p) if p.is_file() => p,
+                        _ => {
+                            self.asset_modal = Some(AssetModal::NewAtlas {
+                                parent_rel,
+                                png_rel,
+                                atlas_name,
+                                use_grid,
+                                tile_w,
+                                tile_h,
+                                assign_node,
+                                error: Some("Source PNG file does not exist".to_string()),
+                            });
+                            return;
+                        }
+                    };
+                    let target_rel = if parent_rel.is_empty() {
+                        full_name.clone()
+                    } else {
+                        format!("{parent_rel}/{full_name}")
+                    };
+                    let target_res = format!("res://{target_rel}");
+                    let target_fs = match pite_core::resolve_res(root, &target_res) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            self.asset_modal = Some(AssetModal::NewAtlas {
+                                parent_rel,
+                                png_rel,
+                                atlas_name,
+                                use_grid,
+                                tile_w,
+                                tile_h,
+                                assign_node,
+                                error: Some(format!("Invalid atlas path: {e}")),
+                            });
+                            return;
+                        }
+                    };
+                    if target_fs.exists() {
+                        self.asset_modal = Some(AssetModal::NewAtlas {
+                            parent_rel,
+                            png_rel,
+                            atlas_name,
+                            use_grid,
+                            tile_w,
+                            tile_h,
+                            assign_node,
+                            error: Some(format!("{full_name} already exists")),
+                        });
+                        return;
+                    }
+                    let grid = use_grid.then_some((tile_w, tile_h));
+                    match AtlasEditorState::create_from_png(
+                        &png_fs,
+                        &target_fs,
+                        target_res.clone(),
+                        grid,
+                    ) {
+                        Ok(state) => {
+                            let first_frame = state.atlas.frames.keys().next().cloned();
+                            if !parent_rel.is_empty() {
+                                self.open_nodes.insert(format!("assets:{parent_rel}"));
+                            }
+                            let _ = pite_assets::reimport_project(root);
+                            if let Some(nid_str) = assign_node {
+                                let nid = pite_core::NodeId::from(nid_str);
+                                self.remove_prop(&nid, "texture");
+                                self.set_prop(
+                                    &nid,
+                                    "atlas",
+                                    pite_core::PropValue::Str(target_res.clone()),
+                                );
+                                if let Some(frame) = first_frame {
+                                    let is_sprite = self.session.host().with_tree(|t| {
+                                        t.get(&nid).is_some_and(|n| n.type_name == "Sprite2D")
+                                    });
+                                    if is_sprite {
+                                        self.set_prop(
+                                            &nid,
+                                            "frame",
+                                            pite_core::PropValue::Str(frame),
+                                        );
+                                    }
+                                }
+                            }
+                            self.atlas_editor = Some(state);
+                            self.asset_modal = None;
+                            self.session.dirty_assets.insert(target_fs);
+                            self.viewport_dirty = true;
+                            self.log(format!("Created atlas {target_res}"));
+                        }
+                        Err(e) => {
+                            self.asset_modal = Some(AssetModal::NewAtlas {
+                                parent_rel,
+                                png_rel,
+                                atlas_name,
+                                use_grid,
+                                tile_w,
+                                tile_h,
+                                assign_node,
+                                error: Some(format!("{e:#}")),
+                            });
+                        }
+                    }
                 }
                 Action::Rename { rel_path, new_name } => {
                     let trimmed = new_name.trim();

@@ -13,6 +13,9 @@ impl EditorApp {
         if self.code_file.is_some() {
             self.save_code();
         }
+        if self.atlas_editor.as_ref().is_some_and(|ed| ed.dirty) {
+            self.save_atlas_editor();
+        }
     }
 
     pub(super) fn save_scene(&mut self) {

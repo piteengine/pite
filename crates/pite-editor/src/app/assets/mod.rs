@@ -73,6 +73,62 @@ impl EditorApp {
         });
     }
 
+    pub(in crate::app) fn open_new_atlas_modal(
+        &mut self,
+        png_rel: &str,
+        assign_node: Option<String>,
+    ) {
+        let p = Path::new(png_rel);
+        let parent_rel = p
+            .parent()
+            .and_then(|d| d.to_str())
+            .unwrap_or("")
+            .replace('\\', "/");
+        let stem = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("sheet");
+        let atlas_name = format!("{stem}.ptatlas");
+        self.asset_modal = Some(AssetModal::NewAtlas {
+            parent_rel,
+            png_rel: png_rel.to_string(),
+            atlas_name,
+            use_grid: false,
+            tile_w: 32,
+            tile_h: 32,
+            assign_node,
+            error: None,
+        });
+    }
+
+    pub(in crate::app) fn open_new_atlas_in_dir_modal(&mut self, parent_rel: &str) {
+        let root = self
+            .project_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let (_, files) = list_asset_dir(&root, parent_rel);
+        let first_png = files
+            .into_iter()
+            .find(|f| f.name.to_ascii_lowercase().ends_with(".png"))
+            .map(|f| f.rel_path)
+            .unwrap_or_default();
+        if first_png.is_empty() {
+            self.asset_modal = Some(AssetModal::NewAtlas {
+                parent_rel: parent_rel.to_string(),
+                png_rel: String::new(),
+                atlas_name: "sheet.ptatlas".to_string(),
+                use_grid: false,
+                tile_w: 32,
+                tile_h: 32,
+                assign_node: None,
+                error: Some("Place a .png sprite sheet in this folder first.".to_string()),
+            });
+        } else {
+            self.open_new_atlas_modal(&first_png, None);
+        }
+    }
+
     pub(super) fn open_rename_modal(&mut self, rel_path: &str) {
         let name = Path::new(rel_path)
             .file_name()
@@ -303,37 +359,52 @@ impl EditorApp {
         pite_core::resolve_project_ref(self.project_dir.as_deref(), base, res_path).ok()
     }
 
-    pub(super) fn open_asset(&mut self, file: &Path) {
-        if Self::editor_text_file(file) {
-            if self.code_file.as_deref() == Some(file) {
+    pub(in crate::app) fn open_text_file(&mut self, file: &Path) {
+        if self.code_file.as_deref() == Some(file) {
+            self.tab = Tab::Code;
+            return;
+        }
+        if self.code_is_dirty() {
+            self.save_code();
+        }
+        match std::fs::read_to_string(file) {
+            Ok(text) => {
+                self.code_file = Some(file.to_path_buf());
+                self.code_text = text;
                 self.tab = Tab::Code;
-                return;
-            }
-            if self.code_is_dirty() {
-                self.save_code();
-            }
-            match std::fs::read_to_string(file) {
-                Ok(text) => {
-                    self.code_file = Some(file.to_path_buf());
-                    self.code_text = text;
-                    self.tab = Tab::Code;
-                    self.close_completion();
-                    self.lsp_hint.clear();
-                    if self.code_is_python() {
-                        self.ensure_lsp();
-                        let uri = self.code_uri();
-                        let text = self.code_text.clone();
-                        if let (Some(client), Some(uri)) = (self.lsp.as_mut(), uri) {
-                            if let Err(e) = client.did_open(&uri, &text) {
-                                self.log(format!("lsp: {e:#}"));
-                            }
+                self.close_completion();
+                self.lsp_hint.clear();
+                if self.code_is_python() {
+                    self.ensure_lsp();
+                    let uri = self.code_uri();
+                    let text = self.code_text.clone();
+                    if let (Some(client), Some(uri)) = (self.lsp.as_mut(), uri) {
+                        if let Err(e) = client.did_open(&uri, &text) {
+                            self.log(format!("lsp: {e:#}"));
                         }
                     }
                 }
-                Err(e) => self.log(format!("cannot open {}: {e:#}", file.display())),
             }
+            Err(e) => self.log(format!("cannot open {}: {e:#}", file.display())),
+        }
+    }
+
+    pub(in crate::app) fn open_asset(&mut self, file: &Path) {
+        if Self::editor_text_file(file) {
+            self.open_text_file(file);
         } else if file.extension().and_then(|e| e.to_str()) == Some("ptscn") {
             self.open_scene_file(file);
+        } else if file.extension().and_then(|e| e.to_str()) == Some("ptatlas") {
+            let root = self
+                .project_dir
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("."));
+            let res_path = file
+                .strip_prefix(&root)
+                .map(|r| format!("res://{}", r.to_string_lossy().replace('\\', "/")))
+                .unwrap_or_else(|_| file.display().to_string());
+            self.selected = None;
+            self.open_atlas_in_inspector(file.to_path_buf(), res_path);
         } else {
             self.log(format!("no opener for {}", file.display()));
         }

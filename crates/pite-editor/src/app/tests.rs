@@ -422,3 +422,66 @@ fn open_asset_auto_saves_dirty_code_before_switching() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn atlas_editor_create_slice_rename_delete_and_open_asset() {
+    let dir = std::env::temp_dir().join(format!("pite-atlas-editor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene_path = dir.join("main.ptscn");
+    std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+
+    let png_path = dir.join("hero.png");
+    let ptatlas_path = dir.join("hero.ptatlas");
+    std::fs::write(&png_path, pite_runtime::DEFAULT_ICON_PNG).unwrap();
+    let (sw, sh) = pite_render::atlas::sheet_dimensions(&png_path).unwrap();
+    assert!(sw > 0 && sh > 0);
+
+    // 1. Create atlas sliced by half width/height
+    let tw = (sw / 2).max(1);
+    let th = (sh / 2).max(1);
+    let mut state = super::inspector::AtlasEditorState::create_from_png(
+        &png_path,
+        &ptatlas_path,
+        "res://hero.ptatlas".to_string(),
+        Some((tw, th)),
+    )
+    .unwrap();
+    assert!(!state.dirty);
+    assert!(ptatlas_path.is_file());
+    assert!(!state.atlas.frames.is_empty());
+
+    // 2. Append frame range to a new animation and rename a referenced frame
+    let first = state.atlas.frames.keys().next().unwrap().clone();
+    let last = state.atlas.frames.keys().last().unwrap().clone();
+    state.atlas.animations.insert(
+        "idle".to_string(),
+        pite_render::atlas::AtlasAnimation {
+            frames: Vec::new(),
+            fps: 8.0,
+            looping: true,
+        },
+    );
+    let count = state.append_frame_range_to_anim("idle", &first, &last);
+    assert_eq!(count, state.atlas.frames.len());
+    assert!(state.rename_frame(&first, "hero_start"));
+    assert!(state.atlas.frames.contains_key("hero_start"));
+    assert_eq!(state.atlas.animations["idle"].frames[0], "hero_start");
+
+    // 3. Save and open via EditorApp::open_asset
+    state.save().unwrap();
+    assert!(!state.dirty);
+    assert!(state.rename_animation("idle", "walk"));
+    assert!(state.atlas.animations.contains_key("walk"));
+
+    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    app.open_asset(&ptatlas_path);
+    assert!(app.atlas_editor.is_some());
+
+    // 4. Delete frame prunes animation references
+    let ed = app.atlas_editor.as_mut().unwrap();
+    assert!(ed.delete_frame("hero_start"));
+    assert!(!ed.atlas.frames.contains_key("hero_start"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}

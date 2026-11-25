@@ -121,6 +121,10 @@ impl EditorApp {
                     self.open_new_file_modal("", NewFileKind::Scene);
                     menu.close();
                 }
+                if menu.button("New Atlas (.ptatlas)…").clicked() {
+                    self.open_new_atlas_in_dir_modal("");
+                    menu.close();
+                }
                 if menu.button("New Folder…").clicked() {
                     self.open_new_folder_modal("");
                     menu.close();
@@ -317,6 +321,10 @@ impl EditorApp {
                     self.open_new_file_modal(&folder_rel, NewFileKind::Scene);
                     menu.close();
                 }
+                if menu.button("New Atlas (.ptatlas)…").clicked() {
+                    self.open_new_atlas_in_dir_modal(&folder_rel);
+                    menu.close();
+                }
                 if menu.button("New Folder…").clicked() {
                     self.open_new_folder_modal(&folder_rel);
                     menu.close();
@@ -402,7 +410,9 @@ impl EditorApp {
                 "py" => icons::Icon::Script,
                 "ptscn" => icons::Icon::Scene,
                 "toml" | "cfg" | "ini" | "json" | "yaml" | "yml" => icons::Icon::Gear,
-                "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" => icons::Icon::Image,
+                "ptatlas" | "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" => {
+                    icons::Icon::Image
+                }
                 "wav" | "ogg" | "mp3" | "flac" => icons::Icon::Audio,
                 _ => icons::Icon::File,
             };
@@ -525,11 +535,27 @@ impl EditorApp {
 
             // Context menu for file
             let file_rel = full.clone();
+            let file_lower = file_rel.to_ascii_lowercase();
             row_resp.context_menu(|ui| {
                 let mut menu = MenuSeparatorTracker::new(ui);
-                if menu.button("Open").clicked() {
+                let open_label = if file_lower.ends_with(".ptatlas") {
+                    "Edit Atlas"
+                } else {
+                    "Open"
+                };
+                if menu.button(open_label).clicked() {
                     let abs = root.join(file_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
                     self.open_asset(&abs);
+                    menu.close();
+                }
+                if file_lower.ends_with(".ptatlas") && menu.button("Edit as TOML").clicked() {
+                    let abs = root.join(file_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    self.open_text_file(&abs);
+                    menu.close();
+                }
+                if file_lower.ends_with(".png") && menu.button("Create Atlas (.ptatlas)…").clicked()
+                {
+                    self.open_new_atlas_modal(&file_rel, None);
                     menu.close();
                 }
 

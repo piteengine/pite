@@ -21,6 +21,16 @@ pub enum AssetModal {
         kind: NewFileKind,
         error: Option<String>,
     },
+    NewAtlas {
+        parent_rel: String,
+        png_rel: String,
+        atlas_name: String,
+        use_grid: bool,
+        tile_w: u32,
+        tile_h: u32,
+        assign_node: Option<String>,
+        error: Option<String>,
+    },
     Rename {
         rel_path: String,
         new_name: String,
