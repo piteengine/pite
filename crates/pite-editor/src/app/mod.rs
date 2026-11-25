@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 mod assets;
+mod assets_fs;
 mod code;
 mod inspector;
 mod scene;
