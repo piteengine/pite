@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use pite_render::atlas::{self, Atlas};
 
-use crate::{AssetError, Result};
+use crate::{AssetError, Result, SpriteSourceError};
 
 /// Where a `Sprite2D` gets its pixels.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,12 +36,10 @@ pub fn resolve_sprite_source(
     let atlas_ref = atlas_ref.filter(|s| !s.is_empty());
     let frame = frame.filter(|s| !s.is_empty());
     match (texture, atlas_ref, frame) {
-        (Some(_), Some(_), _) => Err(AssetError::SpriteSource(
-            "`texture` and `atlas` are mutually exclusive",
-        )),
-        (None, Some(_), None) => Err(AssetError::SpriteSource("`atlas` requires a `frame`")),
-        (Some(_), None, Some(_)) => Err(AssetError::SpriteSource("`frame` requires an `atlas`")),
-        (None, None, Some(_)) => Err(AssetError::SpriteSource("`frame` requires an `atlas`")),
+        (Some(_), Some(_), _) => Err(SpriteSourceError::TextureAndAtlasConflict.into()),
+        (None, Some(_), None) => Err(SpriteSourceError::AtlasRequiresFrame.into()),
+        (Some(_), None, Some(_)) => Err(SpriteSourceError::FrameRequiresAtlas.into()),
+        (None, None, Some(_)) => Err(SpriteSourceError::FrameRequiresAtlas.into()),
         (Some(texture), None, None) => Ok(SpriteSource::Texture(texture.to_string())),
         (None, Some(atlas_ref), Some(frame)) => Ok(SpriteSource::Atlas {
             atlas: atlas_ref.to_string(),
@@ -73,14 +71,78 @@ fn atlas_path(root: &Path, atlas_ref: &str) -> Result<PathBuf> {
     Ok(pite_core::resolve_project_ref(Some(root), root, atlas_ref)?)
 }
 
-/// Check every atlas reference in the project: unknown frames and animations are
-/// errors (naming the alternatives), unreferenced frames and animations are warnings.
-/// Output is sorted so repeated runs report identically.
-pub fn atlas_report(
+/// Structured atlas validation finding returned by [`atlas_report_structured`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AtlasIssue {
+    InvalidFrame {
+        scene: String,
+        node: String,
+        atlas: String,
+        message: String,
+    },
+    InvalidAnimation {
+        scene: String,
+        node: String,
+        atlas: String,
+        message: String,
+    },
+    LoadFailed {
+        scene: String,
+        node: String,
+        atlas: String,
+        message: String,
+    },
+    UnusedFrame {
+        atlas: String,
+        frame: String,
+    },
+    UnusedAnimation {
+        atlas: String,
+        animation: String,
+    },
+}
+
+impl std::fmt::Display for AtlasIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidFrame {
+                scene,
+                node,
+                message,
+                ..
+            }
+            | Self::InvalidAnimation {
+                scene,
+                node,
+                message,
+                ..
+            }
+            | Self::LoadFailed {
+                scene,
+                node,
+                message,
+                ..
+            } => write!(f, "scene {scene}: node {node:?} {message}"),
+            Self::UnusedFrame { atlas, frame } => {
+                write!(f, "atlas {atlas:?}: frame {frame:?} is never referenced")
+            }
+            Self::UnusedAnimation { atlas, animation } => {
+                write!(
+                    f,
+                    "atlas {atlas:?}: animation {animation:?} is never referenced"
+                )
+            }
+        }
+    }
+}
+
+/// Check every atlas reference in the project, returning structured `(errors, warnings)`
+/// sorted and deduplicated for deterministic output.
+pub fn atlas_report_structured(
     root: &Path,
     uses: &[AtlasUse],
     anim_uses: &[AnimationUse],
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<AtlasIssue>, Vec<AtlasIssue>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut by_atlas: BTreeMap<&str, (Vec<&AtlasUse>, Vec<&AnimationUse>)> = BTreeMap::new();
@@ -112,11 +174,19 @@ pub fn atlas_report(
             match &loaded {
                 Ok(atlas) => match atlas.frame(&use_.frame) {
                     Ok(_) => referenced_frames.push(use_.frame.as_str()),
-                    Err(e) => {
-                        errors.push(format!("scene {}: node {:?} {e}", use_.scene, use_.node))
-                    }
+                    Err(e) => errors.push(AtlasIssue::InvalidFrame {
+                        scene: use_.scene.clone(),
+                        node: use_.node.clone(),
+                        atlas: use_.atlas.clone(),
+                        message: e.to_string(),
+                    }),
                 },
-                Err(e) => errors.push(format!("scene {}: node {:?} {e:#}", use_.scene, use_.node)),
+                Err(e) => errors.push(AtlasIssue::LoadFailed {
+                    scene: use_.scene.clone(),
+                    node: use_.node.clone(),
+                    atlas: use_.atlas.clone(),
+                    message: e.to_string(),
+                }),
             }
         }
 
@@ -129,31 +199,37 @@ pub fn atlas_report(
                             referenced_frames.push(f.as_str());
                         }
                     }
-                    Err(e) => errors.push(format!(
-                        "scene {}: node {:?} {e}",
-                        anim_use.scene, anim_use.node
-                    )),
+                    Err(e) => errors.push(AtlasIssue::InvalidAnimation {
+                        scene: anim_use.scene.clone(),
+                        node: anim_use.node.clone(),
+                        atlas: anim_use.atlas.clone(),
+                        message: e.to_string(),
+                    }),
                 },
-                Err(e) => errors.push(format!(
-                    "scene {}: node {:?} {e:#}",
-                    anim_use.scene, anim_use.node
-                )),
+                Err(e) => errors.push(AtlasIssue::LoadFailed {
+                    scene: anim_use.scene.clone(),
+                    node: anim_use.node.clone(),
+                    atlas: anim_use.atlas.clone(),
+                    message: e.to_string(),
+                }),
             }
         }
 
         if let Ok(atlas) = &loaded {
             for name in atlas.names() {
                 if !referenced_frames.contains(&name) {
-                    warnings.push(format!(
-                        "atlas {atlas_ref:?}: frame {name:?} is never referenced"
-                    ));
+                    warnings.push(AtlasIssue::UnusedFrame {
+                        atlas: atlas_ref.to_string(),
+                        frame: name.to_string(),
+                    });
                 }
             }
             for anim_name in atlas.animation_names() {
                 if !referenced_anims.contains(&anim_name) {
-                    warnings.push(format!(
-                        "atlas {atlas_ref:?}: animation {anim_name:?} is never referenced"
-                    ));
+                    warnings.push(AtlasIssue::UnusedAnimation {
+                        atlas: atlas_ref.to_string(),
+                        animation: anim_name.to_string(),
+                    });
                 }
             }
         }
@@ -163,6 +239,21 @@ pub fn atlas_report(
     warnings.sort();
     warnings.dedup();
     (errors, warnings)
+}
+
+/// Check every atlas reference in the project: unknown frames and animations are
+/// errors (naming the alternatives), unreferenced frames and animations are warnings.
+/// Output is sorted so repeated runs report identically.
+pub fn atlas_report(
+    root: &Path,
+    uses: &[AtlasUse],
+    anim_uses: &[AnimationUse],
+) -> (Vec<String>, Vec<String>) {
+    let (errors, warnings) = atlas_report_structured(root, uses, anim_uses);
+    (
+        errors.into_iter().map(|i| i.to_string()).collect(),
+        warnings.into_iter().map(|i| i.to_string()).collect(),
+    )
 }
 
 /// The sheet an atlas sidecar describes, for callers that resolve paths.

@@ -82,8 +82,8 @@ impl<'a> Walker<'a> {
         let path = match self.scene_path(scene_ref) {
             Ok(path) => path,
             Err(error) => {
-                let raw = format!("scene {scene_ref}: {error:#}");
-                self.error(Finding::from_raw(self.root, Severity::Error, &raw));
+                let rel = format_path_rel(self.root, scene_ref);
+                self.error(Finding::scene_load_failed(&rel, &error.to_string()));
                 return;
             }
         };
@@ -100,8 +100,8 @@ impl<'a> Walker<'a> {
                 doc
             }
             Err(error) => {
-                let raw = format!("scene {}: {error:#}", path.display());
-                self.error(Finding::from_raw(self.root, Severity::Error, &raw));
+                let scene_rel = self.rel(&path);
+                self.error(Finding::scene_load_failed(&scene_rel, &error.to_string()));
                 return;
             }
         };
@@ -217,10 +217,7 @@ impl<'a> Walker<'a> {
             }
             Ok(_) => {}
             Err(error) => {
-                // The sprite resolver owns the message; adapt it like any other
-                // lower-crate finding.
-                let raw = format!("scene {scene}: node {:?} {error:#}", node.id);
-                self.error(Finding::from_raw(self.root, Severity::Error, &raw));
+                self.error(Finding::sprite_source_invalid(scene, &node.id, &error));
             }
         }
     }

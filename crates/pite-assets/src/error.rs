@@ -5,6 +5,19 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+/// Validation errors for `Sprite2D` source properties (`texture` vs `atlas` + `frame`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SpriteSourceError {
+    #[error("`texture` and `atlas` are mutually exclusive")]
+    TextureAndAtlasConflict,
+
+    #[error("`atlas` requires a `frame`")]
+    AtlasRequiresFrame,
+
+    #[error("`frame` requires an `atlas`")]
+    FrameRequiresAtlas,
+}
+
 /// Errors returned when importing, scanning, reconciling, or validating assets.
 #[derive(Debug, Error)]
 pub enum AssetError {
@@ -38,8 +51,8 @@ pub enum AssetError {
     #[error(transparent)]
     ResPath(#[from] pite_core::ResPathError),
 
-    #[error("{0}")]
-    SpriteSource(&'static str),
+    #[error(transparent)]
+    SpriteSource(#[from] SpriteSourceError),
 
     #[error("{context}: {message}")]
     Atlas { context: String, message: String },

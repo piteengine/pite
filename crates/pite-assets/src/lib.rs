@@ -9,9 +9,11 @@
 pub mod atlas;
 mod error;
 
-pub use atlas::{atlas_report, load_sidecar, resolve_sprite_source, sheet_path};
-pub use atlas::{AnimationUse, AtlasUse, SpriteSource};
-pub use error::{AssetError, Result};
+pub use atlas::{
+    atlas_report, atlas_report_structured, load_sidecar, resolve_sprite_source, sheet_path,
+    AnimationUse, AtlasIssue, AtlasUse, SpriteSource,
+};
+pub use error::{AssetError, Result, SpriteSourceError};
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

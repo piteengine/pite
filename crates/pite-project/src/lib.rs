@@ -155,9 +155,76 @@ pub fn deprecated_replacement(field: &str) -> Option<&'static str> {
     None
 }
 
-/// Pure manifest validation: unknown/deprecated keys warn (sorted, stable),
-/// impossible values error. Filesystem checks (icon exists) live in `pite check`.
-pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) {
+/// Structured manifest validation finding returned by [`validate_manifest_structured`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManifestIssue {
+    DeprecatedIgnored {
+        field: String,
+        removed_in: &'static str,
+    },
+    DeprecatedReplacement {
+        field: String,
+        replacement: &'static str,
+    },
+    UnknownField {
+        field: String,
+    },
+    EmptyPython,
+    InvalidWindowDimensions {
+        width: u32,
+        height: u32,
+    },
+    InvalidIconPath {
+        icon: String,
+    },
+    UnknownCustomPropType {
+        name: String,
+        ty: String,
+    },
+    CollidingCustomProp {
+        name: String,
+    },
+}
+
+impl std::fmt::Display for ManifestIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DeprecatedIgnored { field, removed_in } => {
+                write!(
+                    f,
+                    "manifest: {field} is deprecated and ignored (removed in {removed_in})"
+                )
+            }
+            Self::DeprecatedReplacement { field, replacement } => {
+                write!(f, "manifest: {field:?} is deprecated, use {replacement:?}")
+            }
+            Self::UnknownField { field } => write!(f, "manifest: unknown field {field:?}"),
+            Self::EmptyPython => write!(f, "manifest: project.python must not be empty"),
+            Self::InvalidWindowDimensions { width, height } => write!(
+                f,
+                "manifest: window is {width}x{height}, dimensions must be positive"
+            ),
+            Self::InvalidIconPath { icon } => write!(
+                f,
+                "manifest: icon {icon:?} must be res:// or empty (absolute paths are forbidden)"
+            ),
+            Self::UnknownCustomPropType { name, ty } => write!(
+                f,
+                "manifest: [props] {name:?} has unknown type {ty:?} (want one of: {})",
+                pite_core::CUSTOM_PROP_TYPES.join(", ")
+            ),
+            Self::CollidingCustomProp { name } => write!(
+                f,
+                "manifest: [props] {name:?} collides with a schema prop name; pick a different key"
+            ),
+        }
+    }
+}
+
+/// Pure manifest validation returning structured issues `(errors, warnings)`.
+pub fn validate_manifest_structured(
+    manifest: &PiteManifest,
+) -> (Vec<ManifestIssue>, Vec<ManifestIssue>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut unknown: Vec<String> = manifest.extra.keys().cloned().collect();
@@ -170,33 +237,32 @@ pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) 
     unknown.sort();
     for field in unknown {
         if field == "export.platforms" {
-            warnings.push(
-                "manifest: export.platforms is deprecated and ignored (removed in 0.1.1)"
-                    .to_string(),
-            );
+            warnings.push(ManifestIssue::DeprecatedIgnored {
+                field,
+                removed_in: "0.1.1",
+            });
             continue;
         }
         match deprecated_replacement(&field) {
-            Some(use_instead) => warnings.push(format!(
-                "manifest: {field:?} is deprecated, use {use_instead:?}"
-            )),
-            None => warnings.push(format!("manifest: unknown field {field:?}")),
+            Some(replacement) => {
+                warnings.push(ManifestIssue::DeprecatedReplacement { field, replacement })
+            }
+            None => warnings.push(ManifestIssue::UnknownField { field }),
         }
     }
     if manifest.project.python.is_empty() {
-        errors.push("manifest: project.python must not be empty".to_string());
+        errors.push(ManifestIssue::EmptyPython);
     }
     if manifest.project.window_width == 0 || manifest.project.window_height == 0 {
-        errors.push(format!(
-            "manifest: window is {}x{}, dimensions must be positive",
-            manifest.project.window_width, manifest.project.window_height
-        ));
+        errors.push(ManifestIssue::InvalidWindowDimensions {
+            width: manifest.project.window_width,
+            height: manifest.project.window_height,
+        });
     }
     if !manifest.project.icon.is_empty() && !manifest.project.icon.starts_with("res://") {
-        errors.push(format!(
-            "manifest: icon {:?} must be res:// or empty (absolute paths are forbidden)",
-            manifest.project.icon
-        ));
+        errors.push(ManifestIssue::InvalidIconPath {
+            icon: manifest.project.icon.clone(),
+        });
     }
     // `[props]` type names must be recognized by `pite_core`, and no entry
     // may collide with a schema prop key (that would let `set_custom_property`
@@ -210,18 +276,26 @@ pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) 
     for name in props_names {
         let ty = &manifest.props[name];
         if !pite_core::is_valid_custom_prop_type(ty) {
-            errors.push(format!(
-                "manifest: [props] {name:?} has unknown type {ty:?} (want one of: {})",
-                pite_core::CUSTOM_PROP_TYPES.join(", ")
-            ));
+            errors.push(ManifestIssue::UnknownCustomPropType {
+                name: name.clone(),
+                ty: ty.clone(),
+            });
         }
         if schema_keys.contains(name.as_str()) {
-            errors.push(format!(
-                "manifest: [props] {name:?} collides with a schema prop name; pick a different key"
-            ));
+            errors.push(ManifestIssue::CollidingCustomProp { name: name.clone() });
         }
     }
     (errors, warnings)
+}
+
+/// Pure manifest validation: unknown/deprecated keys warn (sorted, stable),
+/// impossible values error. Filesystem checks (icon exists) live in `pite check`.
+pub fn validate_manifest(manifest: &PiteManifest) -> (Vec<String>, Vec<String>) {
+    let (errors, warnings) = validate_manifest_structured(manifest);
+    (
+        errors.into_iter().map(|i| i.to_string()).collect(),
+        warnings.into_iter().map(|i| i.to_string()).collect(),
+    )
 }
 
 pub fn find_project_root(start: &Path) -> Option<PathBuf> {

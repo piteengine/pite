@@ -67,12 +67,12 @@ pub fn run(
         } else {
             match pite_project::load_manifest(root) {
                 Ok(manifest) => {
-                    let (errors, warnings) = pite_project::validate_manifest(&manifest);
-                    for message in errors {
-                        findings.push(Finding::from_raw(root, Severity::Error, &message));
+                    let (errors, warnings) = pite_project::validate_manifest_structured(&manifest);
+                    for issue in errors {
+                        findings.push(Finding::manifest_issue(Severity::Error, &issue));
                     }
-                    for message in warnings {
-                        findings.push(Finding::from_raw(root, Severity::Warning, &message));
+                    for issue in warnings {
+                        findings.push(Finding::manifest_issue(Severity::Warning, &issue));
                     }
                     if manifest.project.icon.starts_with("res://") {
                         let missing = pite_core::resolve_res(root, &manifest.project.icon)
@@ -85,11 +85,7 @@ pub fn run(
                     Some(manifest)
                 }
                 Err(error) => {
-                    findings.push(Finding::from_raw(
-                        root,
-                        Severity::Error,
-                        &format!("manifest: {error:#}"),
-                    ));
+                    findings.push(Finding::manifest_load_failed(&error));
                     None
                 }
             }
@@ -142,12 +138,12 @@ pub fn run(
             cache = std::mem::take(&mut walker.cache);
 
             let (atlas_errors, atlas_warnings) =
-                pite_assets::atlas_report(root, &walker.atlas_uses, &walker.anim_uses);
-            for message in atlas_errors {
-                findings.push(Finding::from_raw(root, Severity::Error, &message));
+                pite_assets::atlas_report_structured(root, &walker.atlas_uses, &walker.anim_uses);
+            for issue in atlas_errors {
+                findings.push(Finding::atlas_issue(root, Severity::Error, &issue));
             }
-            for message in atlas_warnings {
-                findings.push(Finding::from_raw(root, Severity::Warning, &message));
+            for issue in atlas_warnings {
+                findings.push(Finding::atlas_issue(root, Severity::Warning, &issue));
             }
             for legacy in pite_assets::find_legacy_atlases(root) {
                 findings.push(Finding::legacy_atlas_sidecar(&legacy));
