@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use pite_core::{global_position, PropValue};
+use pite_core::{global_positions, PropValue};
 use pite_physics::PhysicsEvent;
 
 use super::GameSession;
@@ -22,6 +22,7 @@ impl GameSession {
         }
 
         while self.physics_accumulator >= FIXED_STEP {
+            let mut scripted_ids = Vec::new();
             for slot in &mut self.instances {
                 if slot.errored || !slot.has_physics_process {
                     continue;
@@ -33,38 +34,40 @@ impl GameSession {
                         self.last_error = slot.backend.last_script_error();
                     }
                 }
-                let pos = self.host.with_tree(|t| {
-                    match t.get(&slot.id).and_then(|n| n.props.get("position")) {
-                        Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
-                        _ => None,
-                    }
-                });
-                if let Some((x, y)) = pos {
-                    let mut lock = self.physics.lock().unwrap();
-                    lock.set_body_position(&slot.id, (x, y));
-                }
+                scripted_ids.push(slot.id.clone());
             }
 
-            // Sync tree positions for non-rigid bodies/areas into physics before step
-            self.host.with_tree(|tree| {
-                let mut lock = self.physics.lock().unwrap();
-                for node in tree.iter() {
-                    let id = &node.id;
-                    if !lock.is_rigid_body(id) {
-                        let pos = global_position(tree, id);
-                        lock.set_body_position(id, pos);
-                    }
-                }
+            // Collect all tree positions in one read lock (no nested tree -> physics locking).
+            let (scripted_positions, all_global_positions) = self.host.with_tree(|tree| {
+                let scripted: Vec<_> = scripted_ids
+                    .iter()
+                    .filter_map(
+                        |id| match tree.get(id).and_then(|n| n.props.get("position")) {
+                            Some(PropValue::Vec2(x, y)) => Some((id.clone(), (*x, *y))),
+                            _ => None,
+                        },
+                    )
+                    .collect();
+                let globals = global_positions(tree);
+                (scripted, globals)
             });
 
-            let events = {
-                let mut lock = self.physics.lock().unwrap();
+            // Single physics lock for body sync, step, event drain, and rigid-body readback.
+            let (events, moved) = {
+                let mut lock = self.physics.lock().unwrap_or_else(|poisoned| {
+                    tracing::error!("physics mutex poisoned; recovering");
+                    poisoned.into_inner()
+                });
+                for (id, (x, y)) in &scripted_positions {
+                    lock.set_body_position(id, (*x, *y));
+                }
+                for (id, pos) in &all_global_positions {
+                    if !lock.is_rigid_body(id) {
+                        lock.set_body_position(id, *pos);
+                    }
+                }
                 lock.step();
-                lock.drain_events()
-            };
-
-            {
-                let lock = self.physics.lock().unwrap();
+                let events = lock.drain_events();
                 let mut moved = Vec::new();
                 for slot in &self.instances {
                     if lock.is_rigid_body(&slot.id) {
@@ -73,15 +76,18 @@ impl GameSession {
                         }
                     }
                 }
-                drop(lock);
-                for (id, (x, y)) in moved {
-                    self.host.with_tree_mut(|tree| {
+                (events, moved)
+            };
+
+            if !moved.is_empty() {
+                self.host.with_tree_mut(|tree| {
+                    for (id, (x, y)) in moved {
                         if let Some(node) = tree.get_mut(&id) {
                             node.props
                                 .insert("position".to_string(), PropValue::Vec2(x, y));
                         }
-                    });
-                }
+                    }
+                });
             }
 
             for ev in events {

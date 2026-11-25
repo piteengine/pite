@@ -24,7 +24,7 @@ mod tree;
 
 pub use error::{CoreError, Result};
 pub use lifecycle::LifecycleSink;
-pub use math::{global_position, Vec2};
+pub use math::{global_position, global_positions, Vec2};
 pub use node::{Node, NodeDesc, NodeId, ScriptRef};
 pub use path::{
     parse_rel_subpath, parse_res_rel, resolve_project_ref, resolve_res, validate_entry_name,

@@ -311,19 +311,26 @@ impl AudioEngine {
 
 static ENGINE: LazyLock<Mutex<AudioEngine>> = LazyLock::new(|| Mutex::new(AudioEngine::new()));
 
+pub(crate) fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>) -> std::sync::MutexGuard<'a, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::error!("audio mutex poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
 /// Overrides the global audio playback backend (e.g. for testing or headless execution).
 pub fn set_backend(backend: Box<dyn AudioBackend>) {
-    ENGINE.lock().unwrap().backend = backend;
+    lock_or_recover(&ENGINE).backend = backend;
 }
 
 /// Sets the project directory used to resolve `res://` audio paths.
 pub fn set_project_dir(dir: Option<PathBuf>) {
-    ENGINE.lock().unwrap().project_dir = dir;
+    lock_or_recover(&ENGINE).project_dir = dir;
 }
 
 /// Decodes an audio asset identified by a `res://` reference or filesystem path.
 pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
-    let engine = ENGINE.lock().unwrap();
+    let engine = lock_or_recover(&ENGINE);
     let path = engine.resolve(asset_ref)?;
     drop(engine);
     if !path.is_file() {
@@ -343,27 +350,27 @@ pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
 /// Plays an audio asset and returns a numeric voice handle.
 pub fn play_file(asset_ref: &str, volume: f32) -> Result<u64> {
     let (_, audio) = decode_asset(asset_ref)?;
-    Ok(ENGINE.lock().unwrap().backend.play(&audio, volume))
+    Ok(lock_or_recover(&ENGINE).backend.play(&audio, volume))
 }
 
 /// Stops playback for a given active voice handle.
 pub fn stop_voice(id: u64) {
-    ENGINE.lock().unwrap().backend.stop(id);
+    lock_or_recover(&ENGINE).backend.stop(id);
 }
 
 /// Adjusts the volume for an active voice handle.
 pub fn set_voice_volume(id: u64, volume: f32) {
-    ENGINE.lock().unwrap().backend.set_volume(id, volume);
+    lock_or_recover(&ENGINE).backend.set_volume(id, volume);
 }
 
 /// Checks whether the specified voice handle is currently playing.
 pub fn voice_playing(id: u64) -> bool {
-    ENGINE.lock().unwrap().backend.is_playing(id)
+    lock_or_recover(&ENGINE).backend.is_playing(id)
 }
 
 /// Polls active voices and advances playback simulation.
 pub fn poll_audio() {
-    ENGINE.lock().unwrap().backend.poll();
+    lock_or_recover(&ENGINE).backend.poll();
 }
 
 #[cfg(test)]

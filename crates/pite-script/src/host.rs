@@ -2,7 +2,7 @@
 //! Python scripting host managing node instances, property reflection, signal dispatch, and proxies.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use anyhow::Context as _;
 use pite_core::{NodeId, NodeTree, SignalRegistry, Vec2};
@@ -15,13 +15,34 @@ static CURRENT_HOST: RwLock<Option<std::sync::Arc<ScriptHost>>> = RwLock::new(No
 #[cfg(test)]
 pub(crate) static HOST_SERIAL: Mutex<()> = Mutex::new(());
 
+fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>) -> MutexGuard<'a, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::error!("script host mutex poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
+fn read_or_recover<'a, T>(lock: &'a RwLock<T>) -> RwLockReadGuard<'a, T> {
+    lock.read().unwrap_or_else(|poisoned| {
+        tracing::error!("script host rwlock read poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
+fn write_or_recover<'a, T>(lock: &'a RwLock<T>) -> RwLockWriteGuard<'a, T> {
+    lock.write().unwrap_or_else(|poisoned| {
+        tracing::error!("script host rwlock write poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
 /// Installs the active scripting host handle for the current runtime thread.
 pub fn set_current_host(host: std::sync::Arc<ScriptHost>) {
-    *CURRENT_HOST.write().unwrap() = Some(host);
+    *write_or_recover(&CURRENT_HOST) = Some(host);
 }
 
 pub(crate) fn current_host() -> Option<std::sync::Arc<ScriptHost>> {
-    CURRENT_HOST.read().unwrap().clone()
+    read_or_recover(&CURRENT_HOST).clone()
 }
 
 pub(crate) fn bound_target(callable: &Bound<'_, PyAny>) -> anyhow::Result<(String, String)> {
@@ -57,6 +78,13 @@ type SignalConnectionRegistry = HashMap<
     )>,
 >;
 
+#[derive(Default)]
+struct TilemapStore {
+    docs: HashMap<String, TileMapDoc>,
+    versions: HashMap<String, u64>,
+    dirty_chunks: HashMap<String, TileSet>,
+}
+
 /// Central host managing embedded Python script execution, node proxies, and signal routing.
 pub struct ScriptHost {
     tree: Mutex<NodeTree>,
@@ -69,9 +97,7 @@ pub struct ScriptHost {
     /// by `GameSession::open` from the project manifest. Read by
     /// `set_custom_property` to validate writes.
     custom_prop_schema: RwLock<HashMap<String, String>>,
-    tilemaps: Mutex<HashMap<String, TileMapDoc>>,
-    tilemap_versions: Mutex<HashMap<String, u64>>,
-    dirty_tile_chunks: Mutex<HashMap<String, TileSet>>,
+    tilemaps: Mutex<TilemapStore>,
 }
 
 /// Permitted primitive types for signal argument payloads.
@@ -96,9 +122,7 @@ impl ScriptHost {
             callable_connections: Mutex::new(HashMap::new()),
             proxy_cache: Mutex::new(HashMap::new()),
             custom_prop_schema: RwLock::new(HashMap::new()),
-            tilemaps: Mutex::new(HashMap::new()),
-            tilemap_versions: Mutex::new(HashMap::new()),
-            dirty_tile_chunks: Mutex::new(HashMap::new()),
+            tilemaps: Mutex::new(TilemapStore::default()),
         }
     }
 
@@ -198,7 +222,7 @@ impl ScriptHost {
     }
 
     pub fn set_prop(&self, node: &str, key: &str, value: pite_core::PropValue) {
-        let mut tree = self.tree.lock().unwrap();
+        let mut tree = lock_or_recover(&self.tree);
         if let Some(n) = tree.get_mut(&NodeId::from(node.to_string())) {
             n.props.insert(key.to_string(), value);
         }
@@ -208,7 +232,7 @@ impl ScriptHost {
     /// `GameSession::open` from the manifest; subsequent reloads must
     /// re-call if the manifest changed.
     pub fn set_custom_prop_schema(&self, schema: HashMap<String, String>) {
-        *self.custom_prop_schema.write().unwrap() = schema;
+        *write_or_recover(&self.custom_prop_schema) = schema;
     }
 
     /// Whether `key` names a schema prop (inherited included) on a node of
@@ -228,7 +252,7 @@ impl ScriptHost {
         node: &str,
         key: &str,
     ) -> anyhow::Result<Option<pite_core::PropValue>> {
-        let tree = self.tree.lock().unwrap();
+        let tree = lock_or_recover(&self.tree);
         let n = tree
             .get(&NodeId::from(node.to_string()))
             .ok_or_else(|| anyhow::anyhow!("node `{node}` no longer exists"))?;
@@ -251,7 +275,7 @@ impl ScriptHost {
         value: pite_core::PropValue,
     ) -> anyhow::Result<()> {
         let type_name = {
-            let tree = self.tree.lock().unwrap();
+            let tree = lock_or_recover(&self.tree);
             let n = tree
                 .get(&NodeId::from(node.to_string()))
                 .ok_or_else(|| anyhow::anyhow!("node `{node}` no longer exists"))?;
@@ -264,7 +288,7 @@ impl ScriptHost {
             n.type_name.clone()
         };
         let declared = {
-            let schema = self.custom_prop_schema.read().unwrap();
+            let schema = read_or_recover(&self.custom_prop_schema);
             schema.get(key).cloned()
         };
         let declared = declared.ok_or_else(|| {
@@ -280,7 +304,7 @@ impl ScriptHost {
 
     /// Remove a custom (non-schema) prop. Returns `true` if it was present.
     pub fn remove_custom_property(&self, node: &str, key: &str) -> anyhow::Result<bool> {
-        let mut tree = self.tree.lock().unwrap();
+        let mut tree = lock_or_recover(&self.tree);
         let n = tree
             .get_mut(&NodeId::from(node.to_string()))
             .ok_or_else(|| anyhow::anyhow!("node `{node}` no longer exists"))?;
@@ -295,7 +319,7 @@ impl ScriptHost {
 
     pub fn get_node_position(&self, id: &str) -> Option<(f64, f64)> {
         use pite_core::PropValue;
-        let tree = self.tree.lock().unwrap();
+        let tree = lock_or_recover(&self.tree);
         let node = tree.get(&NodeId::from(id.to_string()))?;
         match node.props.get("position") {
             Some(PropValue::Vec2(x, y)) => Some((*x, *y)),
@@ -310,51 +334,39 @@ impl ScriptHost {
         col: i32,
         row: i32,
     ) -> Option<String> {
-        let maps = self.tilemaps.lock().unwrap();
-        let doc = maps.get(node_id)?;
+        let store = lock_or_recover(&self.tilemaps);
+        let doc = store.docs.get(node_id)?;
         doc.get_cell(layer, col, row).map(|s| s.to_string())
     }
 
     pub fn set_tilemap_cell(&self, node_id: &str, layer: usize, col: i32, row: i32, frame: &str) {
-        let mut maps = self.tilemaps.lock().unwrap();
-        if let Some(doc) = maps.get_mut(node_id) {
+        let mut store = lock_or_recover(&self.tilemaps);
+        if let Some(doc) = store.docs.get_mut(node_id) {
             doc.set_cell(layer, col, row, frame);
             let chunk_col = col.div_euclid(16);
             let chunk_row = row.div_euclid(16);
-            self.dirty_tile_chunks
-                .lock()
-                .unwrap()
+            store
+                .dirty_chunks
                 .entry(node_id.to_string())
                 .or_default()
                 .insert((layer, chunk_col, chunk_row));
-            *self
-                .tilemap_versions
-                .lock()
-                .unwrap()
-                .entry(node_id.to_string())
-                .or_default() += 1;
+            *store.versions.entry(node_id.to_string()).or_default() += 1;
         }
     }
 
     pub fn erase_tilemap_cell(&self, node_id: &str, layer: usize, col: i32, row: i32) -> bool {
-        let mut maps = self.tilemaps.lock().unwrap();
-        if let Some(doc) = maps.get_mut(node_id) {
+        let mut store = lock_or_recover(&self.tilemaps);
+        if let Some(doc) = store.docs.get_mut(node_id) {
             let res = doc.erase_cell(layer, col, row);
             if res {
                 let chunk_col = col.div_euclid(16);
                 let chunk_row = row.div_euclid(16);
-                self.dirty_tile_chunks
-                    .lock()
-                    .unwrap()
+                store
+                    .dirty_chunks
                     .entry(node_id.to_string())
                     .or_default()
                     .insert((layer, chunk_col, chunk_row));
-                *self
-                    .tilemap_versions
-                    .lock()
-                    .unwrap()
-                    .entry(node_id.to_string())
-                    .or_default() += 1;
+                *store.versions.entry(node_id.to_string()).or_default() += 1;
             }
             res
         } else {
@@ -363,8 +375,8 @@ impl ScriptHost {
     }
 
     pub fn clear_tilemap(&self, node_id: &str, layer: Option<usize>) {
-        let mut maps = self.tilemaps.lock().unwrap();
-        if let Some(doc) = maps.get_mut(node_id) {
+        let mut store = lock_or_recover(&self.tilemaps);
+        if let Some(doc) = store.docs.get_mut(node_id) {
             if let Some(l) = layer {
                 doc.clear_layer(l);
             } else {
@@ -372,35 +384,30 @@ impl ScriptHost {
                     doc.clear_layer(l);
                 }
             }
-            *self
-                .tilemap_versions
-                .lock()
-                .unwrap()
-                .entry(node_id.to_string())
-                .or_default() += 1;
-            self.dirty_tile_chunks.lock().unwrap().remove(node_id);
+            *store.versions.entry(node_id.to_string()).or_default() += 1;
+            store.dirty_chunks.remove(node_id);
         }
     }
 
     pub fn get_tilemap_used_cells(&self, node_id: &str, layer: usize) -> Vec<(i32, i32)> {
-        let maps = self.tilemaps.lock().unwrap();
-        let Some(doc) = maps.get(node_id) else {
+        let store = lock_or_recover(&self.tilemaps);
+        let Some(doc) = store.docs.get(node_id) else {
             return Vec::new();
         };
         doc.used_cells(layer)
     }
 
     pub fn get_tilemap_layers(&self, node_id: &str) -> Vec<String> {
-        let maps = self.tilemaps.lock().unwrap();
-        let Some(doc) = maps.get(node_id) else {
+        let store = lock_or_recover(&self.tilemaps);
+        let Some(doc) = store.docs.get(node_id) else {
             return Vec::new();
         };
         doc.layers.iter().map(|l| l.name.clone()).collect()
     }
 
     pub fn get_tilemap_tile_size(&self, node_id: &str) -> (f64, f64) {
-        let maps = self.tilemaps.lock().unwrap();
-        if let Some(doc) = maps.get(node_id) {
+        let store = lock_or_recover(&self.tilemaps);
+        if let Some(doc) = store.docs.get(node_id) {
             (doc.tile_size[0] as f64, doc.tile_size[1] as f64)
         } else {
             (16.0, 16.0)
@@ -408,33 +415,29 @@ impl ScriptHost {
     }
 
     pub fn set_tilemap_doc(&self, node_id: &str, doc: pite_scene::TileMapDoc) {
-        let mut maps = self.tilemaps.lock().unwrap();
-        maps.insert(node_id.to_string(), doc);
-        *self
-            .tilemap_versions
-            .lock()
-            .unwrap()
-            .entry(node_id.to_string())
-            .or_default() += 1;
-        self.dirty_tile_chunks.lock().unwrap().remove(node_id);
+        let mut store = lock_or_recover(&self.tilemaps);
+        store.docs.insert(node_id.to_string(), doc);
+        *store.versions.entry(node_id.to_string()).or_default() += 1;
+        store.dirty_chunks.remove(node_id);
     }
 
     pub fn get_tilemap_doc(&self, node_id: &str) -> Option<pite_scene::TileMapDoc> {
-        let maps = self.tilemaps.lock().unwrap();
-        maps.get(node_id).cloned()
+        lock_or_recover(&self.tilemaps).docs.get(node_id).cloned()
     }
 
     pub fn get_tilemap_version(&self, node_id: &str) -> u64 {
-        let versions = self.tilemap_versions.lock().unwrap();
-        versions.get(node_id).copied().unwrap_or(0)
+        lock_or_recover(&self.tilemaps)
+            .versions
+            .get(node_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn take_dirty_tile_chunks(
         &self,
         node_id: &str,
     ) -> Option<std::collections::HashSet<(usize, i32, i32)>> {
-        let mut dirty = self.dirty_tile_chunks.lock().unwrap();
-        dirty.remove(node_id)
+        lock_or_recover(&self.tilemaps).dirty_chunks.remove(node_id)
     }
 
     pub fn resolve_proxy(
@@ -445,7 +448,7 @@ impl ScriptHost {
     ) -> anyhow::Result<Py<NodeProxy>> {
         let key = (caller.to_string(), path.to_string());
         {
-            let cache = self.proxy_cache.lock().unwrap();
+            let cache = lock_or_recover(&self.proxy_cache);
             if let Some(proxy) = cache.get(&key) {
                 return Ok(proxy.clone_ref(py));
             }
@@ -454,31 +457,28 @@ impl ScriptHost {
             .resolve(caller, path)
             .ok_or_else(|| anyhow::anyhow!("{caller}: get_node({path:?}) found nothing"))?;
         let proxy = Py::new(py, proxy_for(self.clone(), target))?;
-        self.proxy_cache
-            .lock()
-            .unwrap()
-            .insert(key, proxy.clone_ref(py));
+        lock_or_recover(&self.proxy_cache).insert(key, proxy.clone_ref(py));
         Ok(proxy)
     }
 
     pub fn register(&self, node: impl Into<String>, instance: Py<PyAny>) {
-        self.instances.lock().unwrap().insert(node.into(), instance);
+        lock_or_recover(&self.instances).insert(node.into(), instance);
     }
 
     pub fn unregister(&self, node: &str) {
-        self.instances.lock().unwrap().remove(node);
+        lock_or_recover(&self.instances).remove(node);
     }
 
     pub fn with_tree<R>(&self, f: impl FnOnce(&NodeTree) -> R) -> R {
-        f(&self.tree.lock().unwrap())
+        f(&lock_or_recover(&self.tree))
     }
 
     pub fn with_tree_mut<R>(&self, f: impl FnOnce(&mut NodeTree) -> R) -> R {
-        f(&mut self.tree.lock().unwrap())
+        f(&mut lock_or_recover(&self.tree))
     }
 
     pub fn resolve(&self, caller: &str, path: &str) -> Option<String> {
-        let tree = self.tree.lock().unwrap();
+        let tree = lock_or_recover(&self.tree);
         if let Some(abs) = path.strip_prefix('/') {
             return tree
                 .get(&NodeId::from(abs.to_string()))
@@ -506,9 +506,7 @@ impl ScriptHost {
     }
 
     pub fn lookup_instance(&self, py: Python<'_>, node: &str) -> Option<Py<PyAny>> {
-        self.instances
-            .lock()
-            .unwrap()
+        lock_or_recover(&self.instances)
             .get(node)
             .map(|inst| inst.clone_ref(py))
     }
@@ -527,7 +525,7 @@ impl ScriptHost {
                 }
             }
         }
-        let mut signals = self.signals.lock().unwrap();
+        let mut signals = lock_or_recover(&self.signals);
         let registry = signals.entry(node.to_string()).or_default();
         for (name, payload) in defs {
             registry.register(name, payload);
@@ -542,7 +540,7 @@ impl ScriptHost {
         target: &str,
         handler: &str,
     ) -> anyhow::Result<()> {
-        let signals = self.signals.lock().unwrap();
+        let signals = lock_or_recover(&self.signals);
         if signals
             .get(source)
             .and_then(|reg| reg.get(signal))
@@ -557,9 +555,7 @@ impl ScriptHost {
             }
             Ok(())
         })?;
-        self.connections
-            .lock()
-            .unwrap()
+        lock_or_recover(&self.connections)
             .entry((source.to_string(), signal.to_string()))
             .or_default()
             .push((target.to_string(), handler.to_string()));
@@ -573,7 +569,7 @@ impl ScriptHost {
         signal: &str,
         callable: Py<PyAny>,
     ) -> anyhow::Result<()> {
-        let signals = self.signals.lock().unwrap();
+        let signals = lock_or_recover(&self.signals);
         if signals
             .get(source)
             .and_then(|reg| reg.get(signal))
@@ -582,9 +578,7 @@ impl ScriptHost {
             anyhow::bail!("{source}: connect to unknown signal {signal:?}");
         }
         drop(signals);
-        self.callable_connections
-            .lock()
-            .unwrap()
+        lock_or_recover(&self.callable_connections)
             .entry((source.to_string(), signal.to_string()))
             .or_default()
             .push(callable);
@@ -598,10 +592,7 @@ impl ScriptHost {
         signal: &str,
         args: &Bound<'_, PyTuple>,
     ) -> anyhow::Result<()> {
-        let expected = self
-            .signals
-            .lock()
-            .unwrap()
+        let expected = lock_or_recover(&self.signals)
             .get(source)
             .and_then(|reg| reg.get(signal).cloned())
             .ok_or_else(|| anyhow::anyhow!("{source}: emit of unknown signal {signal:?}"))?;
@@ -618,10 +609,7 @@ impl ScriptHost {
                 .with_context(|| format!("{source}: signal {signal:?} arg {i} wants {want}"))?;
             values.push(value);
         }
-        let callables: Vec<Py<PyAny>> = self
-            .callable_connections
-            .lock()
-            .unwrap()
+        let callables: Vec<Py<PyAny>> = lock_or_recover(&self.callable_connections)
             .get(&(source.to_string(), signal.to_string()))
             .map(|list| list.iter().map(|c| c.clone_ref(py)).collect())
             .unwrap_or_default();
@@ -636,10 +624,7 @@ impl ScriptHost {
                 }
             }
         }
-        let targets: Vec<(String, String)> = self
-            .connections
-            .lock()
-            .unwrap()
+        let targets: Vec<(String, String)> = lock_or_recover(&self.connections)
             .get(&(source.to_string(), signal.to_string()))
             .cloned()
             .unwrap_or_default();
@@ -664,41 +649,27 @@ impl ScriptHost {
     }
 
     pub fn has_signal(&self, node: &str, signal: &str) -> bool {
-        self.signals
-            .lock()
-            .unwrap()
+        lock_or_recover(&self.signals)
             .get(node)
             .and_then(|reg| reg.get(signal))
             .is_some()
     }
 
     pub fn disconnect_node(&self, node: &str) {
-        self.signals.lock().unwrap().remove(node);
-        self.connections
-            .lock()
-            .unwrap()
-            .retain(|(src, _), targets| {
-                if src == node {
-                    return false;
-                }
-                targets.retain(|(t, _)| t != node);
-                !targets.is_empty()
-            });
-        self.callable_connections
-            .lock()
-            .unwrap()
-            .retain(|(src, _), _| src != node);
-        self.proxy_cache
-            .lock()
-            .unwrap()
-            .retain(|(src, _), _| src != node);
+        lock_or_recover(&self.signals).remove(node);
+        lock_or_recover(&self.connections).retain(|(src, _), targets| {
+            if src == node {
+                return false;
+            }
+            targets.retain(|(t, _)| t != node);
+            !targets.is_empty()
+        });
+        lock_or_recover(&self.callable_connections).retain(|(src, _), _| src != node);
+        lock_or_recover(&self.proxy_cache).retain(|(src, _), _| src != node);
     }
 
     pub fn invalidate_proxy_cache(&self, node: &str) {
-        self.proxy_cache
-            .lock()
-            .unwrap()
-            .retain(|(src, _), _| src != node);
+        lock_or_recover(&self.proxy_cache).retain(|(src, _), _| src != node);
     }
 }
 

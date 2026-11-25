@@ -83,7 +83,7 @@ fn resample(audio: &DecodedAudio, out_rate: u32, out_channels: u16) -> Vec<f32> 
 /// no audio hardware present.
 fn mix_into(shared: &Mutex<Shared>, out: &mut [f32], channels: usize) {
     let ch = channels.max(1);
-    let mut state = shared.lock().unwrap();
+    let mut state = crate::lock_or_recover(shared);
     for frame in out.chunks_mut(ch) {
         for slot in frame.iter_mut() {
             *slot = 0.0;
@@ -185,23 +185,21 @@ impl AudioBackend for CpalBackend {
     fn play(&mut self, audio: &DecodedAudio, volume: f32) -> u64 {
         let samples = resample(audio, self.rate, self.channels);
         let frames = samples.len() / self.channels.max(1) as usize;
-        self.shared.lock().unwrap().play(samples, frames, volume)
+        crate::lock_or_recover(&self.shared).play(samples, frames, volume)
     }
 
     fn stop(&mut self, id: u64) {
-        self.shared.lock().unwrap().voices.remove(&id);
+        crate::lock_or_recover(&self.shared).voices.remove(&id);
     }
 
     fn set_volume(&mut self, id: u64, volume: f32) {
-        if let Some(voice) = self.shared.lock().unwrap().voices.get_mut(&id) {
+        if let Some(voice) = crate::lock_or_recover(&self.shared).voices.get_mut(&id) {
             voice.volume = volume.clamp(0.0, 1.0);
         }
     }
 
     fn is_playing(&self, id: u64) -> bool {
-        self.shared
-            .lock()
-            .unwrap()
+        crate::lock_or_recover(&self.shared)
             .voices
             .get(&id)
             .map(|v| v.cursor < v.frames)
@@ -209,7 +207,7 @@ impl AudioBackend for CpalBackend {
     }
 
     fn poll(&mut self) {
-        self.shared.lock().unwrap().reap();
+        crate::lock_or_recover(&self.shared).reap();
     }
 }
 

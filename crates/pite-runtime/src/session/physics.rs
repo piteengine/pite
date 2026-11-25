@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use pite_core::{global_position, Node, PropValue};
+use pite_core::{global_positions, Node, PropValue};
 use pite_physics::{
     world::{ColliderProps, CollisionData},
     PhysicsWorld, ShapeConfig,
@@ -83,8 +83,9 @@ impl GameSession {
     pub fn rebuild_physics(&mut self) {
         let mut world = PhysicsWorld::new();
         self.host.with_tree(|tree| {
+            let globals = global_positions(tree);
             for node in tree.iter() {
-                let pos = global_position(tree, &node.id);
+                let pos = globals.get(&node.id).copied().unwrap_or((0.0, 0.0));
                 let rot = prop_num(node, "rotation");
                 if let Some(role) = physics_role(&node.type_name) {
                     match role {
@@ -166,8 +167,8 @@ impl GameSession {
                     continue;
                 };
 
-                let body_pos = global_position(tree, &body.id);
-                let shape_pos = global_position(tree, &node.id);
+                let body_pos = globals.get(&body.id).copied().unwrap_or((0.0, 0.0));
+                let shape_pos = globals.get(&node.id).copied().unwrap_or((0.0, 0.0));
                 let offset = (
                     (shape_pos.0 - body_pos.0) as f32,
                     (shape_pos.1 - body_pos.1) as f32,
@@ -240,7 +241,10 @@ impl GameSession {
             }
         });
 
-        *self.physics.lock().unwrap() = world;
+        *self.physics.lock().unwrap_or_else(|poisoned| {
+            tracing::error!("physics mutex poisoned; recovering");
+            poisoned.into_inner()
+        }) = world;
         pite_script::set_current_physics(Some(self.physics.clone()));
     }
 }

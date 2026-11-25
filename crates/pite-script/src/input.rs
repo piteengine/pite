@@ -1,8 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::collections::HashSet;
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 static INPUT: LazyLock<RwLock<InputState>> = LazyLock::new(|| RwLock::new(InputState::default()));
+
+fn read_or_recover<'a, T>(lock: &'a RwLock<T>) -> RwLockReadGuard<'a, T> {
+    lock.read().unwrap_or_else(|poisoned| {
+        tracing::error!("input/camera rwlock read poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
+fn write_or_recover<'a, T>(lock: &'a RwLock<T>) -> RwLockWriteGuard<'a, T> {
+    lock.write().unwrap_or_else(|poisoned| {
+        tracing::error!("input/camera rwlock write poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
 
 #[derive(Debug, Default)]
 pub struct InputState {
@@ -13,7 +27,7 @@ pub struct InputState {
 }
 
 pub fn input_begin_frame() {
-    let mut state = INPUT.write().unwrap();
+    let mut state = write_or_recover(&INPUT);
     state.pressed.clear();
     state.released.clear();
 }
@@ -21,14 +35,14 @@ pub fn input_begin_frame() {
 /// Drop all key state (held + edges). The editor calls this on play/stop
 /// transitions so a key held across the transition never sticks.
 pub fn input_clear() {
-    let mut state = INPUT.write().unwrap();
+    let mut state = write_or_recover(&INPUT);
     state.held.clear();
     state.pressed.clear();
     state.released.clear();
 }
 
 pub fn input_set_key(name: &str, held: bool) {
-    let mut state = INPUT.write().unwrap();
+    let mut state = write_or_recover(&INPUT);
     if held && state.held.insert(name.to_string()) {
         state.pressed.insert(name.to_string());
     } else if !held && state.held.remove(name) {
@@ -37,23 +51,23 @@ pub fn input_set_key(name: &str, held: bool) {
 }
 
 pub fn input_set_mouse(x: f64, y: f64) {
-    INPUT.write().unwrap().mouse = (x, y);
+    write_or_recover(&INPUT).mouse = (x, y);
 }
 
 pub fn input_held(key: &str) -> bool {
-    INPUT.read().unwrap().held.contains(key)
+    read_or_recover(&INPUT).held.contains(key)
 }
 
 pub fn input_pressed(key: &str) -> bool {
-    INPUT.read().unwrap().pressed.contains(key)
+    read_or_recover(&INPUT).pressed.contains(key)
 }
 
 pub fn input_released(key: &str) -> bool {
-    INPUT.read().unwrap().released.contains(key)
+    read_or_recover(&INPUT).released.contains(key)
 }
 
 pub fn input_mouse() -> (f64, f64) {
-    INPUT.read().unwrap().mouse
+    read_or_recover(&INPUT).mouse
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +103,7 @@ static CAMERA: LazyLock<RwLock<CameraState>> =
 /// Runtime pushes the current camera pose and viewport before each frame's
 /// `_process` loop. Both `screen_to_world` and the pyclasses read it back.
 pub fn set_camera_view(cam: (f64, f64), zoom: f64, viewport: (u32, u32)) {
-    let mut state = CAMERA.write().unwrap();
+    let mut state = write_or_recover(&CAMERA);
     state.cam = cam;
     state.zoom = if zoom > 0.0 { zoom } else { 1.0 };
     state.viewport = (viewport.0.max(1), viewport.1.max(1));
@@ -98,7 +112,7 @@ pub fn set_camera_view(cam: (f64, f64), zoom: f64, viewport: (u32, u32)) {
 /// Convert a screen-space point (physical pixels, matching `input_mouse()`)
 /// into world coordinates using the camera pose installed by `set_camera_view`.
 pub fn screen_to_world(screen: (f64, f64)) -> (f64, f64) {
-    let state = CAMERA.read().unwrap();
+    let state = read_or_recover(&CAMERA);
     let vw = state.viewport.0 as f64;
     let vh = state.viewport.1 as f64;
     (

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use std::collections::{HashMap, HashSet};
+
 /// A 2D floating-point vector with `x` and `y` components.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec2 {
@@ -24,6 +26,48 @@ pub fn global_position(tree: &crate::NodeTree, id: &crate::NodeId) -> (f64, f64)
         cursor = node.parent.as_ref().and_then(|p| tree.get(p));
     }
     (x, y)
+}
+
+/// Computes global world-space positions for every node in `tree` in $O(N)$
+/// amortized time via memoized ancestor lookup.
+pub fn global_positions(tree: &crate::NodeTree) -> HashMap<crate::NodeId, (f64, f64)> {
+    fn resolve(
+        tree: &crate::NodeTree,
+        id: &crate::NodeId,
+        cache: &mut HashMap<crate::NodeId, (f64, f64)>,
+        visiting: &mut HashSet<crate::NodeId>,
+    ) -> (f64, f64) {
+        if let Some(&pos) = cache.get(id) {
+            return pos;
+        }
+        if !visiting.insert(id.clone()) {
+            return (0.0, 0.0);
+        }
+        let pos = match tree.get(id) {
+            Some(node) => {
+                let (lx, ly) = match node.props.get("position") {
+                    Some(crate::PropValue::Vec2(px, py)) => (*px, *py),
+                    _ => (0.0, 0.0),
+                };
+                let (px, py) = match node.parent.as_ref() {
+                    Some(parent) => resolve(tree, parent, cache, visiting),
+                    None => (0.0, 0.0),
+                };
+                (px + lx, py + ly)
+            }
+            None => (0.0, 0.0),
+        };
+        visiting.remove(id);
+        cache.insert(id.clone(), pos);
+        pos
+    }
+
+    let mut cache = HashMap::with_capacity(tree.len());
+    let mut visiting = HashSet::new();
+    for node in tree.iter() {
+        resolve(tree, &node.id, &mut cache, &mut visiting);
+    }
+    cache
 }
 
 #[cfg(test)]
