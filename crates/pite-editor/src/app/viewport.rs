@@ -405,8 +405,9 @@ impl EditorApp {
                 })
             });
             if let Some(map_ref) = map_ref_opt {
-                let fs_path = self.resolve_res(&map_ref);
-                let _ = pite_scene::save_tilemap(&fs_path, &doc);
+                if let Some(fs_path) = self.resolve_res(&map_ref) {
+                    let _ = pite_scene::save_tilemap(&fs_path, &doc);
+                }
             }
             self.session.host().set_tilemap_doc(&selected_id, doc);
             self.session.rebuild_physics();

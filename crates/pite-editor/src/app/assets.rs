@@ -217,48 +217,61 @@ fn collect_dir_renames(
 }
 
 /// Moves an asset on disk and returns the list of `(old_res, new_res)` reference pairs.
-/// Enforces directory cycle checks.
+/// Enforces directory cycle and path-sandboxing checks.
 pub fn move_asset_rel(
     root: &Path,
     src_rel: &str,
     dst_dir_rel: &str,
 ) -> anyhow::Result<Vec<(String, String)>> {
-    let src_fs = root.join(src_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let src_norm = pite_core::parse_rel_subpath(src_rel)?;
+    let src_fs = pite_core::resolve_res(
+        root,
+        &format!("res://{}", src_norm.to_string_lossy().replace('\\', "/")),
+    )?;
     if !src_fs.exists() {
         anyhow::bail!("Source path does not exist: {src_rel}");
     }
-    let filename = Path::new(src_rel)
+    let filename = src_norm
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| anyhow::anyhow!("Invalid source path: {src_rel}"))?;
 
+    let dst_dir_norm = if dst_dir_rel.is_empty() {
+        String::new()
+    } else {
+        pite_core::parse_rel_subpath(dst_dir_rel)?
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let src_rel_clean = src_norm.to_string_lossy().replace('\\', "/");
+
     // Cycle check: cannot move a folder into itself or a descendant
     if src_fs.is_dir() {
-        let prefix = format!("{src_rel}/");
-        if dst_dir_rel == src_rel || dst_dir_rel.starts_with(&prefix) {
+        let prefix = format!("{src_rel_clean}/");
+        if dst_dir_norm == src_rel_clean || dst_dir_norm.starts_with(&prefix) {
             anyhow::bail!("Cannot move folder into itself or its subdirectory");
         }
     }
 
-    let dst_rel = if dst_dir_rel.is_empty() {
+    let dst_rel = if dst_dir_norm.is_empty() {
         filename.to_string()
     } else {
-        format!("{dst_dir_rel}/{filename}")
+        format!("{dst_dir_norm}/{filename}")
     };
-    if dst_rel == src_rel {
+    if dst_rel == src_rel_clean {
         return Ok(Vec::new());
     }
 
-    let dst_fs = root.join(dst_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let dst_fs = pite_core::resolve_res(root, &format!("res://{dst_rel}"))?;
     if dst_fs.exists() {
         anyhow::bail!("Destination already exists: {dst_rel}");
     }
 
     let mut renames = Vec::new();
     if src_fs.is_dir() {
-        collect_dir_renames(root, &src_fs, src_rel, &dst_rel, &mut renames)?;
+        collect_dir_renames(root, &src_fs, &src_rel_clean, &dst_rel, &mut renames)?;
     } else {
-        renames.push((format!("res://{src_rel}"), format!("res://{dst_rel}")));
+        renames.push((format!("res://{src_rel_clean}"), format!("res://{dst_rel}")));
     }
 
     std::fs::rename(&src_fs, &dst_fs)?;
@@ -271,29 +284,32 @@ pub fn rename_asset_rel(
     old_rel: &str,
     new_name: &str,
 ) -> anyhow::Result<Vec<(String, String)>> {
-    let old_fs = root.join(old_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    pite_core::validate_entry_name(new_name)?;
+    let old_norm = pite_core::parse_rel_subpath(old_rel)?;
+    let old_rel_clean = old_norm.to_string_lossy().replace('\\', "/");
+    let old_fs = pite_core::resolve_res(root, &format!("res://{old_rel_clean}"))?;
     if !old_fs.exists() {
         anyhow::bail!("Path does not exist: {old_rel}");
     }
-    let parent = Path::new(old_rel).parent().unwrap_or(Path::new(""));
+    let parent = old_norm.parent().unwrap_or(Path::new(""));
     let new_rel = if parent.as_os_str().is_empty() {
         new_name.to_string()
     } else {
         format!("{}/{new_name}", parent.to_string_lossy().replace('\\', "/"))
     };
-    if new_rel == old_rel {
+    if new_rel == old_rel_clean {
         return Ok(Vec::new());
     }
-    let new_fs = root.join(new_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let new_fs = pite_core::resolve_res(root, &format!("res://{new_rel}"))?;
     if new_fs.exists() {
         anyhow::bail!("An item named '{new_name}' already exists");
     }
 
     let mut renames = Vec::new();
     if old_fs.is_dir() {
-        collect_dir_renames(root, &old_fs, old_rel, &new_rel, &mut renames)?;
+        collect_dir_renames(root, &old_fs, &old_rel_clean, &new_rel, &mut renames)?;
     } else {
-        renames.push((format!("res://{old_rel}"), format!("res://{new_rel}")));
+        renames.push((format!("res://{old_rel_clean}"), format!("res://{new_rel}")));
     }
 
     std::fs::rename(&old_fs, &new_fs)?;
@@ -1694,15 +1710,9 @@ impl EditorApp {
         }
     }
 
-    pub(super) fn resolve_res(&self, res_path: &str) -> PathBuf {
-        if let Some(rel) = res_path.strip_prefix("res://") {
-            self.project_dir
-                .as_deref()
-                .unwrap_or(Path::new("."))
-                .join(rel)
-        } else {
-            PathBuf::from(res_path)
-        }
+    pub(super) fn resolve_res(&self, res_path: &str) -> Option<PathBuf> {
+        let base = self.project_dir.as_deref().unwrap_or(Path::new("."));
+        pite_core::resolve_project_ref(self.project_dir.as_deref(), base, res_path).ok()
     }
 
     pub(super) fn open_asset(&mut self, file: &Path) {

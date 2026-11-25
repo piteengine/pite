@@ -693,8 +693,10 @@ pub fn reimport_project(root: &Path) -> Result<(AssetRegistry, ReimportReport)> 
     let mut reimported = Vec::new();
     let mut failed = Vec::new();
     for res_path in targets {
-        let rel = res_path.trim_start_matches("res://");
-        let fs_path = root.join(rel);
+        let Ok(fs_path) = pite_core::resolve_res(root, res_path) else {
+            failed.push(res_path.clone());
+            continue;
+        };
         let ext = fs_path
             .extension()
             .and_then(|e| e.to_str())

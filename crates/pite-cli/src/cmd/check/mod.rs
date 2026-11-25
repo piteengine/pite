@@ -74,8 +74,11 @@ pub fn run(
                     for message in warnings {
                         findings.push(Finding::from_raw(root, Severity::Warning, &message));
                     }
-                    if let Some(rel) = manifest.project.icon.strip_prefix("res://") {
-                        if !root.join(rel).is_file() {
+                    if manifest.project.icon.starts_with("res://") {
+                        let missing = pite_core::resolve_res(root, &manifest.project.icon)
+                            .map(|p| !p.is_file())
+                            .unwrap_or(true);
+                        if missing {
                             findings.push(Finding::icon_missing(&manifest.project.icon));
                         }
                     }
@@ -156,14 +159,17 @@ pub fn run(
             let mut sheets = Vec::new();
             for reference in &referenced {
                 if reference.ends_with(".ptatlas") || reference.ends_with(".atlas.json") {
-                    let sheet = pite_assets::sheet_path(root, reference);
-                    if let Ok(rel) = sheet.strip_prefix(root) {
-                        let joined = rel
-                            .components()
-                            .map(|component| component.as_os_str().to_string_lossy().into_owned())
-                            .collect::<Vec<_>>()
-                            .join("/");
-                        sheets.push(format!("res://{joined}"));
+                    if let Ok(sheet) = pite_assets::sheet_path(root, reference) {
+                        if let Ok(rel) = sheet.strip_prefix(root) {
+                            let joined = rel
+                                .components()
+                                .map(|component| {
+                                    component.as_os_str().to_string_lossy().into_owned()
+                                })
+                                .collect::<Vec<_>>()
+                                .join("/");
+                            sheets.push(format!("res://{joined}"));
+                        }
                     }
                 }
             }

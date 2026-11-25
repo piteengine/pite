@@ -66,11 +66,8 @@ pub struct AnimationUse {
     pub animation: String,
 }
 
-fn atlas_path(root: &Path, atlas_ref: &str) -> PathBuf {
-    match atlas_ref.strip_prefix("res://") {
-        Some(rel) => root.join(rel),
-        None => root.join(atlas_ref),
-    }
+fn atlas_path(root: &Path, atlas_ref: &str) -> Result<PathBuf> {
+    pite_core::resolve_project_ref(Some(root), root, atlas_ref).map_err(anyhow::Error::from)
 }
 
 /// Check every atlas reference in the project: unknown frames and animations are
@@ -99,8 +96,7 @@ pub fn atlas_report(
             .push(anim_use);
     }
     for (atlas_ref, (uses, anim_uses)) in by_atlas {
-        let path = atlas_path(root, atlas_ref);
-        let loaded = atlas::load_atlas(&path);
+        let loaded = atlas_path(root, atlas_ref).and_then(|path| atlas::load_atlas(&path));
         let mut referenced_frames: Vec<&str> = Vec::new();
         let mut referenced_anims: Vec<&str> = Vec::new();
 
@@ -162,13 +158,13 @@ pub fn atlas_report(
 }
 
 /// The sheet an atlas sidecar describes, for callers that resolve paths.
-pub fn sheet_path(root: &Path, atlas_ref: &str) -> PathBuf {
-    atlas::sheet_for_sidecar(&atlas_path(root, atlas_ref))
+pub fn sheet_path(root: &Path, atlas_ref: &str) -> Result<PathBuf> {
+    Ok(atlas::sheet_for_sidecar(&atlas_path(root, atlas_ref)?))
 }
 
 /// Load and validate one atlas sidecar, naming the file on failure.
 pub fn load_sidecar(root: &Path, atlas_ref: &str) -> Result<Atlas> {
-    let path = atlas_path(root, atlas_ref);
+    let path = atlas_path(root, atlas_ref)?;
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("cannot read atlas {}", path.display()))?;
     atlas::parse_atlas(&text).with_context(|| format!("cannot parse atlas {}", path.display()))
@@ -384,7 +380,7 @@ fps = 4.0
     fn sheet_path_follows_the_sidecar() {
         let dir = project("sheet");
         assert_eq!(
-            sheet_path(&dir, "res://assets/sheet.ptatlas"),
+            sheet_path(&dir, "res://assets/sheet.ptatlas").unwrap(),
             dir.join("assets").join("sheet.png")
         );
         std::fs::remove_dir_all(&dir).ok();

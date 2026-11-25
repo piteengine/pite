@@ -318,7 +318,12 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn get_toml_value(cur: &mut Cursor<'_>) -> Result<toml::Value> {
+const MAX_TOML_DEPTH: usize = 128;
+
+fn get_toml_value(cur: &mut Cursor<'_>, depth: usize) -> Result<toml::Value> {
+    if depth > MAX_TOML_DEPTH {
+        anyhow::bail!("scene cache is corrupt (nesting exceeds {MAX_TOML_DEPTH} levels)");
+    }
     match cur.u8()? {
         0 => Ok(toml::Value::String(cur.str()?)),
         1 => Ok(toml::Value::Integer(cur.i64()?)),
@@ -332,7 +337,7 @@ fn get_toml_value(cur: &mut Cursor<'_>) -> Result<toml::Value> {
             let len = cur.u32()? as usize;
             let mut items = Vec::with_capacity(len.min(1024));
             for _ in 0..len {
-                items.push(get_toml_value(cur)?);
+                items.push(get_toml_value(cur, depth + 1)?);
             }
             Ok(toml::Value::Array(items))
         }
@@ -341,7 +346,7 @@ fn get_toml_value(cur: &mut Cursor<'_>) -> Result<toml::Value> {
             let mut table = toml::map::Map::new();
             for _ in 0..len {
                 let k = cur.str()?;
-                let v = get_toml_value(cur)?;
+                let v = get_toml_value(cur, depth + 1)?;
                 table.insert(k, v);
             }
             Ok(toml::Value::Table(table))
@@ -377,7 +382,7 @@ fn get_node(cur: &mut Cursor<'_>) -> Result<SceneNode> {
     let mut props = std::collections::BTreeMap::new();
     for _ in 0..prop_len {
         let k = cur.str()?;
-        let v = get_toml_value(cur)?;
+        let v = get_toml_value(cur, 0)?;
         props.insert(k, v);
     }
     let script = get_script(cur)?;
@@ -399,7 +404,7 @@ fn get_instance(cur: &mut Cursor<'_>) -> Result<SceneInstance> {
     let mut overrides = std::collections::BTreeMap::new();
     for _ in 0..len {
         let k = cur.str()?;
-        let v = get_toml_value(cur)?;
+        let v = get_toml_value(cur, 0)?;
         overrides.insert(k, v);
     }
     Ok(SceneInstance {
@@ -666,5 +671,19 @@ prefix = "e1_"
             "rewritten cache must be valid, got {warning:?}"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn deeply_nested_cache_is_rejected_without_stack_overflow() {
+        let mut bytes = Vec::new();
+        for _ in 0..(MAX_TOML_DEPTH + 4) {
+            bytes.push(4);
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+        }
+        bytes.push(1);
+        bytes.extend_from_slice(&0i64.to_le_bytes());
+        let mut cur = Cursor { b: &bytes, pos: 0 };
+        let err = get_toml_value(&mut cur, 0).unwrap_err();
+        assert!(err.to_string().contains("nesting exceeds"), "got: {err:#}");
     }
 }

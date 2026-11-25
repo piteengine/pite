@@ -322,8 +322,9 @@ impl EditorApp {
                     btn_resp.clone().on_hover_text(&script.path);
 
                     if btn_resp.clicked() {
-                        let resolved = self.resolve_res(&script.path);
-                        self.open_asset(&resolved);
+                        if let Some(resolved) = self.resolve_res(&script.path) {
+                            self.open_asset(&resolved);
+                        }
                     }
                 } else {
                     ui.painter().text(
@@ -1150,25 +1151,28 @@ impl EditorApp {
         // Palette
         ui.add_space(4.0);
         ui.label("Tile Palette:");
-        let sidecar_path = self.resolve_res(&doc.atlas);
-        if let Ok(atlas) = pite_render::atlas::load_atlas(&sidecar_path) {
-            egui::ScrollArea::vertical()
-                .id_salt("tile_palette")
-                .max_height(140.0)
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        for name in atlas.names() {
-                            let selected = !self.tilemap_eraser
-                                && self.tilemap_selected_frame.as_deref() == Some(name);
-                            if ui.selectable_label(selected, name).clicked() {
-                                self.tilemap_selected_frame = Some(name.to_string());
-                                self.tilemap_eraser = false;
+        if let Some(sidecar_path) = self.resolve_res(&doc.atlas) {
+            if let Ok(atlas) = pite_render::atlas::load_atlas(&sidecar_path) {
+                egui::ScrollArea::vertical()
+                    .id_salt("tile_palette")
+                    .max_height(140.0)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for name in atlas.names() {
+                                let selected = !self.tilemap_eraser
+                                    && self.tilemap_selected_frame.as_deref() == Some(name);
+                                if ui.selectable_label(selected, name).clicked() {
+                                    self.tilemap_selected_frame = Some(name.to_string());
+                                    self.tilemap_eraser = false;
+                                }
                             }
-                        }
+                        });
                     });
-                });
+            } else {
+                ui.label(format!("Cannot load atlas: {}", doc.atlas));
+            }
         } else {
-            ui.label(format!("Cannot load atlas: {}", doc.atlas));
+            ui.label(format!("Invalid atlas path: {}", doc.atlas));
         }
 
         if changed {
@@ -1179,8 +1183,9 @@ impl EditorApp {
                 })
             });
             if let Some(map_ref) = node_path {
-                let fs_path = self.resolve_res(&map_ref);
-                let _ = pite_scene::save_tilemap(&fs_path, &doc);
+                if let Some(fs_path) = self.resolve_res(&map_ref) {
+                    let _ = pite_scene::save_tilemap(&fs_path, &doc);
+                }
             }
             self.session.host().set_tilemap_doc(node_id.as_str(), doc);
         }

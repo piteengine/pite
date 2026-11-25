@@ -362,19 +362,7 @@ pub fn resolve_scene_ref(
     scene_dir: &Path,
     project_dir: Option<&Path>,
 ) -> Result<PathBuf> {
-    if let Some(rel) = scene_ref.strip_prefix("res://") {
-        let root = project_dir.with_context(|| {
-            format!("scene {scene_ref:?} uses res:// but no project root is known")
-        })?;
-        Ok(root.join(rel))
-    } else {
-        let p = Path::new(scene_ref);
-        if p.is_absolute() {
-            Ok(p.to_path_buf())
-        } else {
-            Ok(scene_dir.join(p))
-        }
-    }
+    pite_core::resolve_project_ref(project_dir, scene_dir, scene_ref).map_err(anyhow::Error::from)
 }
 
 /// Build the full runtime tree: host nodes plus every `[[instance]]`

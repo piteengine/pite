@@ -265,9 +265,10 @@ impl EditorApp {
 
         let script = self.session.host().with_tree(|t| {
             t.get(id).and_then(|n| {
-                n.script
-                    .as_ref()
-                    .map(|s| (s.class_name.clone(), self.resolve_res(&s.path)))
+                n.script.as_ref().and_then(|s| {
+                    self.resolve_res(&s.path)
+                        .map(|path| (s.class_name.clone(), path))
+                })
             })
         });
 

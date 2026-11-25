@@ -73,17 +73,20 @@ impl<'a> Walker<'a> {
         self.visited.len()
     }
 
-    fn scene_path(&self, reference: &str) -> PathBuf {
-        if let Some(rel) = reference.strip_prefix("res://") {
-            self.root.join(rel)
-        } else {
-            self.root.join(reference)
-        }
+    fn scene_path(&self, reference: &str) -> std::result::Result<PathBuf, pite_core::ResPathError> {
+        pite_core::resolve_project_ref(Some(self.root), self.root, reference)
     }
 
     /// Walk `scene_ref` and every scene it instances.
     pub fn walk(&mut self, scene_ref: &str) {
-        let path = self.scene_path(scene_ref);
+        let path = match self.scene_path(scene_ref) {
+            Ok(path) => path,
+            Err(error) => {
+                let raw = format!("scene {scene_ref}: {error:#}");
+                self.error(Finding::from_raw(self.root, Severity::Error, &raw));
+                return;
+            }
+        };
         if !self.visited.insert(path.to_string_lossy().to_string()) {
             return;
         }
@@ -149,10 +152,11 @@ impl<'a> Walker<'a> {
         let Some(script) = &node.script else {
             return;
         };
-        let script_path = if let Some(rel) = script.path.strip_prefix("res://") {
-            self.root.join(rel)
-        } else {
-            self.root.join(&script.path)
+        let Ok(script_path) =
+            pite_core::resolve_project_ref(Some(self.root), self.root, &script.path)
+        else {
+            self.warning(Finding::missing_script(scene, &node.id, &script.path));
+            return;
         };
         if !script_path.is_file() {
             self.warning(Finding::missing_script(scene, &node.id, &script.path));
@@ -179,10 +183,10 @@ impl<'a> Walker<'a> {
         }
         for asset in pite_assets::played_assets(&text) {
             self.referenced.insert(normalize_asset_ref(asset));
-            let asset_path = if let Some(rel) = asset.strip_prefix("res://") {
-                self.root.join(rel)
-            } else {
-                self.root.join(asset)
+            let Ok(asset_path) = pite_core::resolve_project_ref(Some(self.root), self.root, asset)
+            else {
+                self.error(Finding::missing_audio(scene, &node.id, asset));
+                continue;
             };
             if !asset_path.is_file() {
                 self.error(Finding::missing_audio(scene, &node.id, asset));
@@ -272,10 +276,9 @@ impl<'a> Walker<'a> {
         let Some(map_ref) = node.props.get("tilemap").and_then(|value| value.as_str()) else {
             return;
         };
-        let map_path = if let Some(rel) = map_ref.strip_prefix("res://") {
-            self.root.join(rel)
-        } else {
-            self.root.join(map_ref)
+        let Ok(map_path) = pite_core::resolve_project_ref(Some(self.root), self.root, map_ref)
+        else {
+            return;
         };
         if !map_path.is_file() {
             return;
@@ -318,7 +321,7 @@ impl<'a> Walker<'a> {
             }
             self.referenced.insert(reference.to_string());
             let asset_path = resolve_asset(self.root, scene_dir, reference);
-            if asset_path.is_file() {
+            if asset_path.as_ref().is_some_and(|p| p.is_file()) {
                 continue;
             }
             let moved_to = self
@@ -380,11 +383,18 @@ impl<'a> Walker<'a> {
         ids: &HashSet<&str>,
         scene_dir: &Path,
     ) {
-        let instance_path = if let Some(rel) = instance.scene.strip_prefix("res://") {
-            self.root.join(rel)
-        } else {
-            scene_dir.join(&instance.scene)
-        };
+        let instance_path =
+            match pite_core::resolve_project_ref(Some(self.root), scene_dir, &instance.scene) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.error(Finding::instance_load(
+                        scene,
+                        &instance.scene,
+                        &format!("{error:#}"),
+                    ));
+                    return;
+                }
+            };
         let ref_doc = match pite_scene::load_cached(&instance_path) {
             Ok((doc, status, warning)) => {
                 let instance_rel = self.rel(&instance_path);
@@ -437,17 +447,8 @@ impl<'a> Walker<'a> {
     }
 }
 
-fn resolve_asset(root: &Path, scene_dir: &Path, reference: &str) -> PathBuf {
-    if let Some(rel) = reference.strip_prefix("res://") {
-        root.join(rel)
-    } else {
-        let path = PathBuf::from(reference);
-        if path.is_absolute() {
-            path
-        } else {
-            scene_dir.join(path)
-        }
-    }
+fn resolve_asset(root: &Path, scene_dir: &Path, reference: &str) -> Option<PathBuf> {
+    pite_core::resolve_project_ref(Some(root), scene_dir, reference).ok()
 }
 
 pub fn normalize_asset_ref(asset: &str) -> String {

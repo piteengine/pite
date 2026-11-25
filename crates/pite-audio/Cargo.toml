@@ -21,5 +21,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 anyhow.workspace = true
 cpal.workspace = true
 hound.workspace = true
+pite-core.workspace = true
 symphonia.workspace = true
 tracing.workspace = true

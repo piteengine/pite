@@ -25,6 +25,7 @@ toml.workspace = true
 tracing.workspace = true
 zip.workspace = true
 pite-assets.workspace = true
+pite-core.workspace = true
 pite-project.workspace = true
 pite-render.workspace = true
 pite-scene.workspace = true

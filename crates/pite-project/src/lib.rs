@@ -238,9 +238,7 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
 }
 
 pub fn resolve_res(project_dir: &Path, res_path: &str) -> Option<PathBuf> {
-    res_path
-        .strip_prefix("res://")
-        .map(|rel| project_dir.join(rel))
+    pite_core::resolve_res(project_dir, res_path).ok()
 }
 
 pub fn to_res_path(project_dir: &Path, path: &Path) -> Option<String> {

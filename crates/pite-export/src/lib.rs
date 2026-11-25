@@ -244,12 +244,13 @@ pub fn export_project(
         std::fs::set_permissions(&bin_dest, std::fs::Permissions::from_mode(0o755))?;
     }
 
-    let main_rel = manifest
-        .project
-        .main_scene
-        .strip_prefix("res://")
-        .map(str::to_string)
-        .unwrap_or_else(|| manifest.project.main_scene.clone());
+    let main_rel = if manifest.project.main_scene.starts_with("res://") {
+        pite_core::parse_res_rel(&manifest.project.main_scene)?
+            .to_string_lossy()
+            .replace('\\', "/")
+    } else {
+        manifest.project.main_scene.clone()
+    };
     if opts.platform == "windows" {
         std::fs::write(
             out.join("run.bat"),
@@ -556,14 +557,8 @@ fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Res
 }
 
 fn resolve_ref(root: &Path, scene_dir: Option<&Path>, r: &str) -> Option<PathBuf> {
-    if let Some(rel) = r.strip_prefix("res://") {
-        return Some(root.join(rel));
-    }
-    let p = PathBuf::from(r);
-    if p.is_absolute() {
-        return Some(p);
-    }
-    scene_dir.map(|d| d.join(p))
+    let base = scene_dir.unwrap_or(root);
+    pite_core::resolve_project_ref(Some(root), base, r).ok()
 }
 
 /// An atlas sidecar is only half an asset: without its sheet the runtime draws

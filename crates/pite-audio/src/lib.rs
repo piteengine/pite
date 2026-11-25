@@ -289,19 +289,21 @@ impl AudioEngine {
     }
 
     /// Resolves a `res://` resource path or filesystem path to an absolute path.
-    pub fn resolve(&self, asset_ref: &str) -> Option<PathBuf> {
-        if let Some(rel) = asset_ref.strip_prefix("res://") {
+    pub fn resolve(&self, asset_ref: &str) -> Result<PathBuf> {
+        if asset_ref.starts_with("res://") {
             let root = match &self.project_dir {
                 Some(dir) => dir.clone(),
-                None => std::env::current_dir().ok()?,
+                None => std::env::current_dir().context("cannot determine current directory")?,
             };
-            Some(root.join(rel))
+            pite_core::resolve_res(&root, asset_ref).map_err(anyhow::Error::from)
         } else {
             let path = PathBuf::from(asset_ref);
             if path.is_absolute() {
-                Some(path)
+                Ok(path)
             } else {
-                std::env::current_dir().ok().map(|cwd| cwd.join(path))
+                Ok(std::env::current_dir()
+                    .context("cannot determine current directory")?
+                    .join(path))
             }
         }
     }
@@ -322,9 +324,7 @@ pub fn set_project_dir(dir: Option<PathBuf>) {
 /// Decodes an audio asset identified by a `res://` reference or filesystem path.
 pub fn decode_asset(asset_ref: &str) -> Result<(PathBuf, DecodedAudio)> {
     let engine = ENGINE.lock().unwrap();
-    let path = engine
-        .resolve(asset_ref)
-        .ok_or_else(|| anyhow::anyhow!("{asset_ref:?} uses res:// but no project is known"))?;
+    let path = engine.resolve(asset_ref)?;
     drop(engine);
     if !path.is_file() {
         anyhow::bail!("audio asset not found: {}", path.display());

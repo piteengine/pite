@@ -15,6 +15,7 @@ mod lifecycle;
 mod math;
 mod node;
 pub mod nodes;
+mod path;
 mod props;
 mod registry;
 pub mod schema;
@@ -25,6 +26,10 @@ pub use error::{CoreError, Result};
 pub use lifecycle::LifecycleSink;
 pub use math::{global_position, Vec2};
 pub use node::{Node, NodeDesc, NodeId, ScriptRef};
+pub use path::{
+    parse_rel_subpath, parse_res_rel, resolve_project_ref, resolve_res, validate_entry_name,
+    ResPathError,
+};
 pub use props::{Color, PropValue, Props, CUSTOM_PROP_TYPES};
 pub use registry::{NodeFactory, NodeTypeRegistry};
 pub use schema::{

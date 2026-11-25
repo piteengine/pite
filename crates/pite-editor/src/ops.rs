@@ -451,19 +451,8 @@ struct InstancePlan {
 }
 
 fn resolve_instance_path(scene_ref: &str, refs: InstanceRefs<'_>) -> Result<PathBuf> {
-    if let Some(rel) = scene_ref.strip_prefix("res://") {
-        let root = refs
-            .project_dir
-            .context("instance uses res:// but no project root is known")?;
-        Ok(root.join(rel))
-    } else {
-        let p = Path::new(scene_ref);
-        if p.is_absolute() {
-            Ok(p.to_path_buf())
-        } else {
-            Ok(refs.scene_dir.join(p))
-        }
-    }
+    pite_core::resolve_project_ref(refs.project_dir, refs.scene_dir, scene_ref)
+        .map_err(anyhow::Error::from)
 }
 
 /// Re-derive one `[[instance]]` entry from the live tree: the subtree must
