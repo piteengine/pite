@@ -32,3 +32,6 @@ pite-scene.workspace = true
 
 [dev-dependencies]
 pite-runtime.workspace = true
+
+[lints]
+workspace = true

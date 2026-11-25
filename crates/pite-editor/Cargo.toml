@@ -35,3 +35,6 @@ egui-pop-phosphor = "0.15.0"
 
 [build-dependencies]
 pite-core.workspace = true
+
+[lints]
+workspace = true

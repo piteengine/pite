@@ -43,3 +43,6 @@ pite-assets.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+
+[lints]
+workspace = true

@@ -24,3 +24,6 @@ hound.workspace = true
 pite-core.workspace = true
 symphonia.workspace = true
 tracing.workspace = true
+
+[lints]
+workspace = true

@@ -269,12 +269,20 @@ pub fn duplicate_node(tree: &mut NodeTree, id: &NodeId) -> Result<NodeId> {
 
     // Insert new nodes in tree
     for (old_id, old_parent, type_name, _, props, script) in subtree {
-        let (new_id, new_name) = id_map.get(&old_id).unwrap().clone();
+        let (new_id, new_name) = id_map
+            .get(&old_id)
+            .ok_or_else(|| anyhow::anyhow!("Missing duplicated id mapping for {old_id}"))?
+            .clone();
         let new_parent = if old_id == *id {
             Some(parent.clone())
         } else {
-            let p = old_parent.as_ref().unwrap();
-            Some(id_map.get(p).unwrap().0.clone())
+            let p = old_parent
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Child node {old_id} missing parent"))?;
+            let mapped = id_map
+                .get(p)
+                .ok_or_else(|| anyhow::anyhow!("Missing parent id mapping for {p}"))?;
+            Some(mapped.0.clone())
         };
         let desc = NodeDesc {
             id: new_id,

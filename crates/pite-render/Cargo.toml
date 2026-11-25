@@ -30,3 +30,6 @@ tracing.workspace = true
 wgpu.workspace = true
 winit.workspace = true
 pite-core.workspace = true
+
+[lints]
+workspace = true

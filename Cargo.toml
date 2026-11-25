@@ -57,3 +57,12 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 # of full debuginfo size. One-time rebuild, then incremental stays intact.
 [profile.dev]
 debug = "line-tables-only"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"

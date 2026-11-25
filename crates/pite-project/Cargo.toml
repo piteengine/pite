@@ -31,3 +31,6 @@ zip.workspace = true
 
 [build-dependencies]
 zip = { workspace = true }
+
+[lints]
+workspace = true

@@ -30,3 +30,6 @@ pite-scene.workspace = true
 pite-render.workspace = true
 pite-script.workspace = true
 pite-project.workspace = true
+
+[lints]
+workspace = true

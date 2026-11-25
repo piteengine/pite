@@ -8,12 +8,22 @@ static CURRENT_PHYSICS: RwLock<Option<Arc<Mutex<PhysicsWorld>>>> = RwLock::new(N
 
 /// Installs the active physics world handle for the current execution context.
 pub fn set_current_physics(physics: Option<Arc<Mutex<PhysicsWorld>>>) {
-    *CURRENT_PHYSICS.write().unwrap() = physics;
+    let mut guard = CURRENT_PHYSICS.write().unwrap_or_else(|e| {
+        tracing::warn!("Recovering poisoned CURRENT_PHYSICS write lock");
+        e.into_inner()
+    });
+    *guard = physics;
 }
 
 /// Retrieves a clone of the active physics world handle, if installed.
 pub fn current_physics() -> Option<Arc<Mutex<PhysicsWorld>>> {
-    CURRENT_PHYSICS.read().unwrap().clone()
+    CURRENT_PHYSICS
+        .read()
+        .unwrap_or_else(|e| {
+            tracing::warn!("Recovering poisoned CURRENT_PHYSICS read lock");
+            e.into_inner()
+        })
+        .clone()
 }
 
 /// Executes a closure with exclusive access to the current physics world.
