@@ -150,6 +150,8 @@ pub struct EditorApp {
     /// running scene only then, so editing text and shortcuts keep priority.
     pub(super) viewport_hovered: bool,
     pub(super) viewport_rect: Option<egui::Rect>,
+    pub(super) viewport_pan: egui::Vec2,
+    pub(super) viewport_zoom: f32,
     /// Bound to the project's window size: the viewport must frame the scene the
     /// way the game window does.
     pub(super) view_size: (u32, u32),
@@ -247,6 +249,8 @@ impl EditorApp {
             viewport_tex: None,
             viewport_hovered: false,
             viewport_rect: None,
+            viewport_pan: egui::Vec2::ZERO,
+            viewport_zoom: 1.0,
             view_size,
             viewport_dirty: true,
             tab: Tab::Viewport,

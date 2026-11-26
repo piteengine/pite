@@ -81,6 +81,40 @@ pub(crate) fn viewport_cursor(
     Some((x, y))
 }
 
+/// Minimum and maximum editor viewport zoom multipliers.
+pub(crate) const VIEWPORT_MIN_ZOOM: f32 = 0.25;
+pub(crate) const VIEWPORT_MAX_ZOOM: f32 = 8.0;
+
+/// Compute the fitted, zoomed, and panned viewport rectangle inside `outer_rect`.
+pub(crate) fn viewport_frame_rect(
+    outer_rect: egui::Rect,
+    view: (u32, u32),
+    pan: egui::Vec2,
+    zoom: f32,
+) -> egui::Rect {
+    let fitted = fit_view(outer_rect.size(), view);
+    let zoom = zoom.clamp(VIEWPORT_MIN_ZOOM, VIEWPORT_MAX_ZOOM);
+    egui::Rect::from_center_size(outer_rect.center() + pan, fitted * zoom)
+}
+
+/// Update `(pan, zoom)` so `anchor` stays pinned to the same relative point in the viewport.
+pub(crate) fn zoom_viewport_at(
+    base_center: egui::Pos2,
+    pan: egui::Vec2,
+    zoom: f32,
+    new_zoom: f32,
+    anchor: egui::Pos2,
+) -> (egui::Vec2, f32) {
+    let old_zoom = zoom.clamp(VIEWPORT_MIN_ZOOM, VIEWPORT_MAX_ZOOM);
+    let clamped = new_zoom.clamp(VIEWPORT_MIN_ZOOM, VIEWPORT_MAX_ZOOM);
+    if (clamped - old_zoom).abs() < f32::EPSILON {
+        return (pan, clamped);
+    }
+    let rel = anchor - (base_center + pan);
+    let new_pan = pan + rel * (1.0 - clamped / old_zoom);
+    (new_pan, clamped)
+}
+
 /// Largest (width, height) with `view`'s aspect that fits inside `avail`.
 /// "Contain", not "fill": whichever axis binds first decides the scale, so
 /// the viewport grows and shrinks on both axes instead of blowing past the
@@ -222,23 +256,30 @@ impl EditorApp {
         }
         let textured = self.viewport.is_some() && self.viewport_tex.is_some();
         let avail = ui.available_size();
-        let fitted = fit_view(avail, (view_w, view_h));
-        // Center the fitted rect in the space we measured: allocate the full
-        // avail, then paint into a centered sub-rect, so the viewport reads as
-        // framed content instead of content pinned to the top-left corner.
-        let (outer, _outer_painter) = ui.allocate_painter(avail, egui::Sense::hover());
-        let view_rect = egui::Rect::from_center_size(outer.rect.center(), fitted);
+        // Allocate the full panel so panning/zooming stays clipped inside the
+        // viewport bounds without bleeding into neighboring panels.
+        let (outer, _outer_painter) = ui.allocate_painter(avail, egui::Sense::click_and_drag());
+        let (active_pan, active_zoom) = if self.playing {
+            (egui::Vec2::ZERO, 1.0)
+        } else {
+            self.handle_viewport_navigation(ui, &outer);
+            (self.viewport_pan, self.viewport_zoom)
+        };
+        let view_rect = viewport_frame_rect(outer.rect, (view_w, view_h), active_pan, active_zoom);
         let resp = ui.interact(
-            view_rect,
+            view_rect.intersect(outer.rect),
             ui.scope_id().with("viewport"),
             egui::Sense::hover(),
         );
-        let painter = ui.painter_at(view_rect);
+        let painter = ui.painter_at(outer.rect);
         self.viewport_hovered = resp.hovered();
         self.viewport_rect = Some(view_rect);
         if textured {
             if let Some(handle) = self.viewport_tex.as_ref() {
-                egui::Image::from_texture(handle).paint_at(ui, view_rect);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(outer.rect), |ui| {
+                    ui.set_clip_rect(outer.rect);
+                    egui::Image::from_texture(handle).paint_at(ui, view_rect);
+                });
             }
         } else {
             let nodes = self.session.host().with_tree(|t| -> Vec<NodeViewportData> {
@@ -267,9 +308,14 @@ impl EditorApp {
                     .collect()
             });
             let center = view_rect.center();
+            let scale = view_rect.width() / view_w.max(1) as f32;
             painter.rect_filled(view_rect, 0.0, crate::theme::BG);
             for node in nodes {
-                let p = center + egui::Vec2::new(node.position.x as f32, node.position.y as f32);
+                let p = center
+                    + egui::Vec2::new(
+                        node.position.x as f32 * scale,
+                        node.position.y as f32 * scale,
+                    );
                 let color = if node.type_name == "Sprite2D" || node.type_name == "AnimatedSprite2D"
                 {
                     egui::Color32::from_rgb(111, 179, 167)
@@ -281,7 +327,7 @@ impl EditorApp {
                     painter.rect_stroke(
                         egui::Rect::from_center_size(
                             p,
-                            egui::Vec2::new(node.size.x as f32, node.size.y as f32),
+                            egui::Vec2::new(node.size.x as f32 * scale, node.size.y as f32 * scale),
                         ),
                         4.0,
                         egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(111, 179, 167)),
@@ -302,6 +348,14 @@ impl EditorApp {
                 );
             }
         }
+        if !self.playing && ((active_zoom - 1.0).abs() > 0.001 || active_pan != egui::Vec2::ZERO) {
+            painter.rect_stroke(
+                view_rect,
+                0.0,
+                egui::Stroke::new(1.0, crate::theme::PANEL_STROKE),
+                egui::StrokeKind::Outside,
+            );
+        }
         if !self.playing {
             let consumed = self.handle_plugin_viewport_pointer(ui, view_rect, (view_w, view_h));
             if !consumed {
@@ -311,7 +365,91 @@ impl EditorApp {
             let snapshot = self.editor_snapshot();
             let (errors, actions) = self.editor_plugins.draw_viewport_overlays(ui, snapshot);
             self.apply_plugin_feedback(errors, actions);
+            self.draw_viewport_hud(ui, outer.rect);
         }
+    }
+
+    /// Handle middle-drag / Space+drag panning, cursor-centered zoom, and `Ctrl+0` reset.
+    fn handle_viewport_navigation(&mut self, ui: &mut egui::Ui, outer: &egui::Response) {
+        let (space_down, reset_pressed, delta, scroll_y, pinch, hover_pos) = ui.input(|i| {
+            let reset = outer.hovered() && i.modifiers.command && i.key_pressed(egui::Key::Num0);
+            (
+                i.key_down(egui::Key::Space),
+                reset,
+                i.pointer.delta(),
+                i.smooth_scroll_delta.y,
+                i.zoom_delta(),
+                i.pointer.hover_pos(),
+            )
+        });
+        if reset_pressed {
+            self.viewport_pan = egui::Vec2::ZERO;
+            self.viewport_zoom = 1.0;
+            return;
+        }
+        let panning = outer.dragged_by(egui::PointerButton::Middle)
+            || (space_down && outer.dragged_by(egui::PointerButton::Primary));
+        if panning {
+            self.viewport_pan += delta;
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if space_down && outer.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+        if outer.hovered() && (scroll_y.abs() > 0.0 || (pinch - 1.0).abs() > 0.001) {
+            let factor = if (pinch - 1.0).abs() > 0.001 {
+                pinch
+            } else {
+                (scroll_y * 0.002).exp()
+            };
+            let anchor = hover_pos.unwrap_or_else(|| outer.rect.center());
+            let (new_pan, new_zoom) = zoom_viewport_at(
+                outer.rect.center(),
+                self.viewport_pan,
+                self.viewport_zoom,
+                self.viewport_zoom * factor,
+                anchor,
+            );
+            self.viewport_pan = new_pan;
+            self.viewport_zoom = new_zoom;
+        }
+    }
+
+    /// Show a compact zoom indicator and reset button when the viewport is panned or zoomed.
+    fn draw_viewport_hud(&mut self, ui: &mut egui::Ui, outer_rect: egui::Rect) {
+        if (self.viewport_zoom - 1.0).abs() <= 0.001 && self.viewport_pan == egui::Vec2::ZERO {
+            return;
+        }
+        let hud_rect = egui::Rect::from_min_size(
+            egui::pos2(outer_rect.right() - 128.0, outer_rect.top() + 8.0),
+            egui::vec2(120.0, 24.0),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(hud_rect), |ui| {
+            egui::Frame::NONE
+                .fill(crate::theme::PANEL)
+                .stroke(egui::Stroke::new(1.0, crate::theme::PANEL_STROKE))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(6, 2))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}%", self.viewport_zoom * 100.0))
+                                .small()
+                                .color(crate::theme::FAINT),
+                        );
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new("Reset").small())
+                                    .frame(false),
+                            )
+                            .on_hover_text("Reset viewport pan & zoom (Ctrl+0)")
+                            .clicked()
+                        {
+                            self.viewport_pan = egui::Vec2::ZERO;
+                            self.viewport_zoom = 1.0;
+                        }
+                    });
+                });
+        });
     }
 
     fn handle_plugin_viewport_pointer(

@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui;
 
-use super::viewport::{fit_view, viewport_cursor};
+use super::viewport::{
+    fit_view, viewport_cursor, viewport_frame_rect, zoom_viewport_at, VIEWPORT_MAX_ZOOM,
+    VIEWPORT_MIN_ZOOM,
+};
 use super::*;
 
 #[test]
@@ -100,6 +103,43 @@ fn viewport_is_centered_in_its_panel() {
     assert!((view.left() - (outer.right() - view.right())).abs() < 0.01);
     assert!(view.width() <= outer.width() + 0.01);
     assert!(view.height() <= outer.height() + 0.01);
+}
+
+#[test]
+fn viewport_pan_and_zoom_transform_frame_and_pin_anchor() {
+    let outer = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+    let view = (800, 600);
+
+    // Identity pan/zoom matches fit_view centered in outer.
+    let base = viewport_frame_rect(outer, view, egui::Vec2::ZERO, 1.0);
+    assert!((base.width() - 800.0).abs() < 0.01);
+    assert!((base.height() - 600.0).abs() < 0.01);
+    assert!((base.center().x - 500.0).abs() < 0.01);
+
+    // Zooming at an off-center anchor keeps the anchor's normalized UV fixed.
+    let anchor = egui::pos2(650.0, 220.0);
+    let u_before = (anchor.x - base.min.x) / base.width();
+    let v_before = (anchor.y - base.min.y) / base.height();
+
+    let (pan2, zoom2) = zoom_viewport_at(outer.center(), egui::Vec2::ZERO, 1.0, 2.0, anchor);
+    assert!((zoom2 - 2.0).abs() < 0.001);
+    let zoomed = viewport_frame_rect(outer, view, pan2, zoom2);
+    let u_after = (anchor.x - zoomed.min.x) / zoomed.width();
+    let v_after = (anchor.y - zoomed.min.y) / zoomed.height();
+    assert!(
+        (u_before - u_after).abs() < 0.001,
+        "{u_before} != {u_after}"
+    );
+    assert!(
+        (v_before - v_after).abs() < 0.001,
+        "{v_before} != {v_after}"
+    );
+
+    // Zoom clamps cleanly to [VIEWPORT_MIN_ZOOM, VIEWPORT_MAX_ZOOM].
+    let (_, min_z) = zoom_viewport_at(outer.center(), pan2, zoom2, 0.01, anchor);
+    let (_, max_z) = zoom_viewport_at(outer.center(), pan2, zoom2, 99.0, anchor);
+    assert!((min_z - VIEWPORT_MIN_ZOOM).abs() < 0.001);
+    assert!((max_z - VIEWPORT_MAX_ZOOM).abs() < 0.001);
 }
 
 #[test]

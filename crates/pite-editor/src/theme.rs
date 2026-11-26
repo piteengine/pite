@@ -5,8 +5,8 @@ use eframe::egui;
 
 pub(crate) const ACCENT: egui::Color32 = egui::Color32::from_rgb(11, 147, 135);
 pub(crate) const BG: egui::Color32 = egui::Color32::from_rgb(11, 14, 17);
-const PANEL: egui::Color32 = egui::Color32::from_rgb(20, 24, 29);
-const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(42, 49, 56);
+pub(crate) const PANEL: egui::Color32 = egui::Color32::from_rgb(20, 24, 29);
+pub(crate) const PANEL_STROKE: egui::Color32 = egui::Color32::from_rgb(42, 49, 56);
 pub(crate) const TEXT: egui::Color32 = egui::Color32::from_rgb(230, 233, 236);
 pub(crate) const FAINT: egui::Color32 = egui::Color32::from_rgb(154, 163, 173);
 const INACTIVE: egui::Color32 = egui::Color32::from_rgb(23, 28, 34);
