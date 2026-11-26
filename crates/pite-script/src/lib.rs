@@ -7,16 +7,22 @@
 //! Rust engine nodes and Python gameplay scripts.
 
 mod audio;
+pub mod canvas;
 pub mod descriptor;
 mod host;
 mod input;
 pub mod physics_bridge;
+pub mod plugin_host;
 mod python;
 pub mod vec2;
 
 use anyhow::Result;
 
-pub use descriptor::{child, node, PyChildDescriptor, PyNodeDescriptor};
+pub use canvas::{DrawCommand, PyCanvas2D};
+pub use descriptor::{
+    attach_plugin_prop_descriptors, child, node, PyChildDescriptor, PyNodeDescriptor,
+    PyPluginPropDescriptor,
+};
 pub use host::{
     fire_animation_finished, fire_animation_looped, fire_area_entered, fire_area_exited,
     fire_body_entered, fire_body_exited, proxy_for, resolve_caller, resolve_caller_py,
@@ -29,6 +35,7 @@ pub use input::{
 #[doc(hidden)]
 pub use paste;
 pub use physics_bridge::{current_physics, set_current_physics, with_physics};
+pub use plugin_host::{instantiate_entrypoint, PluginHost, RuntimePluginSpec};
 pub use pyo3;
 pub use python::{is_stdlib_module, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError};
 pub use vec2::Vec2;
@@ -55,10 +62,19 @@ pub trait ScriptBackend {
     fn load_base(&mut self, _type_name: &str) -> Result<()> {
         anyhow::bail!("this backend cannot instantiate base pyclasses")
     }
+    fn load_plugin_class(&mut self, _spec: &str) -> Result<()> {
+        anyhow::bail!("this backend cannot instantiate plugin node classes")
+    }
+    fn attach_plugin_props(&self, _props: &[pite_core::PropDef]) -> Result<()> {
+        Ok(())
+    }
     fn call_ready(&mut self) -> Result<()>;
     fn call_process(&mut self, delta: f64) -> Result<()>;
     fn call_physics_process(&mut self, _delta: f64) -> Result<()> {
         Ok(())
+    }
+    fn call_draw(&mut self, _origin: (f64, f64), _z_index: i32) -> Result<Vec<DrawCommand>> {
+        Ok(Vec::new())
     }
     fn reload(&mut self) -> Result<()>;
 
@@ -77,6 +93,9 @@ pub trait ScriptBackend {
     }
     fn has_physics_process(&self) -> bool {
         true
+    }
+    fn has_draw(&self) -> bool {
+        false
     }
 }
 

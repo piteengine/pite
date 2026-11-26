@@ -140,6 +140,12 @@ impl GameSession {
                 }
             }
 
+            for (plugin_id, msg) in self.plugin_host.on_physics_process(&self.host, FIXED_STEP) {
+                let formatted = format!("plugin {plugin_id} _physics_process: {msg}");
+                tracing::error!("{formatted}");
+                self.plugin_errors.push(formatted);
+            }
+
             self.physics_accumulator -= FIXED_STEP;
         }
 
@@ -158,6 +164,12 @@ impl GameSession {
                     self.last_error = slot.backend.last_script_error();
                 }
             }
+        }
+
+        for (plugin_id, msg) in self.plugin_host.on_process(&self.host, delta) {
+            let formatted = format!("plugin {plugin_id} _process: {msg}");
+            tracing::error!("{formatted}");
+            self.plugin_errors.push(formatted);
         }
 
         self.tick_animations(delta);

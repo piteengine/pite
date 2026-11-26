@@ -11,6 +11,7 @@ pub struct InstanceSlot {
     pub has_ready: bool,
     pub has_process: bool,
     pub has_physics_process: bool,
+    pub has_draw: bool,
 }
 
 fn slot_still_valid(
@@ -156,72 +157,61 @@ impl GameSession {
                     self.host.disconnect_node(&id_str);
                 }
 
-                match script_opt {
+                let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
+                backend.set_host(self.host.clone());
+                let (file_opt, load_res) = match script_opt {
                     Some((path, class)) => {
                         if !path.is_file() {
                             tracing::warn!(node = %id, script = %path.display(), "missing script, keeping placeholder node");
                             continue;
                         }
-                        let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
-                        backend.set_host(self.host.clone());
-                        match backend.load(&path.to_string_lossy(), &class) {
-                            Ok(()) => {
-                                let has_ready = backend.has_ready();
-                                let has_process = backend.has_process();
-                                let has_physics_process = backend.has_physics_process();
-                                let mut errored = false;
-                                if has_ready {
-                                    if let Err(e) = backend.call_ready() {
-                                        tracing::error!(node = %id, "{e:#}");
-                                        errored = true;
-                                    }
-                                }
-                                self.instances.push(InstanceSlot {
-                                    id,
-                                    type_name,
-                                    file: Some(path),
-                                    backend,
-                                    errored,
-                                    has_ready,
-                                    has_process,
-                                    has_physics_process,
-                                });
-                            }
-                            Err(e) => {
-                                tracing::error!(node = %id, "cannot load script: {e:#}");
-                            }
-                        }
+                        let res = backend.load(&path.to_string_lossy(), &class);
+                        (Some(path), res)
                     }
                     None => {
-                        let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
-                        backend.set_host(self.host.clone());
-                        match backend.load_base(&type_name) {
-                            Ok(()) => {
-                                let has_ready = backend.has_ready();
-                                let has_process = backend.has_process();
-                                let has_physics_process = backend.has_physics_process();
-                                let mut errored = false;
-                                if has_ready {
-                                    if let Err(e) = backend.call_ready() {
-                                        tracing::error!(node = %id, "{e:#}");
-                                        errored = true;
-                                    }
-                                }
-                                self.instances.push(InstanceSlot {
-                                    id,
-                                    type_name,
-                                    file: None,
-                                    backend,
-                                    errored,
-                                    has_ready,
-                                    has_process,
-                                    has_physics_process,
-                                });
-                            }
-                            Err(e) => {
-                                tracing::error!(node = %id, "cannot instantiate base pyclass: {e:#}");
+                        if let Some(plugin_spec) = self.plugin_node_classes.get(&type_name) {
+                            (None, backend.load_plugin_class(plugin_spec))
+                        } else {
+                            (None, backend.load_base(&type_name))
+                        }
+                    }
+                };
+                match load_res {
+                    Ok(()) => {
+                        let props: Vec<pite_core::PropDef> = self
+                            .schemas
+                            .all_props(&type_name)
+                            .into_iter()
+                            .cloned()
+                            .collect();
+                        if let Err(e) = backend.attach_plugin_props(&props) {
+                            tracing::error!(node = %id, "cannot attach plugin props: {e:#}");
+                        }
+                        let has_ready = backend.has_ready();
+                        let has_process = backend.has_process();
+                        let has_physics_process = backend.has_physics_process();
+                        let has_draw = backend.has_draw();
+                        let mut errored = false;
+                        if has_ready {
+                            if let Err(e) = backend.call_ready() {
+                                tracing::error!(node = %id, "{e:#}");
+                                errored = true;
                             }
                         }
+                        self.instances.push(InstanceSlot {
+                            id,
+                            type_name,
+                            file: file_opt,
+                            backend,
+                            errored,
+                            has_ready,
+                            has_process,
+                            has_physics_process,
+                            has_draw,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!(node = %id, "cannot instantiate script/node: {e:#}");
                     }
                 }
             }
@@ -230,6 +220,15 @@ impl GameSession {
         for (id_str, _) in olds {
             self.host.unregister(&id_str);
             self.host.disconnect_node(&id_str);
+        }
+
+        if !self.safe_mode {
+            let scene_str = self.scene.to_string_lossy().to_string();
+            for (plugin_id, msg) in self.plugin_host.on_scene_loaded(&self.host, &scene_str) {
+                let formatted = format!("plugin {plugin_id} on_scene_loaded: {msg}");
+                tracing::error!("{formatted}");
+                self.plugin_errors.push(formatted);
+            }
         }
 
         tracing::info!(

@@ -7,6 +7,7 @@ use super::*;
 mod input;
 mod misc;
 mod physics;
+mod plugins;
 mod reload;
 mod render;
 mod scripting;

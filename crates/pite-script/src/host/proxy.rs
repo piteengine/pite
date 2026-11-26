@@ -199,55 +199,7 @@ impl NodeProxy {
             let schemas = self.host.schema_registry();
             let schema_props = schemas.all_props(&type_name);
             if let Some(prop_schema) = schema_props.iter().find(|p| p.key == name) {
-                let prop_val = match &prop_schema.hint {
-                    pite_core::PropHintSpec::Color => {
-                        let (r, g, b, a) = if let Ok(s) = val.extract::<String>() {
-                            let c = pite_scene::parse_hex_color(&s).ok_or_else(|| {
-                                pyo3::exceptions::PyValueError::new_err(format!(
-                                    "invalid hex color: {s}"
-                                ))
-                            })?;
-                            (c.r, c.g, c.b, c.a)
-                        } else if let Ok(rgba) = val.extract::<(u8, u8, u8, u8)>() {
-                            rgba
-                        } else if let Ok(rgb) = val.extract::<(u8, u8, u8)>() {
-                            (rgb.0, rgb.1, rgb.2, 255)
-                        } else {
-                            return Err(pyo3::exceptions::PyTypeError::new_err(
-                                "color must be hex string or tuple",
-                            ));
-                        };
-                        pite_core::PropValue::Color(r, g, b, a)
-                    }
-                    pite_core::PropHintSpec::Num { .. } | pite_core::PropHintSpec::AngleDeg => {
-                        let n = val.extract::<f64>()?;
-                        pite_core::PropValue::Num(n)
-                    }
-                    pite_core::PropHintSpec::Int { .. } => {
-                        let i = val.extract::<i64>()?;
-                        pite_core::PropValue::Int(i)
-                    }
-                    pite_core::PropHintSpec::Bool => {
-                        let b = val.extract::<bool>()?;
-                        pite_core::PropValue::Bool(b)
-                    }
-                    pite_core::PropHintSpec::Vec2 { .. } => {
-                        let (x, y) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
-                            (v.x(), v.y())
-                        } else if let Ok(t) = val.extract::<(f64, f64)>() {
-                            t
-                        } else {
-                            return Err(pyo3::exceptions::PyTypeError::new_err(
-                                "expected Vec2 or (x, y)",
-                            ));
-                        };
-                        pite_core::PropValue::Vec2(x, y)
-                    }
-                    _ => {
-                        let s = val.extract::<String>()?;
-                        pite_core::PropValue::Str(s)
-                    }
-                };
+                let prop_val = prop_val_from_py(&prop_schema.hint, &val)?;
                 self.host.with_tree_mut(|tree| {
                     if let Some(node) = tree.get_mut(&NodeId::from(self.target.clone())) {
                         node.props.insert(name.clone(), prop_val);
@@ -292,30 +244,8 @@ impl NodeProxy {
             }
         }
 
-        use pite_core::PropValue;
-        let prop = self.host.with_tree(|tree| {
-            tree.get(&NodeId::from(self.target.clone()))
-                .and_then(|node| node.props.get(&name).cloned())
-        });
-        if let Some(prop) = prop {
-            match prop {
-                PropValue::Str(s) => return Ok(s.into_pyobject(py)?.into_any().unbind()),
-                PropValue::Num(n) => return Ok(n.into_pyobject(py)?.into_any().unbind()),
-                PropValue::Int(i) => return Ok(i.into_pyobject(py)?.into_any().unbind()),
-                PropValue::Bool(b) => {
-                    return Ok(pyo3::types::PyBool::new(py, b)
-                        .to_owned()
-                        .unbind()
-                        .into_any());
-                }
-                PropValue::Vec2(x, y) => {
-                    let v = crate::vec2::Vec2::new(x, y);
-                    return Ok(Bound::new(py, v)?.into_any().unbind());
-                }
-                PropValue::Color(r, g, b, a) => {
-                    return Ok((r, g, b, a).into_pyobject(py)?.into_any().unbind());
-                }
-            }
+        if let Some(prop) = self.host.prop_value_or_default(&self.target, &name) {
+            return prop_val_to_py(py, &prop);
         }
 
         if let Some(inst) = self.host.lookup_instance(py, &self.target) {
@@ -348,4 +278,65 @@ pub fn resolve_caller_py(
 ) -> anyhow::Result<Py<NodeProxy>> {
     let host = current_host().ok_or_else(|| anyhow::anyhow!("get_node has no script host"))?;
     host.resolve_proxy(py, caller, path)
+}
+
+pub(crate) fn prop_val_from_py(
+    hint: &pite_core::PropHintSpec,
+    val: &Bound<'_, PyAny>,
+) -> PyResult<pite_core::PropValue> {
+    match hint {
+        pite_core::PropHintSpec::Color => {
+            let (r, g, b, a) = if let Ok(s) = val.extract::<String>() {
+                let c = pite_scene::parse_hex_color(&s).ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(format!("invalid hex color: {s}"))
+                })?;
+                (c.r, c.g, c.b, c.a)
+            } else if let Ok(rgba) = val.extract::<(u8, u8, u8, u8)>() {
+                rgba
+            } else if let Ok(rgb) = val.extract::<(u8, u8, u8)>() {
+                (rgb.0, rgb.1, rgb.2, 255)
+            } else {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "color must be hex string or tuple",
+                ));
+            };
+            Ok(pite_core::PropValue::Color(r, g, b, a))
+        }
+        pite_core::PropHintSpec::Num { .. } | pite_core::PropHintSpec::AngleDeg => {
+            Ok(pite_core::PropValue::Num(val.extract::<f64>()?))
+        }
+        pite_core::PropHintSpec::Int { .. } => Ok(pite_core::PropValue::Int(val.extract::<i64>()?)),
+        pite_core::PropHintSpec::Bool => Ok(pite_core::PropValue::Bool(val.extract::<bool>()?)),
+        pite_core::PropHintSpec::Vec2 { .. } => {
+            let (x, y) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
+                (v.x(), v.y())
+            } else if let Ok(t) = val.extract::<(f64, f64)>() {
+                t
+            } else {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "expected Vec2 or (x, y)",
+                ));
+            };
+            Ok(pite_core::PropValue::Vec2(x, y))
+        }
+        _ => Ok(pite_core::PropValue::Str(val.extract::<String>()?)),
+    }
+}
+
+pub(crate) fn prop_val_to_py(py: Python<'_>, prop: &pite_core::PropValue) -> PyResult<Py<PyAny>> {
+    use pite_core::PropValue;
+    match prop {
+        PropValue::Str(s) => Ok(s.into_pyobject(py)?.into_any().unbind()),
+        PropValue::Num(n) => Ok(n.into_pyobject(py)?.into_any().unbind()),
+        PropValue::Int(i) => Ok(i.into_pyobject(py)?.into_any().unbind()),
+        PropValue::Bool(b) => Ok(pyo3::types::PyBool::new(py, *b)
+            .to_owned()
+            .unbind()
+            .into_any()),
+        PropValue::Vec2(x, y) => {
+            let v = crate::vec2::Vec2::new(*x, *y);
+            Ok(Bound::new(py, v)?.into_any().unbind())
+        }
+        PropValue::Color(r, g, b, a) => Ok((*r, *g, *b, *a).into_pyobject(py)?.into_any().unbind()),
+    }
 }

@@ -126,3 +126,75 @@ pub fn child(name: String) -> PyChildDescriptor {
 pub fn node(path: String) -> PyNodeDescriptor {
     PyNodeDescriptor::new(path)
 }
+
+/// Live data descriptor attached to plugin-defined node classes for `[node.props]` fields.
+///
+/// Reads and writes directly against the node's `props` map in the active `ScriptHost`,
+/// keeping `self.<prop>` and `proxy.<prop>` synchronized with scene and inspector values.
+#[pyclass(name = "PluginPropDescriptor")]
+#[derive(Clone)]
+pub struct PyPluginPropDescriptor {
+    key: String,
+    hint: pite_core::PropHintSpec,
+    default: pite_core::PropValue,
+}
+
+#[pymethods]
+impl PyPluginPropDescriptor {
+    fn __get__(
+        &self,
+        py: Python<'_>,
+        obj: Option<&Bound<'_, PyAny>>,
+        _owner: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let Some(obj) = obj else {
+            return Ok(Bound::new(py, self.clone())?.into_any().unbind());
+        };
+        let node_path: String = obj.getattr("node_path")?.extract()?;
+        let val = crate::host::current_host()
+            .and_then(|host| host.prop_value_or_default(&node_path, &self.key))
+            .unwrap_or_else(|| self.default.clone());
+        crate::host::proxy::prop_val_to_py(py, &val)
+    }
+
+    fn __set__(&self, obj: &Bound<'_, PyAny>, val: &Bound<'_, PyAny>) -> PyResult<()> {
+        let node_path: String = obj.getattr("node_path")?.extract()?;
+        let prop_val = crate::host::proxy::prop_val_from_py(&self.hint, val)?;
+        let host = crate::host::current_host().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "cannot set plugin prop {:?} outside an active script host",
+                self.key
+            ))
+        })?;
+        host.with_tree_mut(|tree| {
+            if let Some(node) = tree.get_mut(&pite_core::NodeId::from(node_path)) {
+                node.props.insert(self.key.clone(), prop_val);
+            }
+        });
+        Ok(())
+    }
+}
+
+/// Attaches [`PyPluginPropDescriptor`] attributes onto `cls` for any schema property not
+/// already explicitly defined on the Python class.
+pub fn attach_plugin_prop_descriptors(
+    py: Python<'_>,
+    cls: &Bound<'_, PyAny>,
+    props: &[pite_core::PropDef],
+) -> PyResult<()> {
+    for prop in props {
+        if cls.hasattr(prop.key.as_ref())? {
+            continue;
+        }
+        let desc = Bound::new(
+            py,
+            PyPluginPropDescriptor {
+                key: prop.key.to_string(),
+                hint: prop.hint.clone(),
+                default: prop.default_value.clone(),
+            },
+        )?;
+        cls.setattr(prop.key.as_ref(), desc)?;
+    }
+    Ok(())
+}

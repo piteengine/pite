@@ -479,6 +479,94 @@ impl GameSession {
                 }
             }
         }
+        let draw_targets: Vec<(usize, (f64, f64), i32)> = self.host.with_tree(|tree| {
+            self.instances
+                .iter()
+                .enumerate()
+                .filter(|(_, slot)| slot.has_draw && !slot.errored)
+                .filter_map(|(idx, slot)| {
+                    let node = tree.get(&slot.id)?;
+                    if matches!(node.props.get("visible"), Some(PropValue::Bool(false))) {
+                        return None;
+                    }
+                    let origin = if schemas
+                        .inheritance_chain(&node.type_name)
+                        .contains(&"Node2D")
+                    {
+                        global_position(tree, &node.id)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    let z_index = match node.props.get("z_index") {
+                        Some(PropValue::Int(z)) => *z as i32,
+                        _ => 0,
+                    };
+                    Some((idx, origin, z_index))
+                })
+                .collect()
+        });
+
+        let mut custom_draws = Vec::new();
+        for (idx, origin, z_index) in draw_targets {
+            let slot = &mut self.instances[idx];
+            match slot.backend.call_draw(origin, z_index) {
+                Ok(cmds) => custom_draws.extend(cmds),
+                Err(e) => {
+                    tracing::error!(node = %slot.id, "_draw error: {e:#}");
+                    slot.errored = true;
+                    if self.pause_on_error && self.last_error.is_none() {
+                        self.last_error = slot.backend.last_script_error();
+                    }
+                }
+            }
+        }
+
+        for cmd in custom_draws {
+            match cmd {
+                pite_script::DrawCommand::Rect {
+                    pos,
+                    size,
+                    color,
+                    z_index,
+                } => {
+                    r.draw_rect_layered(pos, size, color, z_index)?;
+                }
+                pite_script::DrawCommand::Line {
+                    from,
+                    to,
+                    color,
+                    thickness,
+                    z_index,
+                } => {
+                    r.draw_line_layered(from, to, color, thickness, z_index)?;
+                }
+                pite_script::DrawCommand::Text {
+                    text,
+                    pos,
+                    size,
+                    color,
+                    z_index,
+                } => {
+                    r.draw_text_layered(&text, pos, size, color, z_index)?;
+                }
+                pite_script::DrawCommand::Sprite {
+                    texture,
+                    pos,
+                    rotation,
+                    z_index,
+                } => {
+                    let resolved = self.resolve_path(&texture);
+                    r.draw_sprite_layered(
+                        &resolved.to_string_lossy(),
+                        None,
+                        pos,
+                        rotation,
+                        z_index,
+                    )?;
+                }
+            }
+        }
+
         Ok(())
     }
 }

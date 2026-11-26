@@ -440,13 +440,7 @@ impl SharedQueue {
         self.queue_rect_layered(world, size, color, 0);
     }
 
-    pub(crate) fn queue_rect_layered(
-        &mut self,
-        world: (f64, f64),
-        size: (f64, f64),
-        color: [u8; 4],
-        z_index: i32,
-    ) {
+    fn ensure_white_1x1(&mut self) -> u32 {
         let key = "__pite_white_1x1";
         if !self.baked.contains_key(key) {
             self.baked.insert(
@@ -458,12 +452,44 @@ impl SharedQueue {
                 },
             );
         }
-        let texture_id = self.texture_id_for(key);
+        self.texture_id_for(key)
+    }
+
+    pub(crate) fn queue_rect_layered(
+        &mut self,
+        world: (f64, f64),
+        size: (f64, f64),
+        color: [u8; 4],
+        z_index: i32,
+    ) {
+        let texture_id = self.ensure_white_1x1();
         let order = self.next_order();
         self.queue_list.push(QueuedSprite {
             size_world: Some((size.0.max(1.0), size.1.max(1.0))),
             color,
             ..QueuedSprite::plain(texture_id, world, z_index, order)
+        });
+    }
+
+    pub(crate) fn queue_line_layered(
+        &mut self,
+        from: (f64, f64),
+        to: (f64, f64),
+        color: [u8; 4],
+        thickness: f64,
+        z_index: i32,
+    ) {
+        let dx = to.0 - from.0;
+        let dy = to.1 - from.1;
+        let len = (dx * dx + dy * dy).sqrt();
+        let mid = ((from.0 + to.0) * 0.5, (from.1 + to.1) * 0.5);
+        let texture_id = self.ensure_white_1x1();
+        let order = self.next_order();
+        self.queue_list.push(QueuedSprite {
+            size_world: Some((len.max(1.0), thickness.max(1.0))),
+            rotation: dy.atan2(dx) as f32,
+            color,
+            ..QueuedSprite::plain(texture_id, mid, z_index, order)
         });
     }
 
@@ -658,6 +684,19 @@ macro_rules! delegate_renderer2d_to_shared {
             z_index: i32,
         ) -> anyhow::Result<()> {
             self.shared.queue_rect_layered(pos, size, color, z_index);
+            Ok(())
+        }
+
+        fn draw_line_layered(
+            &mut self,
+            from: (f64, f64),
+            to: (f64, f64),
+            color: [u8; 4],
+            thickness: f64,
+            z_index: i32,
+        ) -> anyhow::Result<()> {
+            self.shared
+                .queue_line_layered(from, to, color, thickness, z_index);
             Ok(())
         }
 

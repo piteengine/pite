@@ -573,6 +573,7 @@ fn safe_mode_skips_python_until_trusted() {
         SessionOptions {
             no_reload: true,
             safe_mode: true,
+            allow_plugin_errors: false,
         },
     )
     .unwrap();
@@ -650,6 +651,7 @@ fn custom_schema_inherits_signals_and_render_role() {
         SessionOptions {
             no_reload: true,
             safe_mode: true,
+            allow_plugin_errors: false,
         },
     )
     .unwrap();

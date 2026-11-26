@@ -153,6 +153,7 @@ impl EditorApp {
             SessionOptions {
                 no_reload: false,
                 safe_mode: !self.workspace_trusted,
+                allow_plugin_errors: true,
             },
         ) {
             Ok(mut session) => {

@@ -126,6 +126,17 @@ pub trait Renderer2D {
         let _ = z_index;
         self.draw_rect(pos, size, color)
     }
+    fn draw_line_layered(
+        &mut self,
+        from: (f64, f64),
+        to: (f64, f64),
+        color: [u8; 4],
+        thickness: f64,
+        z_index: i32,
+    ) -> Result<()> {
+        let _ = (from, to, color, thickness, z_index);
+        Ok(())
+    }
     fn end_frame(&mut self) -> Result<()>;
     fn set_camera(&mut self, _pos: (f64, f64), _zoom: f64) {}
     fn reload_asset(&mut self, _path: &str) {}

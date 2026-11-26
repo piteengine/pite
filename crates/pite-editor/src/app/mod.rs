@@ -185,6 +185,7 @@ impl EditorApp {
             SessionOptions {
                 no_reload: false,
                 safe_mode: !workspace_trusted,
+                allow_plugin_errors: true,
             },
         )?;
         session.set_pause_on_error(true);

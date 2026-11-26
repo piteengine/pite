@@ -116,7 +116,36 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::audio::stop, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::set_volume, m)?)?;
     m.add_function(wrap_pyfunction!(crate::audio::is_playing, m)?)?;
+    m.add_class::<crate::PyCanvas2D>()?;
+    m.add_function(wrap_pyfunction!(plugin, m)?)?;
+    m.add_function(wrap_pyfunction!(autoload, m)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn plugin(py: Python<'_>, id: &str) -> PyResult<Py<PyAny>> {
+    let host = crate::host::current_host().ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err("pite.plugin() requires an active script host")
+    })?;
+    let plugin_host = host.plugin_host().ok_or_else(|| {
+        pyo3::exceptions::PyKeyError::new_err(format!("no plugin host active for {id:?}"))
+    })?;
+    plugin_host
+        .get_plugin(py, id)
+        .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(format!("plugin {id:?} not found")))
+}
+
+#[pyfunction]
+fn autoload(py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+    let host = crate::host::current_host().ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err("pite.autoload() requires an active script host")
+    })?;
+    let plugin_host = host.plugin_host().ok_or_else(|| {
+        pyo3::exceptions::PyKeyError::new_err(format!("no plugin host active for {name:?}"))
+    })?;
+    plugin_host.get_autoload(py, name).ok_or_else(|| {
+        pyo3::exceptions::PyKeyError::new_err(format!("autoload {name:?} not found"))
+    })
 }
 
 fn map_key_attr(attr: &str) -> &'static str {
@@ -303,7 +332,7 @@ impl PySignalDecl {
 
 static INIT: Once = Once::new();
 
-fn ensure_init() {
+pub(crate) fn ensure_init() {
     INIT.call_once(|| {
         pyo3::append_to_inittab!(pite);
         Python::initialize();
@@ -403,6 +432,7 @@ pub struct Pyo3Backend {
     has_ready: bool,
     has_process: bool,
     has_physics_process: bool,
+    has_draw: bool,
 }
 
 impl Pyo3Backend {
@@ -420,6 +450,7 @@ impl Pyo3Backend {
             has_ready: false,
             has_process: false,
             has_physics_process: false,
+            has_draw: false,
         }
     }
 
@@ -521,6 +552,17 @@ impl Pyo3Backend {
             // Unpacked trees import from the directory itself; each zipped
             // wheel needs its own entry (a dir of wheels imports nothing).
             if let Some(root) = crate::project_dir() {
+                let plugins = root.join("plugins");
+                if plugins.is_dir() {
+                    let plugins_str = plugins.to_string_lossy().to_string();
+                    let already = path
+                        .call_method1("__contains__", (plugins_str.as_str(),))
+                        .and_then(|v| v.extract::<bool>())
+                        .unwrap_or(false);
+                    if !already {
+                        path.call_method1("insert", (0, plugins_str.as_str()))?;
+                    }
+                }
                 let vendor = root.join("vendor");
                 for (i, wheel) in vendor_wheels(&vendor).iter().enumerate() {
                     path.call_method1("insert", (i + 1, wheel.to_string_lossy().as_ref()))?;
@@ -586,9 +628,9 @@ impl Pyo3Backend {
     /// a `Player(prite.Sprite2D)` that only overrides `_process` reports
     /// `has_ready = false, has_process = true`.
     fn probe_lifecycle(&mut self) {
-        let (ready, process, physics) = Python::attach(|py| {
+        let (ready, process, physics, draw) = Python::attach(|py| {
             let Some(inst) = &self.instance else {
-                return (false, false, false);
+                return (false, false, false, false);
             };
             let b = inst.bind(py);
             let check = |name: &str| -> bool {
@@ -601,11 +643,13 @@ impl Pyo3Backend {
                 check("_ready"),
                 check("_process"),
                 check("_physics_process"),
+                check("_draw"),
             )
         });
         self.has_ready = ready;
         self.has_process = process;
         self.has_physics_process = physics;
+        self.has_draw = draw;
     }
 
     fn call_opt(&mut self, method: &str, arg: Option<f64>) -> Result<()> {
@@ -691,6 +735,66 @@ impl ScriptBackend for Pyo3Backend {
         Ok(())
     }
 
+    fn load_plugin_class(&mut self, spec: &str) -> Result<()> {
+        self.file = PathBuf::new();
+        self.class = spec.to_string();
+        self.last_error = None;
+        self.last_script_error = None;
+        Python::attach(|py| -> Result<()> {
+            if let Some(root) = crate::project_dir() {
+                let plugins = root.join("plugins");
+                if plugins.is_dir() {
+                    let sys = py.import("sys")?;
+                    let path = sys.getattr("path")?;
+                    let plugins_str = plugins.to_string_lossy().to_string();
+                    let already = path
+                        .call_method1("__contains__", (plugins_str.as_str(),))
+                        .and_then(|v| v.extract::<bool>())
+                        .unwrap_or(false);
+                    if !already {
+                        path.call_method1("insert", (0, plugins_str.as_str()))?;
+                    }
+                }
+            }
+            let instance = crate::instantiate_entrypoint(py, spec)
+                .with_context(|| format!("failed to instantiate plugin node class {spec:?}"))?;
+            let owned: Py<PyAny> = instance.into();
+            owned.bind(py).setattr("node_path", &self.node_path)?;
+            if let Some(host) = &self.host {
+                if let Ok(pos_attr) = owned.bind(py).getattr("position") {
+                    if let Ok(mut vec2_bound) =
+                        pos_attr.extract::<pyo3::PyRefMut<crate::vec2::Vec2>>()
+                    {
+                        vec2_bound.set_target(
+                            host.clone(),
+                            self.node_path.clone(),
+                            "position".to_string(),
+                        );
+                    }
+                }
+                host.register(self.node_path.clone(), owned.clone_ref(py));
+            }
+            self.instance = Some(owned);
+            Ok(())
+        })?;
+        self.probe_lifecycle();
+        Ok(())
+    }
+
+    fn attach_plugin_props(&self, props: &[pite_core::PropDef]) -> Result<()> {
+        if props.is_empty() {
+            return Ok(());
+        }
+        Python::attach(|py| -> Result<()> {
+            let Some(inst) = &self.instance else {
+                return Ok(());
+            };
+            let cls = inst.bind(py).get_type();
+            crate::attach_plugin_prop_descriptors(py, &cls.into_any(), props)?;
+            Ok(())
+        })
+    }
+
     fn has_ready(&self) -> bool {
         self.has_ready
     }
@@ -703,6 +807,10 @@ impl ScriptBackend for Pyo3Backend {
         self.has_physics_process
     }
 
+    fn has_draw(&self) -> bool {
+        self.has_draw
+    }
+
     fn call_ready(&mut self) -> Result<()> {
         self.call_opt("_ready", None)
     }
@@ -713,6 +821,31 @@ impl ScriptBackend for Pyo3Backend {
 
     fn call_physics_process(&mut self, delta: f64) -> Result<()> {
         self.call_opt("_physics_process", Some(delta))
+    }
+
+    fn call_draw(&mut self, origin: (f64, f64), z_index: i32) -> Result<Vec<crate::DrawCommand>> {
+        if !self.has_draw {
+            return Ok(Vec::new());
+        }
+        let ctx = format!("{} ({}._draw)", self.node_path, self.class);
+        Python::attach(|py| {
+            let Some(inst) = &self.instance else {
+                return Ok(Vec::new());
+            };
+            let (canvas, active, commands) = crate::PyCanvas2D::new(origin, z_index);
+            let canvas_py = Bound::new(py, canvas)?;
+            let res = inst.bind(py).call_method1("_draw", (&canvas_py,));
+            active.store(false, std::sync::atomic::Ordering::Relaxed);
+            if let Err(err) = res {
+                let script_err = extract_script_error(py, &err, &ctx);
+                let msg = script_err.message.clone();
+                self.last_script_error = Some(script_err);
+                self.last_error = Some(msg.clone());
+                anyhow::bail!("{msg}");
+            }
+            let out = commands.lock().map(|g| g.clone()).unwrap_or_default();
+            Ok(out)
+        })
     }
 
     fn reload(&mut self) -> Result<()> {

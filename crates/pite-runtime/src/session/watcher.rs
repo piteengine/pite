@@ -104,6 +104,7 @@ impl GameSession {
                     slot.has_ready = slot.backend.has_ready();
                     slot.has_process = slot.backend.has_process();
                     slot.has_physics_process = slot.backend.has_physics_process();
+                    slot.has_draw = slot.backend.has_draw();
                     self.host.invalidate_proxy_cache(slot.id.as_str());
                     reloaded = true;
                     tracing::info!(node = %slot.id, "script reloaded");

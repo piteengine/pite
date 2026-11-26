@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Python scripting host managing node instances, property reflection, signal dispatch, and proxies.
 
-mod proxy;
+pub(crate) mod proxy;
 mod signal;
 
 pub use proxy::{proxy_for, resolve_caller, resolve_caller_py, NodeProxy};
@@ -52,6 +52,18 @@ pub fn set_current_host(host: std::sync::Arc<ScriptHost>) {
 
 pub(crate) fn current_host() -> Option<std::sync::Arc<ScriptHost>> {
     read_or_recover(&CURRENT_HOST).clone()
+}
+
+pub(crate) fn with_current_host<R>(host: &std::sync::Arc<ScriptHost>, f: impl FnOnce() -> R) -> R {
+    let prev = {
+        let mut guard = write_or_recover(&CURRENT_HOST);
+        let prev = guard.clone();
+        *guard = Some(host.clone());
+        prev
+    };
+    let out = f();
+    *write_or_recover(&CURRENT_HOST) = prev;
+    out
 }
 
 pub(crate) fn bound_target(callable: &Bound<'_, PyAny>) -> anyhow::Result<(String, String)> {
@@ -108,6 +120,8 @@ pub struct ScriptHost {
     custom_prop_schema: RwLock<HashMap<String, String>>,
     /// Active node schema registry (built-in engine types plus plugin nodes).
     schemas: RwLock<Arc<SchemaRegistry>>,
+    /// Active runtime plugin & autoload host (`None` in safe mode or when no plugins exist).
+    plugin_host: RwLock<Option<Arc<crate::PluginHost>>>,
     tilemaps: Mutex<TilemapStore>,
 }
 
@@ -134,8 +148,19 @@ impl ScriptHost {
             proxy_cache: Mutex::new(HashMap::new()),
             custom_prop_schema: RwLock::new(HashMap::new()),
             schemas: RwLock::new(Arc::new(SchemaRegistry::new())),
+            plugin_host: RwLock::new(None),
             tilemaps: Mutex::new(TilemapStore::default()),
         }
+    }
+
+    /// Attaches the active runtime plugin host (or `None` to clear).
+    pub fn set_plugin_host(&self, plugin_host: Option<Arc<crate::PluginHost>>) {
+        *write_or_recover(&self.plugin_host) = plugin_host;
+    }
+
+    /// Returns the active runtime plugin host, if attached.
+    pub fn plugin_host(&self) -> Option<Arc<crate::PluginHost>> {
+        read_or_recover(&self.plugin_host).clone()
     }
 
     /// Replaces the active node schema registry used for property validation and defaults.
@@ -146,6 +171,27 @@ impl ScriptHost {
     /// Returns a shared handle to the active node schema registry.
     pub fn schema_registry(&self) -> Arc<SchemaRegistry> {
         read_or_recover(&self.schemas).clone()
+    }
+
+    /// Reads `key` from `node.props`, falling back to the node's schema default if present.
+    pub(crate) fn prop_value_or_default(
+        &self,
+        node: &str,
+        key: &str,
+    ) -> Option<pite_core::PropValue> {
+        let (existing, type_name) = self.with_tree(|tree| {
+            tree.get(&NodeId::from(node.to_string()))
+                .map(|n| (n.props.get(key).cloned(), n.type_name.clone()))
+        })?;
+        if let Some(val) = existing {
+            return Some(val);
+        }
+        let schemas = self.schema_registry();
+        schemas
+            .all_props(&type_name)
+            .into_iter()
+            .find(|p| p.key == key)
+            .map(|p| p.default_value.clone())
     }
 
     /// Read a prop, trusting the `to_node_tree` invariant that every schema

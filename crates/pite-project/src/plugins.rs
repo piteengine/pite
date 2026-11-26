@@ -262,7 +262,12 @@ pub fn plugin_dir(project_dir: &Path, id: &str) -> PathBuf {
 /// For `0.x` releases, major and minor must match, and engine patch must be `>=` required patch.
 pub fn is_pite_version_compatible(required: &str, engine: &str) -> bool {
     let parse = |s: &str| -> Option<(u64, u64, u64)> {
-        let trimmed = s.trim().trim_start_matches('v');
+        let trimmed = s
+            .trim()
+            .trim_start_matches(">=")
+            .trim_start_matches('^')
+            .trim()
+            .trim_start_matches('v');
         let mut parts = trimmed.split('.');
         let major = parts.next()?.parse().ok()?;
         let minor = parts.next().unwrap_or("0").parse().ok()?;
