@@ -169,81 +169,83 @@ impl GameSession {
             olds.insert(slot.id.to_string(), slot);
         }
 
-        for (id, type_name, script_opt) in all_nodes {
-            let id_str = id.to_string();
-            if let Some(slot) = olds.remove(&id_str) {
-                if slot_still_valid(&slot, &type_name, &script_opt) {
-                    self.instances.push(slot);
-                    continue;
-                }
-                self.host.unregister(&id_str);
-                self.host.disconnect_node(&id_str);
-            }
-
-            match script_opt {
-                Some((path, class)) => {
-                    if !path.is_file() {
-                        tracing::warn!(node = %id, script = %path.display(), "missing script, keeping placeholder node");
+        if !self.safe_mode {
+            for (id, type_name, script_opt) in all_nodes {
+                let id_str = id.to_string();
+                if let Some(slot) = olds.remove(&id_str) {
+                    if slot_still_valid(&slot, &type_name, &script_opt) {
+                        self.instances.push(slot);
                         continue;
                     }
-                    let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
-                    backend.set_host(self.host.clone());
-                    match backend.load(&path.to_string_lossy(), &class) {
-                        Ok(()) => {
-                            let has_ready = backend.has_ready();
-                            let has_process = backend.has_process();
-                            let has_physics_process = backend.has_physics_process();
-                            let mut errored = false;
-                            if has_ready {
-                                if let Err(e) = backend.call_ready() {
-                                    tracing::error!(node = %id, "{e:#}");
-                                    errored = true;
-                                }
-                            }
-                            self.instances.push(InstanceSlot {
-                                id,
-                                type_name,
-                                file: Some(path),
-                                backend,
-                                errored,
-                                has_ready,
-                                has_process,
-                                has_physics_process,
-                            });
+                    self.host.unregister(&id_str);
+                    self.host.disconnect_node(&id_str);
+                }
+
+                match script_opt {
+                    Some((path, class)) => {
+                        if !path.is_file() {
+                            tracing::warn!(node = %id, script = %path.display(), "missing script, keeping placeholder node");
+                            continue;
                         }
-                        Err(e) => {
-                            tracing::error!(node = %id, "cannot load script: {e:#}");
+                        let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
+                        backend.set_host(self.host.clone());
+                        match backend.load(&path.to_string_lossy(), &class) {
+                            Ok(()) => {
+                                let has_ready = backend.has_ready();
+                                let has_process = backend.has_process();
+                                let has_physics_process = backend.has_physics_process();
+                                let mut errored = false;
+                                if has_ready {
+                                    if let Err(e) = backend.call_ready() {
+                                        tracing::error!(node = %id, "{e:#}");
+                                        errored = true;
+                                    }
+                                }
+                                self.instances.push(InstanceSlot {
+                                    id,
+                                    type_name,
+                                    file: Some(path),
+                                    backend,
+                                    errored,
+                                    has_ready,
+                                    has_process,
+                                    has_physics_process,
+                                });
+                            }
+                            Err(e) => {
+                                tracing::error!(node = %id, "cannot load script: {e:#}");
+                            }
                         }
                     }
-                }
-                None => {
-                    let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
-                    backend.set_host(self.host.clone());
-                    match backend.load_base(&type_name) {
-                        Ok(()) => {
-                            let has_ready = backend.has_ready();
-                            let has_process = backend.has_process();
-                            let has_physics_process = backend.has_physics_process();
-                            let mut errored = false;
-                            if has_ready {
-                                if let Err(e) = backend.call_ready() {
-                                    tracing::error!(node = %id, "{e:#}");
-                                    errored = true;
+                    None => {
+                        let mut backend = Box::new(Pyo3Backend::new(id_str.clone()));
+                        backend.set_host(self.host.clone());
+                        match backend.load_base(&type_name) {
+                            Ok(()) => {
+                                let has_ready = backend.has_ready();
+                                let has_process = backend.has_process();
+                                let has_physics_process = backend.has_physics_process();
+                                let mut errored = false;
+                                if has_ready {
+                                    if let Err(e) = backend.call_ready() {
+                                        tracing::error!(node = %id, "{e:#}");
+                                        errored = true;
+                                    }
                                 }
+                                self.instances.push(InstanceSlot {
+                                    id,
+                                    type_name,
+                                    file: None,
+                                    backend,
+                                    errored,
+                                    has_ready,
+                                    has_process,
+                                    has_physics_process,
+                                });
                             }
-                            self.instances.push(InstanceSlot {
-                                id,
-                                type_name,
-                                file: None,
-                                backend,
-                                errored,
-                                has_ready,
-                                has_process,
-                                has_physics_process,
-                            });
-                        }
-                        Err(e) => {
-                            tracing::error!(node = %id, "cannot instantiate base pyclass: {e:#}");
+                            Err(e) => {
+                                tracing::error!(node = %id, "cannot instantiate base pyclass: {e:#}");
+                            }
                         }
                     }
                 }

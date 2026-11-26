@@ -4,7 +4,7 @@ use std::time::Instant;
 use eframe::egui::{self};
 use pite_core::{PropValue, Vec2};
 use pite_render::{OffscreenRenderer, Renderer2D};
-use pite_runtime::GameSession;
+use pite_runtime::{GameSession, SessionOptions};
 
 use super::EditorApp;
 
@@ -97,6 +97,10 @@ pub(crate) fn fit_view(avail: egui::Vec2, view: (u32, u32)) -> egui::Vec2 {
 
 impl EditorApp {
     pub(super) fn toggle_play(&mut self) {
+        if !self.playing && !self.workspace_trusted {
+            self.trust_modal_open = true;
+            return;
+        }
         self.playing = !self.playing;
         if self.playing {
             self.tab = super::Tab::Viewport;
@@ -144,7 +148,13 @@ impl EditorApp {
 
     pub(super) fn stop(&mut self) {
         pite_script::input_clear();
-        match GameSession::open(&self.scene_path, false) {
+        match GameSession::open_with_options(
+            &self.scene_path,
+            SessionOptions {
+                no_reload: false,
+                safe_mode: !self.workspace_trusted,
+            },
+        ) {
             Ok(mut session) => {
                 session.set_pause_on_error(true);
                 self.session = session;

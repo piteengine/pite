@@ -327,11 +327,15 @@ fn save_all_without_code_file_saves_scene_only() {
 #[test]
 fn toggle_play_activates_viewport_tab() {
     let dir = std::env::temp_dir().join(format!("pite-toggle-play-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let scene_path = dir.join("main.ptscn");
     std::fs::write(&scene_path, EditorApp::blank_scene_text()).unwrap();
+    let store = dir.join("config").join(pite_project::TRUST_STORE_FILE);
+    pite_project::trust_workspace_in(&store, &dir).unwrap();
 
-    let mut app = EditorApp::new(&scene_path).expect("failed to open EditorApp");
+    let mut app = EditorApp::new_with_trust_store(&scene_path, Some(store))
+        .expect("failed to open EditorApp");
     app.tab = Tab::Code;
     assert_eq!(app.tab, Tab::Code);
     assert!(!app.playing);
@@ -482,6 +486,90 @@ fn atlas_editor_create_slice_rename_delete_and_open_asset() {
     let ed = app.atlas_editor.as_mut().unwrap();
     assert!(ed.delete_frame("hero_start"));
     assert!(!ed.atlas.frames.contains_key("hero_start"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn untrusted_workspace_opens_in_safe_mode_and_gates_play() {
+    let dir = std::env::temp_dir().join(format!("pite-editor-trust-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let proj_untrusted = dir.join("untrusted");
+    let proj_trusted = dir.join("trusted");
+    let store = dir.join("config").join(pite_project::TRUST_STORE_FILE);
+    let marker = proj_untrusted.join("ran.txt");
+
+    for proj in [&proj_untrusted, &proj_trusted] {
+        std::fs::create_dir_all(proj.join("scenes")).unwrap();
+        std::fs::create_dir_all(proj.join("scripts")).unwrap();
+        std::fs::write(proj.join("pite.toml"), "[project]\nname = \"test\"\n").unwrap();
+        std::fs::write(
+            proj.join("scenes").join("main.ptscn"),
+            "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"mover\"\ntype = \"Sprite2D\"\nname = \"Mover\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/mover.py\"\nclass = \"Mover\"\n",
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        proj_untrusted.join("scripts").join("mover.py"),
+        format!(
+            "import pathlib\nimport pite\n\nclass Mover(pite.Sprite2D):\n    def _ready(self):\n        pathlib.Path({:?}).write_text(\"ran\\n\")\n",
+            marker.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        proj_trusted.join("scripts").join("mover.py"),
+        "import pite\n\nclass Mover(pite.Sprite2D):\n    pass\n",
+    )
+    .unwrap();
+
+    pite_project::trust_workspace_in(&store, &proj_trusted).unwrap();
+
+    // Opening untrusted project enters Safe Mode and skips Python execution.
+    let mut app = EditorApp::new_with_trust_store(
+        &proj_untrusted.join("scenes").join("main.ptscn"),
+        Some(store.clone()),
+    )
+    .unwrap();
+    assert!(!app.workspace_trusted);
+    assert!(app.session.is_safe_mode());
+    assert!(!marker.exists());
+
+    // Pressing Play in Safe Mode opens the trust prompt instead of playing.
+    app.toggle_play();
+    assert!(!app.playing);
+    assert!(app.trust_modal_open);
+    assert!(!marker.exists());
+
+    // Trusting enables scripts, persists trust, and runs _ready().
+    assert!(app.trust_current_workspace());
+    assert!(app.workspace_trusted);
+    assert!(!app.trust_modal_open);
+    assert!(!app.session.is_safe_mode());
+    assert!(pite_project::is_workspace_trusted_in(
+        &store,
+        &proj_untrusted
+    ));
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "ran\n");
+
+    // stop() preserves trusted state; toggle_play() now plays.
+    app.toggle_play();
+    assert!(app.playing);
+    app.stop();
+    assert!(!app.playing);
+    assert!(!app.session.is_safe_mode());
+
+    // Opening a trusted project stays trusted; untrusting then re-opening enters Safe Mode.
+    pite_project::untrust_workspace_in(&store, &proj_untrusted).unwrap();
+    app.open_scene_file(&proj_trusted.join("scenes").join("main.ptscn"));
+    assert!(app.workspace_trusted);
+    assert!(!app.session.is_safe_mode());
+
+    let _ = std::fs::remove_file(&marker);
+    app.open_scene_file(&proj_untrusted.join("scenes").join("main.ptscn"));
+    assert!(!app.workspace_trusted);
+    assert!(app.session.is_safe_mode());
+    assert!(!marker.exists());
 
     std::fs::remove_dir_all(&dir).ok();
 }

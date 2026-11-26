@@ -544,3 +544,60 @@ class = "Hero"
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn safe_mode_skips_python_until_trusted() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("pite-sess-safe-mode-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let marker = dir.join("ran.txt");
+    let script_src = format!(
+        "import pathlib\nimport pite\npathlib.Path({:?}).write_text(\"import\\n\")\n\nclass Mover(pite.Sprite2D):\n    def _ready(self):\n        pathlib.Path({:?}).write_text(\"ready\\n\")\n    def _process(self, delta):\n        self.position.x += 10.0\n",
+        marker.to_string_lossy(),
+        marker.to_string_lossy(),
+    );
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+    std::fs::write(dir.join("pite.toml"), "[project]\nname = \"safe\"\n").unwrap();
+    let scene_path = dir.join("scenes").join("main.ptscn");
+    std::fs::write(
+        &scene_path,
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"mover\"\ntype = \"Sprite2D\"\nname = \"Mover\"\nparent = \"root\"\n\n[node.script]\npath = \"res://scripts/mover.py\"\nclass = \"Mover\"\n",
+    )
+    .unwrap();
+    let script_path = dir.join("scripts").join("mover.py");
+    std::fs::write(&script_path, script_src).unwrap();
+
+    let mut session = GameSession::open_with_options(
+        &scene_path,
+        SessionOptions {
+            no_reload: true,
+            safe_mode: true,
+        },
+    )
+    .unwrap();
+    assert!(session.is_safe_mode());
+    assert_eq!(session.tree_len(), 2);
+    assert_eq!(session.instance_count(), 0);
+    assert_eq!(session.scripted_count(), 0);
+    assert!(!marker.exists(), "safe mode must not import or run scripts");
+
+    let mut renderer = pite_render::NoopRenderer;
+    session.draw_into(&mut renderer).unwrap();
+    assert!(!session.reload_script_path(&script_path));
+    session.frame(0.016);
+    assert!(
+        !marker.exists(),
+        "safe mode frame/reload must not run scripts"
+    );
+
+    session.set_safe_mode(false).unwrap();
+    assert!(!session.is_safe_mode());
+    assert_eq!(session.scripted_count(), 1);
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "ready\n");
+
+    session.frame(0.016);
+    assert!((node_x(&session, "mover") - 10.0).abs() < 1e-6);
+
+    std::fs::remove_dir_all(&dir).ok();
+}

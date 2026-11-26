@@ -7,6 +7,9 @@ use super::GameSession;
 
 impl GameSession {
     pub(crate) fn update(&mut self, delta: f64) {
+        if self.safe_mode {
+            return;
+        }
         pite_audio::poll_audio();
 
         // Install the current camera pose so `pite.screen_to_world` (used by

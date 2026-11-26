@@ -23,6 +23,9 @@ pub fn run(ui: &mut Ui, name: &str, template: Option<&str>) -> Result<Outcome> {
     let cwd = std::env::current_dir()?;
     let dir = pite_project::create_project(Path::new(&cwd), name, template)?;
     let _ = pite_assets::reimport_project(&dir);
+    if let Err(err) = pite_project::trust_workspace(&dir) {
+        tracing::warn!(path = %dir.display(), "cannot mark new project trusted: {err:#}");
+    }
     match template {
         Some(template) => ui.success(
             Spans::new()

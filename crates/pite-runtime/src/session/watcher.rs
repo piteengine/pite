@@ -65,9 +65,11 @@ impl GameSession {
             }
         }
         let mut changed = false;
-        for path in script_touched {
-            if self.reload_script_path(&path) {
-                changed = true;
+        if !self.safe_mode {
+            for path in script_touched {
+                if self.reload_script_path(&path) {
+                    changed = true;
+                }
             }
         }
         if !assets_touched.is_empty() {
@@ -87,6 +89,9 @@ impl GameSession {
     }
 
     pub fn reload_script_path(&mut self, path: &Path) -> bool {
+        if self.safe_mode {
+            return false;
+        }
         let mut reloaded = false;
         for slot in self
             .instances

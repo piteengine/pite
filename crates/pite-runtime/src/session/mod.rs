@@ -26,6 +26,15 @@ use crate::scenes::resolve_script;
 use rebuild::InstanceSlot;
 pub use tilemap_cache::BakedTileMap;
 
+/// Configuration options for opening a [`GameSession`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionOptions {
+    /// Disable filesystem watching and live hot reload.
+    pub no_reload: bool,
+    /// Safe Mode: build and render the scene tree without loading or executing Python scripts.
+    pub safe_mode: bool,
+}
+
 /// Active game execution session managing scene nodes, script instances, physics simulation,
 /// and live hot reload.
 pub struct GameSession {
@@ -35,6 +44,7 @@ pub struct GameSession {
     scene_dir: PathBuf,
     project_dir: Option<PathBuf>,
     no_reload: bool,
+    safe_mode: bool,
     _watcher: Option<RecommendedWatcher>,
     watch_rx: Option<Receiver<std::result::Result<notify::Event, notify::Error>>>,
     viewport: (u32, u32),
@@ -50,6 +60,16 @@ pub struct GameSession {
 
 impl GameSession {
     pub fn open(scene: &Path, no_reload: bool) -> Result<Self> {
+        Self::open_with_options(
+            scene,
+            SessionOptions {
+                no_reload,
+                safe_mode: false,
+            },
+        )
+    }
+
+    pub fn open_with_options(scene: &Path, options: SessionOptions) -> Result<Self> {
         let scene_dir = scene
             .parent()
             .map(Path::to_path_buf)
@@ -62,7 +82,8 @@ impl GameSession {
             scene: scene.to_path_buf(),
             scene_dir,
             project_dir,
-            no_reload,
+            no_reload: options.no_reload,
+            safe_mode: options.safe_mode,
             _watcher: None,
             watch_rx: None,
             viewport: (800, 600),
@@ -89,6 +110,23 @@ impl GameSession {
             session.start_watcher()?;
         }
         Ok(session)
+    }
+
+    /// Returns `true` when the session is in Safe Mode (Python script execution disabled).
+    pub fn is_safe_mode(&self) -> bool {
+        self.safe_mode
+    }
+
+    /// Enables or disables Safe Mode and rebuilds script instances accordingly.
+    ///
+    /// # Errors
+    /// Returns an error if reloading the scene or instantiating scripts fails.
+    pub fn set_safe_mode(&mut self, safe_mode: bool) -> Result<()> {
+        if self.safe_mode != safe_mode {
+            self.safe_mode = safe_mode;
+            self.rebuild()?;
+        }
+        Ok(())
     }
 
     pub fn host(&self) -> &Arc<ScriptHost> {

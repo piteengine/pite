@@ -11,4 +11,4 @@ mod session;
 
 pub use app::{run_scene, run_with_options, RunOptions, DEFAULT_ICON_PNG};
 pub use scenes::{resolve_default_scene, resolve_scene_arg};
-pub use session::GameSession;
+pub use session::{GameSession, SessionOptions};

@@ -19,7 +19,7 @@ use anyhow::Result;
 use eframe::egui;
 use pite_core::NodeId;
 use pite_render::OffscreenRenderer;
-use pite_runtime::GameSession;
+use pite_runtime::{GameSession, SessionOptions};
 
 use crate::icons::{self, Icon};
 use crate::lsp::{self, LspClient, LspOutcome};
@@ -165,13 +165,29 @@ pub struct EditorApp {
     pub(super) tilemap_selected_frame: Option<String>,
     pub(super) tilemap_eraser: bool,
     pub(super) atlas_editor: Option<inspector::AtlasEditorState>,
+    pub(super) trust_store: Option<PathBuf>,
+    pub(super) workspace_root: PathBuf,
+    pub(super) workspace_trusted: bool,
+    pub(super) trust_modal_open: bool,
 }
 
 impl EditorApp {
     pub fn new(scene: &Path) -> Result<Self> {
-        let mut session = GameSession::open(scene, false)?;
-        session.set_pause_on_error(true);
+        Self::new_with_trust_store(scene, pite_project::trust_store_path())
+    }
+
+    pub(crate) fn new_with_trust_store(scene: &Path, trust_store: Option<PathBuf>) -> Result<Self> {
         let project_dir = pite_project::find_project_root(scene);
+        let workspace_root = pite_project::workspace_root(scene, project_dir.as_deref());
+        let workspace_trusted = Self::is_trusted_in_store(trust_store.as_deref(), &workspace_root);
+        let mut session = GameSession::open_with_options(
+            scene,
+            SessionOptions {
+                no_reload: false,
+                safe_mode: !workspace_trusted,
+            },
+        )?;
+        session.set_pause_on_error(true);
         let view_size = project_dir
             .as_deref()
             .and_then(|dir| pite_project::load_manifest(dir).ok())
@@ -186,12 +202,20 @@ impl EditorApp {
         if let Some(dir) = &project_dir {
             let _ = pite_assets::reimport_project(dir);
         }
+        let initial_log = if workspace_trusted {
+            "Pite editor ready.".to_string()
+        } else {
+            format!(
+                "Pite editor ready (Safe Mode: untrusted workspace {} — Python scripts disabled).",
+                workspace_root.display()
+            )
+        };
         Ok(Self {
             session,
             scene_path: scene.to_path_buf(),
             project_dir,
             selected: None,
-            console: vec!["Pite editor ready.".to_string()],
+            console: vec![initial_log],
             seen_errors: HashSet::new(),
             code_file: None,
             code_text: String::new(),
@@ -234,6 +258,10 @@ impl EditorApp {
             tilemap_selected_frame: None,
             tilemap_eraser: false,
             atlas_editor: None,
+            trust_store,
+            workspace_root,
+            workspace_trusted,
+            trust_modal_open: false,
         })
     }
 
@@ -336,6 +364,7 @@ impl eframe::App for EditorApp {
             .unwrap_or_else(|| PathBuf::from("."));
         self.show_asset_modals(ctx, &root);
         self.show_node_modals(ctx);
+        self.show_trust_modal(ctx);
         self.handle_os_drop(ctx, &root);
 
         if self.tab != Tab::Code {
@@ -536,6 +565,8 @@ impl eframe::App for EditorApp {
                 });
             });
         });
+
+        self.show_safe_mode_banner(ui);
 
         if self.about_open {
             egui::Window::new("About Pite")

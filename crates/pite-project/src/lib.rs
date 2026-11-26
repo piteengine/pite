@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 mod error;
+mod trust;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use error::{ProjectError, Result};
+pub use trust::{
+    config_dir, is_workspace_trusted, is_workspace_trusted_in, load_trusted_workspaces_from,
+    normalize_workspace_path, save_trusted_workspaces_to, trust_store_path, trust_workspace,
+    trust_workspace_in, untrust_workspace_in, workspace_root, TrustedWorkspaces, TRUST_STORE_FILE,
+};
 
 /// Standard manifest filename located at the root of every Pite project.
 pub const MANIFEST_FILE: &str = "pite.toml";
