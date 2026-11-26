@@ -22,6 +22,7 @@ nav = [
       "guides/editor.md",
       "guides/export.md",
       "guides/assets.md",
+      "guides/plugins.md",
   ]},
   { "Reference" = [
       "reference/scene-format.md",

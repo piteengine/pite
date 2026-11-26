@@ -4,6 +4,12 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+- **Plugin System (v1)**:
+    - Added project-local plugins under `res://plugins/<id>/` with `plugin.toml` manifests, `[plugins]` configuration in `pite.toml`, and `pite plugin new|add|enable|disable|remove|list` CLI commands (supporting local paths, git URLs with `--rev`, and `.zip` archives, added disabled by default).
+    - Replaced static engine node tables with a dynamic `SchemaRegistry` in `pite-core`, supporting plugin-contributed node types (`[[nodes]]`), typed properties (`[[nodes.props]]`), signals (`[[nodes.signals]]`), and custom project props (`[props]`).
+    - Added runtime `PluginHost` (`pite.plugin("<id>")` and `pite.autoload("<Name>")`), `on_scene_loaded` and post-node `_process`/`_physics_process` hooks, auto-bound default plugin node classes with live `PluginPropDescriptor`s, `res://plugins/` on `sys.path`, and per-node `_draw(self, canvas: pite.Canvas2D)` rendering (`draw_rect`, `draw_line`, `draw_text`, `draw_sprite`).
+    - Added workspace-trust-gated `EditorPluginHost` in `pite-editor` with scoped `EditorUI` / `EditorContext`, bottom panel tabs alongside `Console`, Inspector sections, `Plugins` menu actions, viewport overlay/pointer hooks, and `res://plugins/` in Pyright `extraPaths`.
+    - Added plugin validation in `pite check` and runtime-only plugin staging (stripping `editor` entrypoints and disabled plugins) in `pite export`.
 - **Workspace Trust & Safe Mode**:
     - Opening an untrusted workspace in `pite edit` enters Safe Mode: the scene tree, inspector, code editor, and viewport render normally without importing or executing Python scripts or `.py` hot reloads.
     - Added a top Safe Mode banner (`Trust Workspace`) and a confirmation modal (`Trust & Play` / `Stay in Safe Mode`) gating Play (`F5` / `Ctrl+R`).
