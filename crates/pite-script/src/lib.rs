@@ -36,6 +36,11 @@ pub use input::{
 pub use paste;
 pub use physics_bridge::{current_physics, set_current_physics, with_physics};
 pub use plugin_host::{instantiate_entrypoint, PluginHost, RuntimePluginSpec};
+
+/// Initializes the embedded CPython interpreter with the native `pite` module registered.
+pub fn ensure_python_init() {
+    python::ensure_init();
+}
 pub use pyo3;
 pub use python::{is_stdlib_module, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError};
 pub use vec2::Vec2;

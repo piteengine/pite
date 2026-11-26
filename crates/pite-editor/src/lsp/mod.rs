@@ -332,6 +332,9 @@ fn start_blocking(root_dir: Option<&Path>, script: &Path) -> LspOutcome {
     };
     let root_uri = root_dir.map(path_to_uri);
     let mut bridge = Bridge::new();
+    if let Some(root) = root_dir {
+        bridge.set_extra_paths(vec![root.join("plugins")]);
+    }
     let init_id = match bridge.send_initialize(&mut transport, root_uri.as_deref()) {
         Ok(id) => id,
         Err(e) => return LspOutcome::Failed(format!("LSP: cannot talk to server: {e:#}")),

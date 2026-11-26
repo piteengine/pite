@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -13,10 +13,11 @@ use serde_json::Value;
 
 use super::missing_server_message;
 use super::protocol::{
-    completion_request, configuration_response, did_change_configuration, did_change_notification,
-    did_open_notification, encode_message, hover_request, initialize_request,
-    initialized_notification, parse_completion_items, parse_hover, parse_publish_diagnostics,
-    parse_signature_help, signature_request, CompletionItem, Diagnostic, FramingReader,
+    completion_request, configuration_response_with_paths, did_change_configuration_with_paths,
+    did_change_notification, did_open_notification, encode_message, hover_request,
+    initialize_request, initialized_notification, parse_completion_items, parse_hover,
+    parse_publish_diagnostics, parse_signature_help, signature_request, CompletionItem, Diagnostic,
+    FramingReader,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -118,6 +119,7 @@ pub struct Bridge {
     signatures: VecDeque<(i64, Vec<String>)>,
     notices: VecDeque<String>,
     pub diagnostics: HashMap<String, Vec<Diagnostic>>,
+    extra_paths: Vec<PathBuf>,
 }
 
 impl Bridge {
@@ -132,7 +134,12 @@ impl Bridge {
             signatures: VecDeque::new(),
             notices: VecDeque::new(),
             diagnostics: HashMap::new(),
+            extra_paths: Vec::new(),
         }
+    }
+
+    pub fn set_extra_paths(&mut self, paths: Vec<PathBuf>) {
+        self.extra_paths = paths;
     }
 
     fn call(&mut self, tx: &mut dyn RpcTransport, kind: PendingKind, body: Value) -> Result<i64> {
@@ -162,7 +169,10 @@ impl Bridge {
         tx: &mut dyn RpcTransport,
         stubs: Option<&Path>,
     ) -> Result<()> {
-        tx.send(&did_change_configuration(stubs))
+        tx.send(&did_change_configuration_with_paths(
+            stubs,
+            &self.extra_paths,
+        ))
     }
 
     pub fn did_open(&mut self, tx: &mut dyn RpcTransport, uri: &str, text: &str) -> Result<()> {
@@ -277,7 +287,7 @@ impl Bridge {
                     .pointer("/params/items/0/section")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                configuration_response(id, section, stubs)
+                configuration_response_with_paths(id, section, stubs, &self.extra_paths)
             }
             _ => serde_json::json!({"jsonrpc": "2.0", "id": id, "result": null}),
         };

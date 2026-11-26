@@ -526,3 +526,19 @@ fn smoke_await_completion(
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+#[test]
+fn bridge_extra_paths_include_plugins_dir() {
+    let mut bridge = Bridge::new();
+    bridge.set_extra_paths(vec![PathBuf::from("/proj/plugins")]);
+    let mut tx = MockTransport::new();
+    bridge
+        .send_configuration(&mut tx, Some(Path::new("/stubs")))
+        .unwrap();
+    let msg = tx.outbox.last().expect("configuration sent");
+    assert_eq!(
+        msg.pointer("/params/settings/python/analysis/extraPaths")
+            .unwrap(),
+        &serde_json::json!(["/stubs", "/proj/plugins"])
+    );
+}

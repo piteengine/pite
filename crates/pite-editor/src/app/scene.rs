@@ -102,6 +102,10 @@ impl EditorApp {
         self.workspace_trusted = true;
         self.trust_modal_open = false;
         self.viewport_dirty = true;
+        for err in self.session.plugin_errors.clone() {
+            self.log(err);
+        }
+        self.reload_editor_plugins();
         self.log(format!(
             "trusted workspace {}; scripts enabled.",
             self.workspace_root.display()
@@ -248,6 +252,10 @@ impl EditorApp {
             Ok(mut session) => {
                 session.set_pause_on_error(true);
                 self.session = session;
+                for err in self.session.plugin_errors.clone() {
+                    self.log(err);
+                }
+                self.reload_editor_plugins();
                 self.scene_path = file.to_path_buf();
                 self.project_dir = project_dir;
                 self.workspace_root = workspace_root;

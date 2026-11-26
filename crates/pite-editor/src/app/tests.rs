@@ -620,3 +620,110 @@ fn dynamic_schema_appears_in_node_hierarchy_and_inherits_icons() {
         icons::node_type_color_in(&schemas, "Control")
     );
 }
+
+#[test]
+fn editor_ui_stale_handle_fails_loudly_outside_scope() {
+    use eframe::egui;
+    use pite_script::pyo3::{self, types::PyAnyMethods};
+    let ctx = egui::Context::default();
+    let mut leaked_ui: Option<crate::plugins::PyEditorUI> = None;
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let (_scope, py_ui) = crate::plugins::EditorUiScope::enter(ui);
+        leaked_ui = Some(py_ui);
+    });
+    out.textures_delta.clear();
+    let leaked = leaked_ui.expect("EditorUiScope produced handle");
+    pite_script::ensure_python_init();
+    pyo3::Python::attach(|py| {
+        let obj = pyo3::Bound::new(py, leaked).unwrap();
+        let err = obj
+            .call_method1("label", ("stale",))
+            .expect_err("calling EditorUI outside scope must raise RuntimeError");
+        assert!(err.to_string().contains("outside an active editor UI"));
+    });
+}
+
+#[test]
+fn editor_plugins_gate_on_trust_and_isolate_errors() {
+    let dir = std::env::temp_dir().join(format!("pite-ed-plug-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::create_dir_all(dir.join("plugins/ed_plug")).unwrap();
+    std::fs::create_dir_all(dir.join("plugins/bad_plug")).unwrap();
+
+    std::fs::write(
+        dir.join("pite.toml"),
+        "[project]\nname = \"t\"\n\n[plugins]\ned_plug = { enabled = true }\nbad_plug = { enabled = true }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("plugins/ed_plug/plugin.toml"),
+        "id = \"ed_plug\"\nname = \"Ed Plug\"\nversion = \"0.1.0\"\neditor = \"ed_plug.ed:EdPlugin\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("plugins/ed_plug/__init__.py"), "").unwrap();
+    std::fs::write(
+        dir.join("plugins/ed_plug/ed.py"),
+        r#"
+class EdPlugin:
+    def on_enable(self, ctx):
+        ctx.log("ed_plug enabled")
+
+    def menu_items(self):
+        return ["Bump Root"]
+
+    def on_menu_action(self, label, ctx):
+        if label == "Bump Root":
+            ctx.set_prop("root", "text", "from_plugin")
+
+    def on_bottom_panel(self, ui, ctx):
+        ui.label("hi")
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.join("plugins/bad_plug/plugin.toml"),
+        "id = \"bad_plug\"\nname = \"Bad Plug\"\nversion = \"0.1.0\"\neditor = \"bad_plug.missing:Nope\"\n",
+    )
+    .unwrap();
+
+    let scene = dir.join("scenes/main.ptscn");
+    std::fs::write(
+        &scene,
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node\"\nname = \"Root\"\n",
+    )
+    .unwrap();
+
+    let trust_store = dir.join("trust.toml");
+    let mut app = EditorApp::new_with_trust_store(&scene, Some(trust_store)).unwrap();
+    assert!(!app.workspace_trusted);
+    assert!(app.editor_plugins.bottom_panel_tabs().is_empty());
+    assert!(app.editor_plugins.menu_actions().is_empty());
+
+    assert!(app.trust_current_workspace());
+    assert!(app.workspace_trusted);
+    assert_eq!(
+        app.editor_plugins.bottom_panel_tabs(),
+        vec![("ed_plug".to_string(), "Ed Plug".to_string())]
+    );
+    assert_eq!(
+        app.editor_plugins.menu_actions(),
+        vec![("ed_plug".to_string(), "Bump Root".to_string())]
+    );
+    assert!(app.console.iter().any(|l| l.contains("ed_plug enabled")));
+    assert!(app.console.iter().any(|l| l.contains("bad_plug")));
+
+    let snapshot = app.editor_snapshot();
+    let (errs, acts) = app
+        .editor_plugins
+        .trigger_menu_action("ed_plug", "Bump Root", snapshot);
+    app.apply_plugin_feedback(errs, acts);
+    let prop = app.session.host().with_tree(|t| {
+        t.get(&pite_core::NodeId::from("root"))
+            .and_then(|n| n.props.get("text").cloned())
+    });
+    assert_eq!(prop, Some(pite_core::PropValue::Str("from_plugin".into())));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

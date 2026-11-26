@@ -118,5 +118,14 @@ impl EditorApp {
         if node.type_name == "TileMap2D" {
             self.show_tilemap_inspector(ui, &node_id);
         }
+
+        let snapshot = self.editor_snapshot();
+        let (errors, actions) = self.editor_plugins.draw_inspector_sections(
+            ui,
+            snapshot,
+            node.id.as_str(),
+            &node.type_name,
+        );
+        self.apply_plugin_feedback(errors, actions);
     }
 }

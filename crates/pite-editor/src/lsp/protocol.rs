@@ -200,10 +200,16 @@ pub fn initialized_notification() -> Value {
     notification("initialized", serde_json::json!({}))
 }
 
-fn python_analysis_settings(stubs_dir: Option<&Path>) -> Value {
-    let extra: Vec<String> = stubs_dir
+fn python_analysis_settings(stubs_dir: Option<&Path>, extra_dirs: &[std::path::PathBuf]) -> Value {
+    let mut extra: Vec<String> = stubs_dir
         .map(|d| vec![d.to_string_lossy().into_owned()])
         .unwrap_or_default();
+    for dir in extra_dirs {
+        let s = dir.to_string_lossy().into_owned();
+        if !extra.contains(&s) {
+            extra.push(s);
+        }
+    }
     serde_json::json!({"analysis": {
         "extraPaths": extra,
         "typeCheckingMode": "basic",
@@ -212,9 +218,17 @@ fn python_analysis_settings(stubs_dir: Option<&Path>) -> Value {
 
 /// `extraPaths` + basic type-checking mode so the shipped stubs resolve.
 pub fn did_change_configuration(stubs_dir: Option<&Path>) -> Value {
+    did_change_configuration_with_paths(stubs_dir, &[])
+}
+
+/// `extraPaths` + basic type-checking mode including additional plugin import roots.
+pub fn did_change_configuration_with_paths(
+    stubs_dir: Option<&Path>,
+    extra_dirs: &[std::path::PathBuf],
+) -> Value {
     notification(
         "workspace/didChangeConfiguration",
-        serde_json::json!({"settings": {"python": python_analysis_settings(stubs_dir)}}),
+        serde_json::json!({"settings": {"python": python_analysis_settings(stubs_dir, extra_dirs)}}),
     )
 }
 
@@ -225,8 +239,18 @@ pub fn did_change_configuration(stubs_dir: Option<&Path>) -> Value {
 /// no `analysis` and silently drop (that exact shape starved `import pite`
 /// of its stubs). Anything else gets an empty object (defaults hold).
 pub fn configuration_response(id: i64, section: &str, stubs_dir: Option<&Path>) -> Value {
+    configuration_response_with_paths(id, section, stubs_dir, &[])
+}
+
+/// Answer a server `workspace/configuration` pull with additional `extraPaths` entries.
+pub fn configuration_response_with_paths(
+    id: i64,
+    section: &str,
+    stubs_dir: Option<&Path>,
+    extra_dirs: &[std::path::PathBuf],
+) -> Value {
     let result = if section == "python" {
-        python_analysis_settings(stubs_dir)
+        python_analysis_settings(stubs_dir, extra_dirs)
     } else {
         serde_json::json!({})
     };

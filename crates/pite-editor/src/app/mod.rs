@@ -169,6 +169,8 @@ pub struct EditorApp {
     pub(super) workspace_root: PathBuf,
     pub(super) workspace_trusted: bool,
     pub(super) trust_modal_open: bool,
+    pub(super) editor_plugins: crate::plugins::EditorPluginHost,
+    pub(super) active_bottom_tab: Option<String>,
 }
 
 impl EditorApp {
@@ -211,7 +213,7 @@ impl EditorApp {
                 workspace_root.display()
             )
         };
-        Ok(Self {
+        let mut app = Self {
             session,
             scene_path: scene.to_path_buf(),
             project_dir,
@@ -263,7 +265,109 @@ impl EditorApp {
             workspace_root,
             workspace_trusted,
             trust_modal_open: false,
-        })
+            editor_plugins: crate::plugins::EditorPluginHost::default(),
+            active_bottom_tab: None,
+        };
+        let plugin_errs = app.session.plugin_errors.clone();
+        for err in plugin_errs {
+            app.log(err);
+        }
+        app.reload_editor_plugins();
+        Ok(app)
+    }
+
+    pub(super) fn editor_snapshot(&self) -> crate::plugins::EditorSnapshot {
+        let node_ids = self.session.host().with_tree(|tree| {
+            tree.iter()
+                .map(|n| n.id.as_str().to_string())
+                .collect::<Vec<_>>()
+        });
+        crate::plugins::EditorSnapshot {
+            selected_node: self.selected.clone(),
+            scene_path: self.scene_path.to_string_lossy().into_owned(),
+            node_ids,
+        }
+    }
+
+    pub(super) fn reload_editor_plugins(&mut self) {
+        self.editor_plugins.clear();
+        self.active_bottom_tab = None;
+        if !self.workspace_trusted {
+            return;
+        }
+        let Some(dir) = self.project_dir.clone() else {
+            return;
+        };
+        let snapshot = self.editor_snapshot();
+        let (errors, actions) = self.editor_plugins.load_from_project(&dir, snapshot);
+        self.apply_plugin_feedback(errors, actions);
+    }
+
+    pub(super) fn apply_plugin_feedback(
+        &mut self,
+        errors: Vec<String>,
+        actions: Vec<crate::plugins::EditorAction>,
+    ) {
+        for err in errors {
+            self.log(err);
+        }
+        for action in actions {
+            match action {
+                crate::plugins::EditorAction::Log(msg) => self.log(msg),
+                crate::plugins::EditorAction::SetProp {
+                    node_id,
+                    key,
+                    value,
+                } => {
+                    let changed = self.session.host().with_tree_mut(|tree| {
+                        if let Some(node) = tree.get_mut(&pite_core::NodeId::from(node_id.clone()))
+                        {
+                            node.props.insert(key.clone(), value.clone());
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                    if changed {
+                        self.viewport_dirty = true;
+                    } else {
+                        self.log(format!("plugin set_prop: node {node_id:?} not found"));
+                    }
+                }
+                crate::plugins::EditorAction::AddNode {
+                    type_name,
+                    name,
+                    parent_id,
+                } => {
+                    let parent = parent_id
+                        .map(pite_core::NodeId::from)
+                        .or_else(|| self.session.host().with_tree(|t| t.root().cloned()));
+                    let schemas = self.session.schemas().clone();
+                    let res = self.session.host().with_tree_mut(|tree| {
+                        ops::add_node_with_schemas(tree, parent, &type_name, &name, &schemas)
+                    });
+                    match res {
+                        Ok(new_id) => {
+                            self.viewport_dirty = true;
+                            self.selected = Some(new_id.as_str().to_string());
+                        }
+                        Err(e) => self.log(format!("plugin add_node failed: {e}")),
+                    }
+                }
+                crate::plugins::EditorAction::OpenScene(path) => {
+                    let resolved = if let Some(dir) = &self.project_dir {
+                        let rel = path.strip_prefix("res://").unwrap_or(&path);
+                        dir.join(rel)
+                    } else {
+                        PathBuf::from(&path)
+                    };
+                    self.open_scene_file(&resolved);
+                }
+                crate::plugins::EditorAction::SaveScene => {
+                    self.save_scene();
+                }
+            }
+        }
     }
 
     pub(super) fn log(&mut self, line: impl Into<String>) {
@@ -526,6 +630,25 @@ impl eframe::App for EditorApp {
                         ui.close();
                     }
                 });
+                let menu_actions = self.editor_plugins.menu_actions();
+                if !menu_actions.is_empty() {
+                    let mut clicked_action: Option<(String, String)> = None;
+                    ui.menu_button("Plugins", |ui| {
+                        for (plugin_id, label) in &menu_actions {
+                            if ui.button(label).clicked() {
+                                clicked_action = Some((plugin_id.clone(), label.clone()));
+                                ui.close();
+                            }
+                        }
+                    });
+                    if let Some((plugin_id, label)) = clicked_action {
+                        let snapshot = self.editor_snapshot();
+                        let (errors, actions) = self
+                            .editor_plugins
+                            .trigger_menu_action(&plugin_id, &label, snapshot);
+                        self.apply_plugin_feedback(errors, actions);
+                    }
+                }
                 ui.menu_button("Help", |ui| {
                     if ui.button("Repository").clicked() {
                         ctx.open_url(egui::OpenUrl::new_tab("https://github.com/piteengine/pite"));
@@ -837,23 +960,50 @@ impl eframe::App for EditorApp {
             .max_size(240.0)
             .resizable(true)
             .show(ui, |ui| {
+                let plugin_tabs = self.editor_plugins.bottom_panel_tabs();
                 ui.horizontal(|ui| {
-                    ui.heading("Console");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icons::icon_button(ui, Icon::Trash, "Clear console output").clicked() {
-                            self.clear_console();
+                    if plugin_tabs.is_empty() {
+                        ui.heading("Console");
+                    } else {
+                        if ui
+                            .selectable_label(self.active_bottom_tab.is_none(), "Console")
+                            .clicked()
+                        {
+                            self.active_bottom_tab = None;
                         }
-                    });
+                        for (id, title) in &plugin_tabs {
+                            let active = self.active_bottom_tab.as_deref() == Some(id.as_str());
+                            if ui.selectable_label(active, title).clicked() {
+                                self.active_bottom_tab = Some(id.clone());
+                            }
+                        }
+                    }
+                    if self.active_bottom_tab.is_none() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icons::icon_button(ui, Icon::Trash, "Clear console output").clicked()
+                            {
+                                self.clear_console();
+                            }
+                        });
+                    }
                 });
-                egui::ScrollArea::vertical()
-                    .id_salt("console")
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for line in &self.console {
-                            ui.monospace(line);
-                        }
-                    });
+                if let Some(plugin_id) = self.active_bottom_tab.clone() {
+                    let snapshot = self.editor_snapshot();
+                    let (errors, actions) = self
+                        .editor_plugins
+                        .draw_bottom_panel(&plugin_id, ui, snapshot);
+                    self.apply_plugin_feedback(errors, actions);
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt("console")
+                        .auto_shrink([false, false])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for line in &self.console {
+                                ui.monospace(line);
+                            }
+                        });
+                }
             });
 
         egui::CentralPanel::default().show(ui, |ui| {

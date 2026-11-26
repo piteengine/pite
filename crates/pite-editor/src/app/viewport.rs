@@ -303,9 +303,83 @@ impl EditorApp {
             }
         }
         if !self.playing {
-            self.handle_tilemap_viewport(ui, &painter, view_rect, (view_w, view_h));
+            let consumed = self.handle_plugin_viewport_pointer(ui, view_rect, (view_w, view_h));
+            if !consumed {
+                self.handle_tilemap_viewport(ui, &painter, view_rect, (view_w, view_h));
+            }
             draw_collision_overlays(&self.session, &painter, view_rect, (view_w, view_h));
+            let snapshot = self.editor_snapshot();
+            let (errors, actions) = self.editor_plugins.draw_viewport_overlays(ui, snapshot);
+            self.apply_plugin_feedback(errors, actions);
         }
+    }
+
+    fn handle_plugin_viewport_pointer(
+        &mut self,
+        ui: &egui::Ui,
+        view_rect: egui::Rect,
+        view_size: (u32, u32),
+    ) -> bool {
+        let (pos, kind, button) = ui.input(|i| {
+            let pos = i.pointer.hover_pos();
+            let kind = if i.pointer.any_pressed() {
+                Some("press")
+            } else if i.pointer.any_released() {
+                Some("release")
+            } else if i.pointer.delta() != egui::Vec2::ZERO {
+                Some("move")
+            } else {
+                None
+            };
+            let button = if i.pointer.primary_down()
+                || i.pointer.primary_pressed()
+                || i.pointer.primary_released()
+            {
+                "left"
+            } else if i.pointer.secondary_down()
+                || i.pointer.secondary_pressed()
+                || i.pointer.secondary_released()
+            {
+                "right"
+            } else if i.pointer.button_down(egui::PointerButton::Middle)
+                || i.pointer.button_pressed(egui::PointerButton::Middle)
+                || i.pointer.button_released(egui::PointerButton::Middle)
+            {
+                "middle"
+            } else {
+                "none"
+            };
+            (pos, kind, button)
+        });
+        let (Some(cursor_pos), Some(kind)) = (pos, kind) else {
+            return false;
+        };
+        if !view_rect.contains(cursor_pos) {
+            return false;
+        }
+        let Some(offscreen) = viewport_cursor(view_rect, view_size, cursor_pos) else {
+            return false;
+        };
+        let ((cam_x, cam_y), _) = self.session.camera_view();
+        let eff_zoom = self.session.effective_zoom();
+        let world = pite_render::screen_to_world(
+            (offscreen.0 as f32, offscreen.1 as f32),
+            (cam_x, cam_y),
+            eff_zoom,
+            view_size,
+        );
+        let snapshot = self.editor_snapshot();
+        let (consumed, errors, actions) = self.editor_plugins.dispatch_viewport_pointer(
+            crate::plugins::ViewportPointerEvent {
+                kind,
+                x: world.0,
+                y: world.1,
+                button,
+            },
+            snapshot,
+        );
+        self.apply_plugin_feedback(errors, actions);
+        consumed
     }
 
     fn handle_tilemap_viewport(

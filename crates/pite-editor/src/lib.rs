@@ -10,6 +10,7 @@ mod highlight;
 mod icons;
 pub mod lsp;
 pub mod ops;
+pub mod plugins;
 pub mod theme;
 
 use anyhow::Result;
