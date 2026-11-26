@@ -85,29 +85,34 @@ pub fn input_set_actions(actions: HashMap<String, Vec<Vec<String>>>) {
     state.warned_unknown.clear();
 }
 
+fn warn_unknown_action(name: &str) {
+    let mut map = write_or_recover(&ACTION_MAP);
+    if !map.actions.contains_key(name) && map.warned_unknown.insert(name.to_string()) {
+        tracing::warn!("unknown input action `{name}`");
+    }
+}
+
+fn chords_held(chords: &[Vec<String>], input: &InputState) -> bool {
+    chords
+        .iter()
+        .any(|chord| !chord.is_empty() && chord.iter().all(|k| input.held.contains(k)))
+}
+
 fn resolve_chords<F: FnOnce(&[Vec<String>], &InputState) -> bool>(name: &str, eval: F) -> bool {
-    let chords = {
+    {
         let map = read_or_recover(&ACTION_MAP);
-        map.actions.get(name).cloned()
-    };
-    let Some(chords) = chords else {
-        let mut map = write_or_recover(&ACTION_MAP);
-        if map.warned_unknown.insert(name.to_string()) {
-            tracing::warn!("unknown input action `{name}`");
+        if let Some(chords) = map.actions.get(name) {
+            let input = read_or_recover(&INPUT);
+            return eval(chords, &input);
         }
-        return false;
-    };
-    let input = read_or_recover(&INPUT);
-    eval(&chords, &input)
+    }
+    warn_unknown_action(name);
+    false
 }
 
 /// Return `true` while any binding chord for `name` is fully held.
 pub fn action_held(name: &str) -> bool {
-    resolve_chords(name, |chords, input| {
-        chords
-            .iter()
-            .any(|chord| !chord.is_empty() && chord.iter().all(|k| input.held.contains(k)))
-    })
+    resolve_chords(name, chords_held)
 }
 
 /// Return `true` on the frame any binding chord for `name` becomes fully held.
@@ -134,17 +139,52 @@ pub fn action_released(name: &str) -> bool {
     })
 }
 
+fn eval_held_locked(map: &ActionMapState, input: &InputState, name: &str) -> Option<bool> {
+    map.actions.get(name).map(|c| chords_held(c, input))
+}
+
 /// Compute a 1D axis in `[-1.0, 1.0]` from `negative` and `positive` actions.
 pub fn action_axis(negative: &str, positive: &str) -> f64 {
-    let pos = if action_held(positive) { 1.0 } else { 0.0 };
-    let neg = if action_held(negative) { 1.0 } else { 0.0 };
-    pos - neg
+    let (pos, neg) = {
+        let map = read_or_recover(&ACTION_MAP);
+        let input = read_or_recover(&INPUT);
+        (
+            eval_held_locked(&map, &input, positive),
+            eval_held_locked(&map, &input, negative),
+        )
+    };
+    if pos.is_none() {
+        warn_unknown_action(positive);
+    }
+    if neg.is_none() {
+        warn_unknown_action(negative);
+    }
+    let p = if pos.unwrap_or(false) { 1.0 } else { 0.0 };
+    let n = if neg.unwrap_or(false) { 1.0 } else { 0.0 };
+    p - n
 }
 
 /// Compute a 2D movement vector from four directional actions, normalized if length > 1.
 pub fn action_vector(left: &str, right: &str, up: &str, down: &str) -> (f64, f64) {
-    let x = action_axis(left, right);
-    let y = action_axis(up, down);
+    let (l, r, u, d) = {
+        let map = read_or_recover(&ACTION_MAP);
+        let input = read_or_recover(&INPUT);
+        (
+            eval_held_locked(&map, &input, left),
+            eval_held_locked(&map, &input, right),
+            eval_held_locked(&map, &input, up),
+            eval_held_locked(&map, &input, down),
+        )
+    };
+    for (name, res) in [(left, l), (right, r), (up, u), (down, d)] {
+        if res.is_none() {
+            warn_unknown_action(name);
+        }
+    }
+    let x: f64 =
+        (if r.unwrap_or(false) { 1.0 } else { 0.0 }) - (if l.unwrap_or(false) { 1.0 } else { 0.0 });
+    let y: f64 =
+        (if d.unwrap_or(false) { 1.0 } else { 0.0 }) - (if u.unwrap_or(false) { 1.0 } else { 0.0 });
     let len_sq = x * x + y * y;
     if len_sq > 1.0 {
         let len = len_sq.sqrt();
