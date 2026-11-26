@@ -767,3 +767,142 @@ class EdPlugin:
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn undo_redo_covers_tree_props_coalescing_and_saved_index() {
+    let dir = std::env::temp_dir().join(format!("pite-undo-tree-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    let scene = dir.join("scenes/main.ptscn");
+    std::fs::write(
+        &scene,
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\nname = \"root\"\ntype = \"Node2D\"\n",
+    )
+    .unwrap();
+
+    let mut app = EditorApp::new_with_trust_store(&scene, None).unwrap();
+    assert!(!app.undo_history.is_dirty());
+
+    // 1. Add child node
+    let child_id = app
+        .session
+        .host()
+        .with_tree_mut(|t| ops::add_node(t, Some(NodeId::from("root")), "Sprite2D", "hero"))
+        .unwrap();
+    app.record_inserted_subtree(&child_id);
+    assert!(app.undo_history.is_dirty());
+
+    // 2. Coalesced drag prop updates collapse into 1 undo step
+    app.undo_history.begin_coalesce("prop:hero:position");
+    app.set_prop_recorded(
+        &child_id,
+        "position",
+        pite_core::PropValue::Vec2(10.0, 0.0),
+        Some("prop:hero:position".to_string()),
+    )
+    .unwrap();
+    app.set_prop_recorded(
+        &child_id,
+        "position",
+        pite_core::PropValue::Vec2(25.0, 5.0),
+        Some("prop:hero:position".to_string()),
+    )
+    .unwrap();
+    app.undo_history.end_coalesce();
+
+    // 3. Rename + Save (history preserved across save)
+    app.rename_node_recorded(&child_id, "player").unwrap();
+    app.save_scene();
+    assert!(!app.undo_history.is_dirty());
+    assert!(app.undo_history.can_undo());
+
+    // Undo rename -> back to "hero", dirty again
+    // Undo rename -> display name back to "hero", dirty again
+    app.undo();
+    assert!(app.undo_history.is_dirty());
+    let name_after_undo = app
+        .session
+        .host()
+        .with_tree(|t| t.get(&child_id).map(|n| n.name.clone()));
+    assert_eq!(name_after_undo.as_deref(), Some("hero"));
+
+    // Undo coalesced position drag -> single step restores default Vec2(0, 0)
+    app.undo();
+    let pos = app.session.host().with_tree(|t| {
+        t.get(&child_id)
+            .and_then(|n| n.props.get("position").cloned())
+    });
+    assert_eq!(pos, Some(pite_core::PropValue::Vec2(0.0, 0.0)));
+
+    // Undo add -> node removed
+    app.undo();
+    assert!(!app.session.host().with_tree(|t| t.contains(&child_id)));
+    assert!(!app.undo_history.can_undo());
+
+    // Redo all 3 steps -> back to saved state (clean)
+    app.redo();
+    app.redo();
+    app.redo();
+    assert!(!app.undo_history.is_dirty());
+    let (final_name, final_pos) = app.session.host().with_tree(|t| {
+        let n = t.get(&child_id).unwrap();
+        (n.name.clone(), n.props.get("position").cloned())
+    });
+    assert_eq!(final_name, "player");
+    assert_eq!(final_pos, Some(pite_core::PropValue::Vec2(25.0, 5.0)));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn undo_redo_coalesces_tilemap_strokes() {
+    use super::undo::{TileCellChange, UndoCommand};
+
+    let mut hist = super::undo::UndoHistory::default();
+    hist.begin_coalesce("tilemap:map:0");
+    hist.push(UndoCommand::TileMapStroke {
+        node_id: "map".to_string(),
+        path: PathBuf::from("map.ptmap"),
+        layer: 0,
+        cells: vec![TileCellChange {
+            x: 1,
+            y: 2,
+            old: None,
+            new: Some("grass".to_string()),
+        }],
+        coalesce_key: Some("tilemap:map:0".to_string()),
+    });
+    hist.push(UndoCommand::TileMapStroke {
+        node_id: "map".to_string(),
+        path: PathBuf::from("map.ptmap"),
+        layer: 0,
+        cells: vec![
+            TileCellChange {
+                x: 1,
+                y: 2,
+                old: Some("grass".to_string()),
+                new: Some("stone".to_string()),
+            },
+            TileCellChange {
+                x: 2,
+                y: 2,
+                old: None,
+                new: Some("stone".to_string()),
+            },
+        ],
+        coalesce_key: Some("tilemap:map:0".to_string()),
+    });
+    hist.end_coalesce();
+
+    let cmd = hist.pop_undo().expect("one coalesced stroke");
+    assert!(!hist.can_undo());
+    match cmd {
+        UndoCommand::TileMapStroke { cells, .. } => {
+            assert_eq!(cells.len(), 2);
+            assert_eq!(cells[0].old, None);
+            assert_eq!(cells[0].new.as_deref(), Some("stone"));
+            assert_eq!(cells[1].new.as_deref(), Some("stone"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}

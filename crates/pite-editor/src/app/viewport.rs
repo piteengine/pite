@@ -604,20 +604,27 @@ impl EditorApp {
         let left_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary));
         let right_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
 
+        let old_frame = doc
+            .get_cell(self.tilemap_active_layer, cell.0, cell.1)
+            .map(str::to_string);
         let mut modified = false;
+        let mut new_frame = old_frame.clone();
         if left_down {
             if self.tilemap_eraser {
                 if doc.erase_cell(self.tilemap_active_layer, cell.0, cell.1) {
                     modified = true;
+                    new_frame = None;
                 }
             } else if let Some(frame) = &self.tilemap_selected_frame {
-                if doc.get_cell(self.tilemap_active_layer, cell.0, cell.1) != Some(frame.as_str()) {
+                if old_frame.as_deref() != Some(frame.as_str()) {
                     doc.set_cell(self.tilemap_active_layer, cell.0, cell.1, frame.clone());
                     modified = true;
+                    new_frame = Some(frame.clone());
                 }
             }
         } else if right_down && doc.erase_cell(self.tilemap_active_layer, cell.0, cell.1) {
             modified = true;
+            new_frame = None;
         }
 
         if modified {
@@ -630,6 +637,21 @@ impl EditorApp {
             if let Some(map_ref) = map_ref_opt {
                 if let Some(fs_path) = self.resolve_res(&map_ref) {
                     let _ = pite_scene::save_tilemap(&fs_path, &doc);
+                    let ck = format!("tilemap:{selected_id}:{}", self.tilemap_active_layer);
+                    self.undo_history.begin_coalesce(ck.clone());
+                    self.undo_history
+                        .push(super::undo::UndoCommand::TileMapStroke {
+                            node_id: selected_id.clone(),
+                            path: fs_path,
+                            layer: self.tilemap_active_layer,
+                            cells: vec![super::undo::TileCellChange {
+                                x: cell.0,
+                                y: cell.1,
+                                old: old_frame,
+                                new: new_frame,
+                            }],
+                            coalesce_key: Some(ck),
+                        });
                 }
             }
             self.session.host().set_tilemap_doc(&selected_id, doc);

@@ -8,6 +8,7 @@ mod settings;
 #[cfg(test)]
 mod tests;
 mod tree;
+mod undo;
 mod viewport;
 
 use std::collections::HashSet;
@@ -173,6 +174,8 @@ pub struct EditorApp {
     pub(super) trust_modal_open: bool,
     pub(super) editor_plugins: crate::plugins::EditorPluginHost,
     pub(super) active_bottom_tab: Option<String>,
+    pub(in crate::app) undo_history: undo::UndoHistory,
+    pub(super) pointer_down: bool,
 }
 
 impl EditorApp {
@@ -271,6 +274,8 @@ impl EditorApp {
             trust_modal_open: false,
             editor_plugins: crate::plugins::EditorPluginHost::default(),
             active_bottom_tab: None,
+            undo_history: undo::UndoHistory::default(),
+            pointer_down: false,
         };
         let plugin_errs = app.session.plugin_errors.clone();
         for err in plugin_errs {
@@ -352,6 +357,7 @@ impl EditorApp {
                     });
                     match res {
                         Ok(new_id) => {
+                            self.record_inserted_subtree(&new_id);
                             self.viewport_dirty = true;
                             self.selected = Some(new_id.as_str().to_string());
                         }
@@ -436,6 +442,289 @@ impl EditorApp {
         ctx.copy_text(lines.join("\n"));
         self.log("debug info copied to clipboard.".to_string());
     }
+
+    /// Undo the most recent non-code-editor mutation.
+    pub(super) fn undo(&mut self) {
+        let Some(cmd) = self.undo_history.pop_undo() else {
+            return;
+        };
+        match self.apply_undo_command(&cmd, true) {
+            Ok(()) => {
+                self.undo_history.push_redo(cmd);
+                self.viewport_dirty = true;
+            }
+            Err(e) => self.log(format!("undo failed: {e}")),
+        }
+    }
+
+    /// Redo the most recently undone non-code-editor mutation.
+    pub(super) fn redo(&mut self) {
+        let Some(cmd) = self.undo_history.pop_redo() else {
+            return;
+        };
+        match self.apply_undo_command(&cmd, false) {
+            Ok(()) => {
+                self.undo_history.push_undo_without_clearing_redo(cmd);
+                self.viewport_dirty = true;
+            }
+            Err(e) => self.log(format!("redo failed: {e}")),
+        }
+    }
+
+    fn apply_undo_command(&mut self, cmd: &undo::UndoCommand, is_undo: bool) -> Result<()> {
+        match cmd {
+            undo::UndoCommand::SetProp {
+                id, key, old, new, ..
+            } => {
+                let target = if is_undo { old } else { new };
+                self.session.host().with_tree_mut(|t| match target {
+                    Some(v) => ops::set_prop(t, id, key, v.clone()),
+                    None => ops::remove_prop(t, id, key),
+                })?;
+            }
+            undo::UndoCommand::RenameNode {
+                id,
+                old_name,
+                new_name,
+            } => {
+                let target_name = if is_undo { old_name } else { new_name };
+                self.session
+                    .host()
+                    .with_tree_mut(|t| ops::rename_node(t, id, target_name))?;
+            }
+            undo::UndoCommand::MoveNode {
+                id,
+                old_parent,
+                old_index,
+                new_parent,
+                new_index,
+            } => {
+                let (parent, index) = if is_undo {
+                    (old_parent, *old_index)
+                } else {
+                    (new_parent, *new_index)
+                };
+                self.session.host().with_tree_mut(|t| {
+                    if let Some(p) = parent {
+                        ops::place_node(t, id, p, index)
+                    } else {
+                        ops::move_node(t, id, None)
+                    }
+                })?;
+            }
+            undo::UndoCommand::InsertSubtree { snapshot } => {
+                if is_undo {
+                    self.session
+                        .host()
+                        .with_tree_mut(|t| ops::remove_node(t, &snapshot.root_id))?;
+                    if self.selected.as_deref() == Some(snapshot.root_id.as_str()) {
+                        self.selected = None;
+                    }
+                } else {
+                    self.session
+                        .host()
+                        .with_tree_mut(|t| undo::restore_subtree(t, snapshot))?;
+                    self.selected = Some(snapshot.root_id.to_string());
+                }
+            }
+            undo::UndoCommand::RemoveSubtree { snapshot } => {
+                if is_undo {
+                    self.session
+                        .host()
+                        .with_tree_mut(|t| undo::restore_subtree(t, snapshot))?;
+                    self.selected = Some(snapshot.root_id.to_string());
+                } else {
+                    self.session
+                        .host()
+                        .with_tree_mut(|t| ops::remove_node(t, &snapshot.root_id))?;
+                    if self.selected.as_deref() == Some(snapshot.root_id.as_str()) {
+                        self.selected = None;
+                    }
+                }
+            }
+            undo::UndoCommand::TileMapStroke {
+                node_id,
+                path,
+                layer,
+                cells,
+                ..
+            } => {
+                let mut doc = pite_scene::load_tilemap(path)?;
+                for c in cells {
+                    let target = if is_undo { &c.old } else { &c.new };
+                    match target {
+                        Some(cell) => {
+                            doc.set_cell(*layer, c.x, c.y, cell.clone());
+                        }
+                        None => {
+                            doc.erase_cell(*layer, c.x, c.y);
+                        }
+                    }
+                }
+                pite_scene::save_tilemap(path, &doc)?;
+                self.session.host().set_tilemap_doc(node_id, doc);
+                self.session.rebuild_physics();
+            }
+            undo::UndoCommand::AtlasEdit { path, old, new, .. } => {
+                let target = if is_undo { old } else { new };
+                pite_render::atlas::save_atlas(path, target)?;
+                if let Some(ed) = self.atlas_editor.as_mut() {
+                    if &ed.path == path {
+                        ed.atlas = target.clone();
+                        ed.dirty = false;
+                    }
+                }
+                self.session.dirty_assets.insert(path.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// Set a node property and push a typed undo command (coalesced when `coalesce_key` is active).
+    pub(super) fn set_prop_recorded(
+        &mut self,
+        id: &NodeId,
+        key: &str,
+        value: pite_core::PropValue,
+        coalesce_key: Option<String>,
+    ) -> Result<()> {
+        let old = self
+            .session
+            .host()
+            .with_tree(|t| t.get(id).and_then(|n| n.props.get(key).cloned()));
+        if old.as_ref() == Some(&value) {
+            return Ok(());
+        }
+        self.session
+            .host()
+            .with_tree_mut(|t| ops::set_prop(t, id, key, value.clone()))?;
+        self.undo_history.push(undo::UndoCommand::SetProp {
+            id: id.clone(),
+            key: key.to_string(),
+            old,
+            new: Some(value),
+            coalesce_key,
+        });
+        self.viewport_dirty = true;
+        Ok(())
+    }
+
+    /// Remove a node property and push a typed undo command.
+    pub(super) fn remove_prop_recorded(&mut self, id: &NodeId, key: &str) -> Result<()> {
+        let old = self
+            .session
+            .host()
+            .with_tree(|t| t.get(id).and_then(|n| n.props.get(key).cloned()));
+        if old.is_none() {
+            return Ok(());
+        }
+        self.session
+            .host()
+            .with_tree_mut(|t| ops::remove_prop(t, id, key))?;
+        self.undo_history.push(undo::UndoCommand::SetProp {
+            id: id.clone(),
+            key: key.to_string(),
+            old,
+            new: None,
+            coalesce_key: None,
+        });
+        self.viewport_dirty = true;
+        Ok(())
+    }
+
+    /// Rename a node and push a typed undo command.
+    pub(super) fn rename_node_recorded(&mut self, id: &NodeId, new_name: &str) -> Result<()> {
+        let trimmed = new_name.trim().to_string();
+        let old_name = self
+            .session
+            .host()
+            .with_tree(|t| t.get(id).map(|n| n.name.clone()))
+            .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+        if old_name == trimmed {
+            return Ok(());
+        }
+        self.session
+            .host()
+            .with_tree_mut(|t| ops::rename_node(t, id, &trimmed))?;
+        self.undo_history.push(undo::UndoCommand::RenameNode {
+            id: id.clone(),
+            old_name,
+            new_name: trimmed,
+        });
+        self.viewport_dirty = true;
+        Ok(())
+    }
+
+    /// Place `id` under `new_parent` at `index` and push a typed undo command.
+    pub(super) fn place_node_recorded(
+        &mut self,
+        id: &NodeId,
+        new_parent: &NodeId,
+        index: usize,
+    ) -> Result<()> {
+        let (old_parent, old_index) = self.session.host().with_tree(|t| {
+            let p = t.get(id).and_then(|n| n.parent.clone());
+            let idx = p
+                .as_ref()
+                .and_then(|pid| t.children_of(pid).iter().position(|c| c == id))
+                .unwrap_or(0);
+            (p, idx)
+        });
+        self.session
+            .host()
+            .with_tree_mut(|t| ops::place_node(t, id, new_parent, index))?;
+        let (actual_parent, actual_index) = self.session.host().with_tree(|t| {
+            let p = t.get(id).and_then(|n| n.parent.clone());
+            let idx = p
+                .as_ref()
+                .and_then(|pid| t.children_of(pid).iter().position(|c| c == id))
+                .unwrap_or(0);
+            (p, idx)
+        });
+        if old_parent != actual_parent || old_index != actual_index {
+            self.undo_history.push(undo::UndoCommand::MoveNode {
+                id: id.clone(),
+                old_parent,
+                old_index,
+                new_parent: actual_parent,
+                new_index: actual_index,
+            });
+        }
+        self.viewport_dirty = true;
+        Ok(())
+    }
+
+    /// Remove `id` (and its subtree) and push a typed undo command.
+    pub(super) fn remove_node_recorded(&mut self, id: &NodeId) -> Result<()> {
+        let snapshot = self
+            .session
+            .host()
+            .with_tree(|t| undo::capture_subtree(t, id));
+        self.session
+            .host()
+            .with_tree_mut(|t| ops::remove_node(t, id))?;
+        if let Some(snapshot) = snapshot {
+            self.undo_history
+                .push(undo::UndoCommand::RemoveSubtree { snapshot });
+        }
+        if self.selected.as_deref() == Some(id.as_str()) {
+            self.selected = None;
+        }
+        self.viewport_dirty = true;
+        Ok(())
+    }
+
+    /// Record a newly inserted subtree (`add_node`, `duplicate_node`, `instantiate_scene`).
+    pub(super) fn record_inserted_subtree(&mut self, root_id: &NodeId) {
+        if let Some(snapshot) = self
+            .session
+            .host()
+            .with_tree(|t| undo::capture_subtree(t, root_id))
+        {
+            self.undo_history
+                .push(undo::UndoCommand::InsertSubtree { snapshot });
+        }
+    }
 }
 
 impl eframe::App for EditorApp {
@@ -476,6 +765,17 @@ impl eframe::App for EditorApp {
         self.show_trust_modal(ctx);
         self.handle_os_drop(ctx, &root);
 
+        self.pointer_down = ctx.input(|i| i.pointer.any_down());
+        if !self.pointer_down {
+            self.undo_history.end_coalesce();
+        }
+        if self.tab != Tab::Code && !ctx.egui_wants_keyboard_input() {
+            if cmd(egui::Key::Z) {
+                self.undo();
+            } else if cmd(egui::Key::Y) || cmd_shift(egui::Key::Z) {
+                self.redo();
+            }
+        }
         if self.tab != Tab::Code {
             if cmd(egui::Key::A) {
                 let parent = self.selected.clone().map(NodeId::from);
@@ -626,6 +926,30 @@ impl eframe::App for EditorApp {
                     ui.separator();
                     if ui.button("Quit  Ctrl+Q").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+                ui.menu_button("Edit", |ui| {
+                    let undo_label = match self.undo_history.undo_label() {
+                        Some(l) => format!("Undo {l}  Ctrl+Z"),
+                        None => "Undo  Ctrl+Z".to_string(),
+                    };
+                    if ui
+                        .add_enabled(self.undo_history.can_undo(), egui::Button::new(undo_label))
+                        .clicked()
+                    {
+                        self.undo();
+                        ui.close();
+                    }
+                    let redo_label = match self.undo_history.redo_label() {
+                        Some(l) => format!("Redo {l}  Ctrl+Y"),
+                        None => "Redo  Ctrl+Y".to_string(),
+                    };
+                    if ui
+                        .add_enabled(self.undo_history.can_redo(), egui::Button::new(redo_label))
+                        .clicked()
+                    {
+                        self.redo();
+                        ui.close();
                     }
                 });
                 ui.menu_button("Project", |ui| {

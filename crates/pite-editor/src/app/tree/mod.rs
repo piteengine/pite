@@ -20,32 +20,33 @@ use super::EditorApp;
 
 impl EditorApp {
     pub(super) fn delete_node(&mut self, id: &NodeId) {
-        match self
-            .session
-            .host()
-            .with_tree_mut(|t| ops::remove_node(t, id))
-        {
-            Ok(()) => {
-                if self.selected.as_deref() == Some(id.as_str()) {
-                    self.selected = None;
-                }
-                self.viewport_dirty = true;
-                self.log(format!("deleted {id}."));
-            }
+        match self.remove_node_recorded(id) {
+            Ok(()) => self.log(format!("deleted {id}.")),
             Err(e) => self.log(format!("delete failed: {e:#}")),
         }
     }
 
     pub(super) fn move_sibling(&mut self, id: &NodeId, delta: i32) {
-        match self
-            .session
-            .host()
-            .with_tree_mut(|t| ops::move_sibling(t, id, delta))
-        {
-            Ok(()) => {
-                self.viewport_dirty = true;
-                self.log(format!("moved {id}."));
-            }
+        let target = self.session.host().with_tree(|t| {
+            let node = t
+                .get(id)
+                .ok_or_else(|| anyhow::anyhow!("node `{id}` does not exist"))?;
+            let parent = node
+                .parent
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("node `{id}` has no parent to reorder in"))?;
+            let siblings = t.children_of(&parent);
+            let pos = siblings
+                .iter()
+                .position(|s| s == id)
+                .ok_or_else(|| anyhow::anyhow!("node `{id}` is not listed under its parent"))?;
+            let len = siblings.len() as i32;
+            let at = (pos as i32 + delta).clamp(0, len - 1) as usize;
+            Ok::<_, anyhow::Error>((parent, at))
+        });
+        let result = target.and_then(|(parent, at)| self.place_node_recorded(id, &parent, at));
+        match result {
+            Ok(()) => self.log(format!("moved {id}.")),
             Err(e) => self.log(format!("move failed: {e:#}")),
         }
     }
@@ -65,6 +66,7 @@ impl EditorApp {
             .with_tree_mut(|t| ops::duplicate_node(t, &sel))
         {
             Ok(new_id) => {
+                self.record_inserted_subtree(&new_id);
                 self.selected = Some(new_id.to_string());
                 self.viewport_dirty = true;
                 self.log(format!("Duplicated {sel} -> {new_id}"));
@@ -103,9 +105,9 @@ impl EditorApp {
         if dragged_id == *target || zone == DropZone::None {
             return;
         }
-        let result = self.session.host().with_tree_mut(|t| match zone {
-            DropZone::Under => ops::move_node(t, &dragged_id, Some(target.clone())),
-            DropZone::Before => {
+        let target_pos = self.session.host().with_tree(|t| match zone {
+            DropZone::Under => Ok((target.clone(), t.children_of(target).len())),
+            DropZone::Before | DropZone::After => {
                 let parent = t
                     .get(target)
                     .and_then(|n| n.parent.clone())
@@ -115,27 +117,19 @@ impl EditorApp {
                     .iter()
                     .position(|s| s == target)
                     .ok_or_else(|| anyhow::anyhow!("target `{target}` not found"))?;
-                ops::place_node(t, &dragged_id, &parent, pos)
+                let index = if zone == DropZone::Before {
+                    pos
+                } else {
+                    pos + 1
+                };
+                Ok((parent, index))
             }
-            DropZone::After => {
-                let parent = t
-                    .get(target)
-                    .and_then(|n| n.parent.clone())
-                    .ok_or_else(|| anyhow::anyhow!("cannot reorder at the top level"))?;
-                let sibs = t.children_of(&parent);
-                let pos = sibs
-                    .iter()
-                    .position(|s| s == target)
-                    .ok_or_else(|| anyhow::anyhow!("target `{target}` not found"))?;
-                ops::place_node(t, &dragged_id, &parent, pos + 1)
-            }
-            DropZone::None => Ok(()),
+            DropZone::None => unreachable!(),
         });
+        let result = target_pos
+            .and_then(|(parent, index)| self.place_node_recorded(&dragged_id, &parent, index));
         match result {
-            Ok(()) => {
-                self.viewport_dirty = true;
-                self.log(format!("moved {dragged_id}."));
-            }
+            Ok(()) => self.log(format!("moved {dragged_id}.")),
             Err(e) => self.log(format!("move failed: {e:#}")),
         }
     }
@@ -542,6 +536,7 @@ impl EditorApp {
                     .with_tree_mut(|t| ops::duplicate_node(t, &menu_id))
                 {
                     Ok(new_id) => {
+                        self.record_inserted_subtree(&new_id);
                         self.selected = Some(new_id.to_string());
                         self.viewport_dirty = true;
                         self.log(format!("Duplicated {menu_id} -> {new_id}"));

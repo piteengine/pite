@@ -132,6 +132,7 @@ impl EditorApp {
                 )
             }) {
                 Ok(new_id) => {
+                    self.record_inserted_subtree(&new_id);
                     self.selected = Some(new_id.to_string());
                     if let Some(p) = &parent {
                         self.open_nodes.insert(p.to_string());
@@ -189,13 +190,8 @@ impl EditorApp {
         }
 
         if rename && !modal.name.trim().is_empty() {
-            match self
-                .session
-                .host()
-                .with_tree_mut(|t| ops::rename_node(t, &modal.id, &modal.name))
-            {
+            match self.rename_node_recorded(&modal.id, &modal.name) {
                 Ok(()) => {
-                    self.viewport_dirty = true;
                     self.log(format!("Renamed node {} to {}", modal.id, modal.name));
                     close = true;
                 }
@@ -281,6 +277,7 @@ impl EditorApp {
                                         ops::instantiate_scene_as_child(t, parent, &fs_path)
                                     }) {
                                         Ok(new_root) => {
+                                            self.record_inserted_subtree(&new_root);
                                             self.selected = Some(new_root.to_string());
                                             self.viewport_dirty = true;
                                             self.log(format!(

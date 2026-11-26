@@ -10,30 +10,26 @@ use eframe::egui;
 use pite_core::{NodeId, PropValue};
 
 use crate::icons;
-use crate::ops;
 
 use super::EditorApp;
 
 impl EditorApp {
     pub(super) fn set_prop(&mut self, id: &NodeId, key: &str, value: PropValue) {
-        let result = self
-            .session
-            .host()
-            .with_tree_mut(|t| ops::set_prop(t, id, key, value));
-        match result {
-            Ok(()) => self.viewport_dirty = true,
-            Err(e) => self.log(format!("set prop failed: {e:#}")),
+        let coalesce = if self.pointer_down {
+            let ck = format!("prop:{id}:{key}");
+            self.undo_history.begin_coalesce(ck.clone());
+            Some(ck)
+        } else {
+            None
+        };
+        if let Err(e) = self.set_prop_recorded(id, key, value, coalesce) {
+            self.log(format!("set prop failed: {e:#}"));
         }
     }
 
     pub(super) fn remove_prop(&mut self, id: &NodeId, key: &str) {
-        let result = self
-            .session
-            .host()
-            .with_tree_mut(|t| ops::remove_prop(t, id, key));
-        match result {
-            Ok(()) => self.viewport_dirty = true,
-            Err(e) => self.log(format!("remove prop failed: {e:#}")),
+        if let Err(e) = self.remove_prop_recorded(id, key) {
+            self.log(format!("remove prop failed: {e:#}"));
         }
     }
 
@@ -90,11 +86,7 @@ impl EditorApp {
             if name_resp.lost_focus() || enter_pressed {
                 let trimmed = current_text.trim();
                 if !trimmed.is_empty() && trimmed != node.name {
-                    let _ = self
-                        .session
-                        .host()
-                        .with_tree_mut(|t| ops::rename_node(t, &node_id, trimmed));
-                    self.viewport_dirty = true;
+                    let _ = self.rename_node_recorded(&node_id, trimmed);
                 }
                 ui.data_mut(|d| d.remove_temp::<String>(rename_id));
             }

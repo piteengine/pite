@@ -50,6 +50,7 @@ impl EditorApp {
         match built.and_then(|doc| Ok(pite_scene::save_scene(&doc)?)) {
             Ok(text) => match ops::save_text(&self.scene_path, &text) {
                 Ok(()) => {
+                    self.undo_history.mark_saved();
                     self.viewport_dirty = true;
                     self.log(format!("saved scene {}", self.scene_path.display()));
                 }
@@ -265,6 +266,7 @@ impl EditorApp {
                 self.custom_props = Self::load_custom_props(self.project_dir.as_deref());
                 self.view_size = Self::view_size_for(self.project_dir.as_deref());
                 self.selected = None;
+                self.undo_history.clear();
                 self.viewport_dirty = true;
                 self.tab = Tab::Viewport;
                 self.push_recent(file);

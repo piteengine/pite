@@ -95,6 +95,8 @@ impl EditorApp {
         let Some(ed) = self.atlas_editor.as_mut() else {
             return;
         };
+        let before_atlas = ed.atlas.clone();
+        let atlas_path = ed.path.clone();
         ed.ensure_sheet_texture(ui.ctx());
 
         // Header bar
@@ -164,6 +166,24 @@ impl EditorApp {
 
         ui.add_space(4.0);
         show_animations_section(ui, ed);
+
+        let after_atlas = ed.atlas.clone();
+        if before_atlas != after_atlas {
+            let coalesce_key = if self.pointer_down {
+                let ck = format!("atlas:{}", atlas_path.display());
+                self.undo_history.begin_coalesce(ck.clone());
+                Some(ck)
+            } else {
+                None
+            };
+            self.undo_history
+                .push(crate::app::undo::UndoCommand::AtlasEdit {
+                    path: atlas_path,
+                    old: before_atlas,
+                    new: after_atlas,
+                    coalesce_key,
+                });
+        }
 
         if save_requested {
             self.save_atlas_editor();
