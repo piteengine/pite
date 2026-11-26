@@ -71,11 +71,12 @@ impl Vec2 {
 
     #[setter]
     pub fn set_x(&mut self, val: f64) {
-        self.x = val;
         if let Some((host, node, key)) = &self.target {
-            let cur_y = self.y();
-            self.y = cur_y;
-            host.set_prop(node, key, pite_core::PropValue::Vec2(val, cur_y));
+            let (nx, ny) = host.set_vec2_axis(node, key, true, val);
+            self.x = nx;
+            self.y = ny;
+        } else {
+            self.x = val;
         }
     }
 
@@ -86,11 +87,12 @@ impl Vec2 {
 
     #[setter]
     pub fn set_y(&mut self, val: f64) {
-        self.y = val;
         if let Some((host, node, key)) = &self.target {
-            let cur_x = self.x();
-            self.x = cur_x;
-            host.set_prop(node, key, pite_core::PropValue::Vec2(cur_x, val));
+            let (nx, ny) = host.set_vec2_axis(node, key, false, val);
+            self.x = nx;
+            self.y = ny;
+        } else {
+            self.y = val;
         }
     }
 

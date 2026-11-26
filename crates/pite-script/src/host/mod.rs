@@ -303,6 +303,26 @@ impl ScriptHost {
         }
     }
 
+    /// Update one axis of a `Vec2` property under a single `NodeTree` lock, returning `(x, y)`.
+    pub fn set_vec2_axis(&self, node: &str, key: &str, is_x: bool, val: f64) -> (f64, f64) {
+        let mut tree = lock_or_recover(&self.tree);
+        if let Some(n) = tree.get_mut(&NodeId::from(node.to_string())) {
+            let (cx, cy) = match n.props.get(key) {
+                Some(pite_core::PropValue::Vec2(x, y)) => (*x, *y),
+                _ => (0.0, 0.0),
+            };
+            let next = if is_x { (val, cy) } else { (cx, val) };
+            n.props
+                .insert(key.to_string(), pite_core::PropValue::Vec2(next.0, next.1));
+            return next;
+        }
+        if is_x {
+            (val, 0.0)
+        } else {
+            (0.0, val)
+        }
+    }
+
     /// Install the project's `[props]` declarations. Called once by
     /// `GameSession::open` from the manifest; subsequent reloads must
     /// re-call if the manifest changed.
