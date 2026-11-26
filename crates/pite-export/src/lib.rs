@@ -231,6 +231,12 @@ pub fn export_project(
     std::fs::copy(&manifest_src, game_dir.join(pite_project::MANIFEST_FILE))
         .map_err(|e| io_err(format!("cannot copy {}", manifest_src.display()), e))?;
 
+    let input_map_src = root.join(pite_project::INPUT_MAP_FILE);
+    if input_map_src.is_file() {
+        std::fs::copy(&input_map_src, game_dir.join(pite_project::INPUT_MAP_FILE))
+            .map_err(|e| io_err(format!("cannot copy {}", input_map_src.display()), e))?;
+    }
+
     let bin_dest = bin_dir.join(&bin_name);
     std::fs::copy(&binary_src, &bin_dest)
         .map_err(|e| io_err(format!("cannot copy {}", binary_src.display()), e))?;

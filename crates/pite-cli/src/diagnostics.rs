@@ -170,6 +170,21 @@ impl Finding {
         )
     }
 
+    pub fn input_map_error(error: &str) -> Self {
+        Self::error(
+            Kind::Manifest,
+            Location::file(pite_project::INPUT_MAP_FILE),
+            Spans::new()
+                .info(pite_project::INPUT_MAP_FILE)
+                .plain(" has an invalid configuration."),
+            Spans::text(error),
+            Spans::new()
+                .plain("Fix the action or chord bindings in ")
+                .info(pite_project::INPUT_MAP_FILE)
+                .plain(" (or edit them in Project Settings → Input Map)."),
+        )
+    }
+
     pub fn plugin_load_error(id: &str, error: &str) -> Self {
         Self::error(
             Kind::Plugin,

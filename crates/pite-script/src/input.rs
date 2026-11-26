@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 static INPUT: LazyLock<RwLock<InputState>> = LazyLock::new(|| RwLock::new(InputState::default()));
+static ACTION_MAP: LazyLock<RwLock<ActionMapState>> =
+    LazyLock::new(|| RwLock::new(ActionMapState::default()));
+
+#[derive(Debug, Default)]
+struct ActionMapState {
+    actions: HashMap<String, Vec<Vec<String>>>,
+    warned_unknown: HashSet<String>,
+}
 
 fn read_or_recover<'a, T>(lock: &'a RwLock<T>) -> RwLockReadGuard<'a, T> {
     lock.read().unwrap_or_else(|poisoned| {
@@ -68,6 +76,82 @@ pub fn input_released(key: &str) -> bool {
 
 pub fn input_mouse() -> (f64, f64) {
     read_or_recover(&INPUT).mouse
+}
+
+/// Install the active input action map (action name -> list of key chords).
+pub fn input_set_actions(actions: HashMap<String, Vec<Vec<String>>>) {
+    let mut state = write_or_recover(&ACTION_MAP);
+    state.actions = actions;
+    state.warned_unknown.clear();
+}
+
+fn resolve_chords<F: FnOnce(&[Vec<String>], &InputState) -> bool>(name: &str, eval: F) -> bool {
+    let chords = {
+        let map = read_or_recover(&ACTION_MAP);
+        map.actions.get(name).cloned()
+    };
+    let Some(chords) = chords else {
+        let mut map = write_or_recover(&ACTION_MAP);
+        if map.warned_unknown.insert(name.to_string()) {
+            tracing::warn!("unknown input action `{name}`");
+        }
+        return false;
+    };
+    let input = read_or_recover(&INPUT);
+    eval(&chords, &input)
+}
+
+/// Return `true` while any binding chord for `name` is fully held.
+pub fn action_held(name: &str) -> bool {
+    resolve_chords(name, |chords, input| {
+        chords
+            .iter()
+            .any(|chord| !chord.is_empty() && chord.iter().all(|k| input.held.contains(k)))
+    })
+}
+
+/// Return `true` on the frame any binding chord for `name` becomes fully held.
+pub fn action_pressed(name: &str) -> bool {
+    resolve_chords(name, |chords, input| {
+        chords.iter().any(|chord| {
+            !chord.is_empty()
+                && chord.iter().all(|k| input.held.contains(k))
+                && chord.iter().any(|k| input.pressed.contains(k))
+        })
+    })
+}
+
+/// Return `true` on the frame a held binding chord for `name` releases any of its keys.
+pub fn action_released(name: &str) -> bool {
+    resolve_chords(name, |chords, input| {
+        chords.iter().any(|chord| {
+            !chord.is_empty()
+                && chord.iter().any(|k| input.released.contains(k))
+                && chord
+                    .iter()
+                    .all(|k| input.held.contains(k) || input.released.contains(k))
+        })
+    })
+}
+
+/// Compute a 1D axis in `[-1.0, 1.0]` from `negative` and `positive` actions.
+pub fn action_axis(negative: &str, positive: &str) -> f64 {
+    let pos = if action_held(positive) { 1.0 } else { 0.0 };
+    let neg = if action_held(negative) { 1.0 } else { 0.0 };
+    pos - neg
+}
+
+/// Compute a 2D movement vector from four directional actions, normalized if length > 1.
+pub fn action_vector(left: &str, right: &str, up: &str, down: &str) -> (f64, f64) {
+    let x = action_axis(left, right);
+    let y = action_axis(up, down);
+    let len_sq = x * x + y * y;
+    if len_sq > 1.0 {
+        let len = len_sq.sqrt();
+        (x / len, y / len)
+    } else {
+        (x, y)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -172,5 +256,63 @@ mod tests {
         assert!((wx - 102.0).abs() < 1e-9 && (wy - 200.0).abs() < 1e-9);
         // Reset for other tests.
         set_camera_view((0.0, 0.0), 1.0, (800, 600));
+    }
+
+    #[test]
+    fn action_chords_edges_axis_and_vector_work() {
+        let _guard = crate::host::HOST_SERIAL.lock().unwrap();
+        input_clear();
+
+        let mut map = HashMap::new();
+        map.insert(
+            "save".to_string(),
+            vec![vec!["T-Control".to_string(), "T-S".to_string()]],
+        );
+        map.insert("left".to_string(), vec![vec!["T-A".to_string()]]);
+        map.insert("right".to_string(), vec![vec!["T-D".to_string()]]);
+        map.insert("up".to_string(), vec![vec!["T-W".to_string()]]);
+        map.insert("down".to_string(), vec![vec!["T-Down".to_string()]]);
+        input_set_actions(map);
+
+        // Unknown action returns false/0.0 without panicking.
+        assert!(!action_held("T-MissingAction"));
+        assert!(!action_pressed("T-MissingAction"));
+        assert!(!action_released("T-MissingAction"));
+
+        // Partial chord is not active.
+        input_begin_frame();
+        input_set_key("T-Control", true);
+        assert!(!action_held("save"));
+        assert!(!action_pressed("save"));
+
+        // Completing the chord triggers pressed & held on this frame.
+        input_begin_frame();
+        input_set_key("T-S", true);
+        assert!(action_held("save"));
+        assert!(action_pressed("save"));
+
+        // Next frame: still held, no longer pressed.
+        input_begin_frame();
+        assert!(action_held("save"));
+        assert!(!action_pressed("save"));
+
+        // Releasing one key of the chord triggers action_released.
+        input_begin_frame();
+        input_set_key("T-S", false);
+        assert!(!action_held("save"));
+        assert!(action_released("save"));
+
+        // Axis & normalized diagonal vector.
+        input_begin_frame();
+        input_set_key("T-D", true);
+        input_set_key("T-W", true);
+        assert_eq!(action_axis("left", "right"), 1.0);
+        let (vx, vy) = action_vector("left", "right", "up", "down");
+        let expected = 1.0 / 2.0_f64.sqrt();
+        assert!((vx - expected).abs() < 1e-6);
+        assert!((vy + expected).abs() < 1e-6);
+
+        input_clear();
+        input_set_actions(HashMap::new());
     }
 }

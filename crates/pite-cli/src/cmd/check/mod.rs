@@ -129,6 +129,17 @@ pub fn run(
                 }
             }
 
+            if root.join(pite_project::INPUT_MAP_FILE).is_file() {
+                match pite_project::load_input_map(root) {
+                    Ok(input_map) => {
+                        for err in pite_project::validate_input_map(&input_map) {
+                            findings.push(Finding::input_map_error(&err));
+                        }
+                    }
+                    Err(err) => findings.push(Finding::input_map_error(&err.to_string())),
+                }
+            }
+
             let loaded_plugins = pite_project::load_enabled_plugins(root, manifest);
             for err in &loaded_plugins.errors {
                 let id = match err {

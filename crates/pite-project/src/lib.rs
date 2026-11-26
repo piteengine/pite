@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 mod error;
+mod input;
 mod plugins;
 mod trust;
 
@@ -19,6 +20,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use error::{ProjectError, Result};
+pub use input::{
+    load_input_map, parse_chord, save_input_map, validate_input_map, InputMapFile, INPUT_MAP_FILE,
+    INPUT_MAP_FORMAT_VERSION, KNOWN_INPUT_KEYS,
+};
 pub use plugins::{
     is_pite_version_compatible, is_valid_plugin_id, load_enabled_plugins, load_plugin_manifest,
     plugin_dir, save_plugin_manifest, LoadedPlugin, LoadedPlugins, PluginEntry, PluginLoadError,

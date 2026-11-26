@@ -85,6 +85,8 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTileMap2D>()?;
     m.add_class::<crate::vec2::Vec2>()?;
     m.add_class::<PyInputQuery>()?;
+    m.add_class::<PyInputAction>()?;
+    m.add("action", PyInputAction)?;
     m.add_class::<crate::descriptor::PyChildDescriptor>()?;
     m.add_class::<crate::descriptor::PyNodeDescriptor>()?;
     m.add(
@@ -249,6 +251,34 @@ impl PyInputQuery {
         Err(pyo3::exceptions::PyTypeError::new_err(format!(
             "pite.{n} is an attribute-based accessor. Use 'pite.{n}.<key>' instead (e.g. pite.{n}.space, pite.{n}.right). Passing strings is no longer supported."
         )))
+    }
+}
+
+/// Named input action query accessor exposed as `pite.action`.
+#[pyclass(name = "InputAction")]
+pub struct PyInputAction;
+
+#[pymethods]
+impl PyInputAction {
+    fn held(&self, name: &str) -> bool {
+        crate::action_held(name)
+    }
+
+    fn pressed(&self, name: &str) -> bool {
+        crate::action_pressed(name)
+    }
+
+    fn released(&self, name: &str) -> bool {
+        crate::action_released(name)
+    }
+
+    fn axis(&self, negative: &str, positive: &str) -> f64 {
+        crate::action_axis(negative, positive)
+    }
+
+    fn vector(&self, left: &str, right: &str, up: &str, down: &str) -> crate::vec2::Vec2 {
+        let (x, y) = crate::action_vector(left, right, up, down);
+        crate::vec2::Vec2::new(x, y)
     }
 }
 

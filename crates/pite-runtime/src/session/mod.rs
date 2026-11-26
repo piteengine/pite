@@ -117,12 +117,41 @@ impl GameSession {
         pite_script::set_current_physics(Some(session.physics.clone()));
         pite_audio::set_project_dir(session.project_dir.clone());
         pite_script::set_project_dir(session.project_dir.clone());
+        session.reload_input_map();
         session.load_project_plugins()?;
         session.rebuild()?;
         if !session.no_reload {
             session.start_watcher()?;
         }
         Ok(session)
+    }
+
+    /// Load `res://input.pite.toml` (if present) and install compiled action chords into `pite-script`.
+    pub fn reload_input_map(&self) {
+        let Some(dir) = self.project_dir.as_deref() else {
+            pite_script::input_set_actions(HashMap::new());
+            return;
+        };
+        let map = match pite_project::load_input_map(dir) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("failed to load {}: {e:#}", pite_project::INPUT_MAP_FILE);
+                pite_script::input_set_actions(HashMap::new());
+                return;
+            }
+        };
+        let mut compiled: HashMap<String, Vec<Vec<String>>> = HashMap::new();
+        for (action, bindings) in &map.actions {
+            let mut chords = Vec::new();
+            for b in bindings {
+                match pite_project::parse_chord(b) {
+                    Ok(chord) => chords.push(chord),
+                    Err(err) => tracing::warn!("input action `{action}`: {err}"),
+                }
+            }
+            compiled.insert(action.clone(), chords);
+        }
+        pite_script::input_set_actions(compiled);
     }
 
     /// Loads enabled plugin schemas, custom props, default node classes, and (when not in

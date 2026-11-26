@@ -36,6 +36,9 @@ pub enum ProjectError {
 
     #[error(transparent)]
     ResPath(#[from] pite_core::ResPathError),
+
+    #[error("{0}")]
+    Validation(String),
 }
 
 /// Convenience result alias for `pite-project`.

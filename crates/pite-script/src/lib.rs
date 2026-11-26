@@ -29,7 +29,8 @@ pub use host::{
     set_current_host, NodeProxy, ScriptHost,
 };
 pub use input::{
-    input_begin_frame, input_clear, input_held, input_mouse, input_pressed, input_released,
+    action_axis, action_held, action_pressed, action_released, action_vector, input_begin_frame,
+    input_clear, input_held, input_mouse, input_pressed, input_released, input_set_actions,
     input_set_key, input_set_mouse, screen_to_world, set_camera_view,
 };
 #[doc(hidden)]
