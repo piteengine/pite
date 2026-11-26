@@ -83,16 +83,19 @@ fn plugin_autoload_ticks_after_nodes_and_exposes_lookup() {
     .unwrap();
     std::fs::write(
         dir.join("plugins/my_plugin/plugin.toml"),
-        r#"
+        format!(
+            r#"
 id = "my_plugin"
 name = "My Plugin"
 version = "0.1.0"
-pite_version = ">=0.4.0"
+pite_version = "{}"
 runtime = "my_plugin.rt:Runtime"
 
 [autoloads]
 Tracker = "my_plugin.rt:Tracker"
 "#,
+            env!("CARGO_PKG_VERSION"),
+        ),
     )
     .unwrap();
     std::fs::write(dir.join("plugins/my_plugin/__init__.py"), "").unwrap();
@@ -188,11 +191,12 @@ fn plugin_node_autobinds_default_class_and_live_props() {
     .unwrap();
     std::fs::write(
         dir.join("plugins/ui_plug/plugin.toml"),
-        r#"
+        format!(
+            r#"
 id = "ui_plug"
 name = "UI Plugin"
 version = "0.1.0"
-pite_version = ">=0.4.0"
+pite_version = "{}"
 
 [[nodes]]
 type_name = "HealthBar"
@@ -204,6 +208,8 @@ key = "max_hp"
 type = "int"
 default = 100
 "#,
+            env!("CARGO_PKG_VERSION"),
+        ),
     )
     .unwrap();
     std::fs::write(dir.join("plugins/ui_plug/__init__.py"), "").unwrap();

@@ -2,7 +2,7 @@
 
 All notable changes to the Pite game engine are documented here.
 
-## Unreleased
+## v0.5.0 - 2026-11-26
 
 - **Plugin System (v1)**:
     - Added project-local plugins under `res://plugins/<id>/` with `plugin.toml` manifests, `[plugins]` configuration in `pite.toml`, and `pite plugin new|add|enable|disable|remove|list` CLI commands (supporting local paths, git URLs with `--rev`, and `.zip` archives, added disabled by default).

@@ -658,11 +658,12 @@ mod tests {
         std::fs::create_dir_all(&d_dir).unwrap();
         std::fs::write(
             d_dir.join(PLUGIN_MANIFEST_FILE),
-            r#"
+            format!(
+                r#"
 id = "dialogue"
 name = "Dialogue"
 version = "0.1.0"
-pite_version = "0.4"
+pite_version = "{}"
 runtime = "runtime:DialoguePlugin"
 editor = "editor:DialogueEditor"
 
@@ -684,6 +685,8 @@ default = 30.0
 name = "finished"
 payload = ["str"]
 "#,
+                env!("CARGO_PKG_VERSION"),
+            ),
         )
         .unwrap();
 
