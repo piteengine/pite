@@ -39,6 +39,7 @@ bash scripts/check-examples.sh
 - Git hooks (`pre-commit`) check formatting, Markdown, and commit subjects; install them with `pre-commit install` and run everything with `pre-commit run --all-files`.
 - New Rust files start with `// SPDX-License-Identifier: MIT OR Apache-2.0` (Python: `# …`); `examples/` game scripts stay header-free.
 - Pinned values bump in multi-file lockstep (13 internal path-dep pins, scene `FORMAT_VERSION`/`CACHE_VERSION`, the pyright pin in `crates/pite-editor/src/lsp.rs` + docs + CI, `python_bundle.rs` pins) — checklist in `docs/developer/maintenance.md`.
+- Keep `docs/changelog.md` (`## Unreleased`) and affected `docs/` pages updated whenever a change is user-facing or alters documented behavior.
 
 ## Repository Governance
 
