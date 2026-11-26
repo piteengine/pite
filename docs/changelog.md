@@ -4,6 +4,29 @@ All notable changes to the Pite game engine are documented here.
 
 ## Unreleased
 
+- **Workspace Trust & Safe Mode**:
+    - Opening an untrusted workspace in `pite edit` enters Safe Mode: the scene tree, inspector, code editor, and viewport render normally without importing or executing Python scripts or `.py` hot reloads.
+    - Added a top Safe Mode banner (`Trust Workspace`) and a confirmation modal (`Trust & Play` / `Stay in Safe Mode`) gating Play (`F5` / `Ctrl+R`).
+    - Trusted workspace paths are stored outside repositories in `<config_dir>/pite/trusted_workspaces.toml` (`PITE_CONFIG_DIR`, `$XDG_CONFIG_HOME/pite`, or `$HOME/.config/pite`).
+    - `pite new` automatically trusts newly created project directories.
+- **Visual Atlas Creator & Inspector Editor**:
+    - Added an interactive `.ptatlas` editor inside the Inspector (via `Edit Atlas…`, `Create Atlas (.ptatlas)…` on PNGs, or double-clicking a `.ptatlas` file in Assets).
+    - Supports interactive canvas zoom/pan, drag-to-create/move/resize frame boxes, frame filtering and renaming, and grid slicing by tile size or column/row counts with offset, spacing, and transparent-tile skipping.
+    - Added animation sequence management with frame-range selection, FPS and loop controls, live playback preview, and automatic viewport atlas/texture invalidation on save.
+- **2D Rendering Layering, Tinting, and Batching**:
+    - Added `z_index` draw ordering on `Node2D` (inherited by 2D, UI, and physics nodes) and `modulate` RGBA color tinting on `Sprite2D` and `AnimatedSprite2D`.
+    - Upgraded `Renderer2D` / `WgpuRenderer` to instanced quad rendering with persistent GPU buffers, 64-bit depth sort keys, texture slot handles, and texture-grouped sprite batching within `z_index` layers.
+    - Added baked 16×16 static chunks and pre-resolved atlas UV rects for `TileMap2D`.
+- **Asset Manifest Completion (`assets.pite.toml`)**:
+    - Removed legacy opaque UIDs in favor of content-hashed path tracking in `assets.pite.toml` (committed to version control).
+    - `pite new` and `pite edit` automatically reconcile `assets.pite.toml`; `pite check` flags missing or stale asset manifest entries.
+- **Standalone Type Stubs Package (`pite-stubs`)**:
+    - Added the lockstep `pite-stubs` PyPI distribution generated from `NODE_SCHEMAS`, enabling `import pite` autocompletion and type checking in external editors.
+- **Security & Path Hardening**:
+    - Sandboxed `res://` path resolution against directory traversal escapes and bounded recursive scene-cache / instance expansion.
+- **Development Workflow & CI**:
+    - Added `pre-commit` hooks (`.pre-commit-config.yaml`) for `cargo fmt`, `markdownlint-cli2`, and Conventional Commit subjects, plus workspace Clippy enforcement in CI.
+
 - **Atlas Sidecars Switched to `.ptatlas`**:
     - Changed sprite-sheet atlas sidecar extension from `.atlas.json` to `.ptatlas` across the engine.
     - Switched atlas serialization to strict TOML with `format_version = 1`.

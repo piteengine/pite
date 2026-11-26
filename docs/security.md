@@ -49,6 +49,8 @@ All engine contributions and AI agents working in this repository must uphold st
 
 ### Embedded Python Scripting Boundaries
 
+- **Workspace Trust & Safe Mode**: Opening an untrusted workspace in `pite edit` starts the session in Safe Mode with Python execution and `.py` hot reloading disabled until the user explicitly trusts the workspace. Trust records live outside repositories in the user's Pite configuration directory (`trusted_workspaces.toml`).
+- **`res://` Path Sandboxing**: Project-relative `res://` path resolution rejects directory traversal escapes outside the project root, and binary scene cache / instance loading bounds recursive expansion depth.
 - Python scripts executed within the engine runtime are scoped to game logic and standard library primitives.
 - Toolchain packaging and export bundling verify CPython distribution integrity using SHA-256 checksums pinned in `python_bundle.rs`.
 - Third-party packages required by games must be vendored and pinned in `pite.toml` via `pite vendor add` to avoid untrusted arbitrary package resolution.

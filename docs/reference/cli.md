@@ -76,7 +76,7 @@ Every command returns the same top-level shape:
 
 ### `pite new`
 
-Scaffold a new Pite game project directory with a valid `pite.toml` manifest, starter scene, and asset directory structure.
+Scaffold a new Pite game project directory with a valid `pite.toml` manifest, starter scene, and asset directory structure, and record the new directory as a trusted workspace for `pite edit`.
 
 ```sh title="Terminal"
 pite new <NAME> [--template <TEMPLATE>]
@@ -214,10 +214,11 @@ Color precedence: `--json` wins over everything, then an explicit `--color`, the
 
 ## Environment Variables
 
-| Variable             | Description                                                                                    |
-| :------------------- | :--------------------------------------------------------------------------------------------- |
-| `PITE_PYTHON`        | Explicit path to Python 3.12 binary to override auto-detection for development execution.      |
-| `PITE_LSP_CMD`       | Custom language server command for the code editor (defaults to `pyright-langserver --stdio`). |
-| `PITE_PLAYER_DIR`    | Custom directory location for caching downloaded export runner binaries.                       |
-| `WINIT_UNIX_BACKEND` | Graphics backend for Linux systems under WSL (e.g. `WINIT_UNIX_BACKEND=x11`).                  |
-| `PREFIX`             | Installation destination directory used by `install.sh` (defaults to `$HOME/.local/bin`).      |
+| Variable             | Description                                                                                      |
+| :------------------- | :----------------------------------------------------------------------------------------------- |
+| `PITE_PYTHON`        | Explicit path to Python 3.12 binary to override auto-detection for development execution.        |
+| `PITE_LSP_CMD`       | Custom language server command for the code editor (defaults to `pyright-langserver --stdio`).   |
+| `PITE_CONFIG_DIR`    | Override directory for per-user editor configuration (`recent.json`, `trusted_workspaces.toml`). |
+| `PITE_PLAYER_DIR`    | Custom directory location for caching downloaded export runner binaries.                         |
+| `WINIT_UNIX_BACKEND` | Graphics backend for Linux systems under WSL (e.g. `WINIT_UNIX_BACKEND=x11`).                    |
+| `PREFIX`             | Installation destination directory used by `install.sh` (defaults to `$HOME/.local/bin`).        |

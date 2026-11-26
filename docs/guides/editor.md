@@ -45,6 +45,14 @@ The **Viewport** renders your game using the same camera and rendering pipeline 
 !!! Note "Input Forwarding"
     Keyboard and mouse events are routed to your running scene whenever the cursor is inside the viewport area. Moving the mouse outside the viewport gives priority back to the code editor and global shortcuts.
 
+### Workspace Trust and Safe Mode
+
+When you open a folder that has not been trusted yet (for example, a newly cloned repository), the editor opens it in **Safe Mode**:
+
+- **Zero-execution inspection**: The scene tree, viewport preview, property inspector, assets browser, and code editor (including Pyright diagnostics) work normally, while Python script execution and `.py` hot reloading stay disabled.
+- **Trusting a workspace**: Click **Trust Workspace** in the top Safe Mode banner, or press Play (`▶` / ++ctrl+r++ / ++f5++) and choose **Trust & Play** in the confirmation modal.
+- **Persistence**: Trust decisions are stored per user in `trusted_workspaces.toml` inside your Pite config directory (next to `recent.json`, never inside the project repo). Projects created with `pite new` are trusted automatically.
+
 ---
 
 ## Scene Tree
@@ -212,6 +220,17 @@ When a `TileMap2D` node is selected in the scene tree:
     - Left-clicking (or dragging) paints the selected tile into the active layer.
     - Right-clicking (or dragging) erases tiles.
     - Edits automatically update the scene, refresh Rapier static physics colliders, and save the `.ptmap` file.
+
+---
+
+## Visual Atlas Editor
+
+Create and edit `.ptatlas` sprite sheets directly inside the editor without hand-editing TOML:
+
+- **Create an Atlas**: Right-click any `.png` in the Assets panel and choose **Create Atlas (.ptatlas)…**, or click **Create Atlas (.ptatlas)…** in the Inspector on a `Sprite2D` / `AnimatedSprite2D`.
+- **Open the Editor**: Double-click any `.ptatlas` file in Assets or click **Edit Atlas…** in the Inspector.
+- **Frame Canvas & Slicing**: Zoom and pan the sheet, drag to create, move, or resize frames, rename frames, or run the **Grid Slicer** (by tile dimensions or column/row counts, with optional offsets, spacing, and transparent-tile skipping).
+- **Animation Builder**: Create named animations, append frame ranges, configure `fps` and `loop`, and preview playback live in the Inspector. Saving updates both the `.ptatlas` file and the active viewport immediately.
 
 ---
 

@@ -11,7 +11,7 @@ Rust documentation is served on [docs.rs](https://docs.rs/):
 - [pite-script](https://docs.rs/pite-script): Embedded Python 3.12 scripting bridge (PyO3) and game API.
 - [pite-core](https://docs.rs/pite-core): Node tree, handles, props and lifecycle dispatch.
 - [pite-render](https://docs.rs/pite-render): Renderer2D seam and pure-Rust `wgpu` 2D sprite/text batch renderer.
-- [pite-assets](https://docs.rs/pite-assets): Asset import pipeline and UID manifest registry game assets.
+- [pite-assets](https://docs.rs/pite-assets): Asset import pipeline and content-hashed asset manifest registry (`assets.pite.toml`).
 - [pite-audio](https://docs.rs/pite-audio): Audio decoding and playback engine: WAV, OGG, MP3, FLAC.
 - [pite-physics](https://docs.rs/pite-physics): 2D physics simulation, kinematic character controller, and collision queries.
 - [pite-editor](https://docs.rs/pite-editor): Visual game editor (`egui`/`eframe`): viewport, tree, inspector, and LSP code pane.

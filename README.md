@@ -89,7 +89,7 @@ A smooth development workflow requires immediate visual feedback. The Pite edito
 
 ### `pite check` static verification
 
-As games grow to hundreds of assets and scripts, broken references and missing files can easily slip in. `pite check` verifies project integrity in milliseconds: it detects orphan assets, resolves file moves via content-addressed UIDs, validates texture and audio decoding, checks script node references, and warns on third-party imports that standalone exports would drop.
+As games grow to hundreds of assets and scripts, broken references and missing files can easily slip in. `pite check` verifies project integrity in milliseconds: it detects orphan assets, tracks file moves via content hashes in `assets.pite.toml`, validates texture and audio decoding, checks script node references, and warns on third-party imports that standalone exports would drop.
 
 ### Human-readable TOML scenes
 
@@ -108,7 +108,7 @@ Pite is built to be handy to use, to change, and to own. It unites Python script
 - **Missing audio hardware?** Automatic silent simulation keeps the game running without crashing.
 - **Script modified?** Live hot reload preserves node state and physics velocities.
 - **Typing code?** Built-in pyright provides instant autocomplete, hover docs, and diagnostics.
-- **Asset moved or renamed?** Content-addressed UIDs keep references intact across scenes and scripts.
+- **Asset moved or renamed?** Content hashes in `assets.pite.toml` keep references intact across scenes and scripts.
 - **Sharing your game?** One-command export produces a self-contained bundle with no Python installation required on the player's machine.
 
 ## Scope and focus
