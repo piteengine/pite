@@ -4,6 +4,8 @@
 //! Run with:
 //! `cargo bench -p pite-runtime --locked`
 
+#![allow(clippy::unwrap_used)]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
