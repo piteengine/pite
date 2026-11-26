@@ -41,6 +41,7 @@ The **Viewport** renders your game using the same camera and rendering pipeline 
 
 - **Resolution Scaling**: The viewport automatically contain-fits your game's design resolution (configured in `pite.toml`) into the available panel space, preserving your aspect ratio with clean letterboxing.
 - **Pan & Zoom**: While editing, pan with **middle-mouse drag** or **`Space` + left-drag**, zoom around the cursor (`0.25x`–`8.0x`) with the **scroll wheel** or trackpad pinch, and press ++ctrl+0++ (or click **Reset** in the top-right zoom HUD) to return to `100%`. Play mode resets framing to 1:1.
+- **Transform Gizmo**: Selecting a `Node2D` displays a 2D move gizmo (center handle for free drag, red/green handles for X/Y axis lock). Use the top-left **Snap** toggle (`16px` grid) or hold ++ctrl++ while dragging to snap positions, with each drag recorded as a single undoable step.
 - **Playtesting**: Press the **Play (`▶`)** icon or ++ctrl+r++ / ++f5++ to start gameplay simulation directly in the viewport. Press **Stop (`■`)** or ++ctrl+r++ again to halt playback.
 
 !!! Note "Input Forwarding"

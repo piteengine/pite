@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 
 use super::viewport::{
-    fit_view, viewport_cursor, viewport_frame_rect, zoom_viewport_at, VIEWPORT_MAX_ZOOM,
-    VIEWPORT_MIN_ZOOM,
+    apply_gizmo_drag, fit_view, snap_value, viewport_cursor, viewport_frame_rect, zoom_viewport_at,
+    GizmoAxis, VIEWPORT_MAX_ZOOM, VIEWPORT_MIN_ZOOM,
 };
 use super::*;
 
@@ -140,6 +140,47 @@ fn viewport_pan_and_zoom_transform_frame_and_pin_anchor() {
     let (_, max_z) = zoom_viewport_at(outer.center(), pan2, zoom2, 99.0, anchor);
     assert!((min_z - VIEWPORT_MIN_ZOOM).abs() < 0.001);
     assert!((max_z - VIEWPORT_MAX_ZOOM).abs() < 0.001);
+}
+
+#[test]
+fn gizmo_drag_constraints_and_grid_snap_work() {
+    assert_eq!(snap_value(23.0, 16.0), 16.0);
+    assert_eq!(snap_value(25.0, 16.0), 32.0);
+    assert_eq!(snap_value(-9.0, 16.0), -16.0);
+
+    // Free drag without snap
+    assert_eq!(
+        apply_gizmo_drag(
+            (10.0, 20.0),
+            (0.0, 0.0),
+            (15.5, -5.0),
+            GizmoAxis::Free,
+            None
+        ),
+        (25.5, 15.0)
+    );
+    // Axis-constrained X drag with 16px snap only moves & snaps X
+    assert_eq!(
+        apply_gizmo_drag(
+            (10.0, 21.0),
+            (0.0, 0.0),
+            (15.0, 99.0),
+            GizmoAxis::X,
+            Some(16.0)
+        ),
+        (32.0, 21.0)
+    );
+    // Axis-constrained Y drag with 16px snap only moves & snaps Y
+    assert_eq!(
+        apply_gizmo_drag(
+            (13.0, 20.0),
+            (0.0, 0.0),
+            (99.0, 22.0),
+            GizmoAxis::Y,
+            Some(16.0)
+        ),
+        (13.0, 48.0)
+    );
 }
 
 #[test]

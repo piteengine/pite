@@ -176,6 +176,9 @@ pub struct EditorApp {
     pub(super) active_bottom_tab: Option<String>,
     pub(in crate::app) undo_history: undo::UndoHistory,
     pub(super) pointer_down: bool,
+    pub(super) gizmo_snap_enabled: bool,
+    pub(super) gizmo_snap_step: f64,
+    pub(super) gizmo_drag: Option<viewport::GizmoDragState>,
 }
 
 impl EditorApp {
@@ -276,6 +279,9 @@ impl EditorApp {
             active_bottom_tab: None,
             undo_history: undo::UndoHistory::default(),
             pointer_down: false,
+            gizmo_snap_enabled: false,
+            gizmo_snap_step: 16.0,
+            gizmo_drag: None,
         };
         let plugin_errs = app.session.plugin_errors.clone();
         for err in plugin_errs {

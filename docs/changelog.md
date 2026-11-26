@@ -10,8 +10,9 @@ All notable changes to the Pite game engine are documented here.
 - **Scripting & GIL Performance**:
     - Evaluated `input.pite.toml` action chords in-place under `ACTION_MAP` read lock without cloning, batched GIL acquisition (`with_gil_delta`) with a shared `PyFloat` and cached bound `_process` / `_physics_process` methods, and updated `Vec2` axis writes under a single `NodeTree` lock (`set_vec2_axis`).
     - Added bytecode `pass`-method skipping (`is_noop_python_method`) preserving inheritance, and early-exit guards in `GameSession::update` for empty GIL passes, empty `PhysicsWorld` (`global_positions` / `step`), and scenes without `AnimatedSprite2D` (`tick_animations`).
-- **Editor Viewport Pan & Zoom**:
+- **Editor Viewport Pan & Zoom & Transform Gizmos**:
     - Added middle-mouse drag and `Space`+drag panning, cursor-centered scroll/pinch zooming (`0.25x`–`8.0x`), `Ctrl+0` reset, and a compact zoom HUD pill in the editor viewport (disabled during Play mode so game framing stays 1:1).
+    - Added an interactive 2D move gizmo for the selected `Node2D` (free center handle + X/Y axis handles) with a top-left `Snap: 16px` grid-snap toggle (`Ctrl` temporarily inverts snap while dragging) and coalesced Undo/Redo.
 - **Editor Undo/Redo History**:
     - Added typed inverse-command undo/redo (`Ctrl+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` and **Edit → Undo / Redo**) across Scene Tree operations, Inspector property edits, TileMap2D brush/eraser strokes, and Visual Atlas (`.ptatlas`) edits, while preserving built-in text undo in the Code tab.
     - Coalesces continuous Inspector drags, TileMap strokes, and Atlas frame drags into single undo steps, and tracks the saved state across `Ctrl+S`.

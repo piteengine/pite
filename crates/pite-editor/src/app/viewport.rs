@@ -81,6 +81,61 @@ pub(crate) fn viewport_cursor(
     Some((x, y))
 }
 
+/// Active drag axis for the viewport transform gizmo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GizmoAxis {
+    Free,
+    X,
+    Y,
+}
+
+/// Active transform gizmo drag state.
+#[derive(Clone, Debug)]
+pub(crate) struct GizmoDragState {
+    pub(crate) node_id: pite_core::NodeId,
+    pub(crate) axis: GizmoAxis,
+    pub(crate) start_world: (f64, f64),
+    pub(crate) start_local_pos: (f64, f64),
+}
+
+/// Snap `value` to the nearest multiple of `step` when `step > 0.0`.
+pub(crate) fn snap_value(value: f64, step: f64) -> f64 {
+    if step > 0.0 {
+        (value / step).round() * step
+    } else {
+        value
+    }
+}
+
+/// Compute the new local `(x, y)` position for a transform gizmo drag.
+pub(crate) fn apply_gizmo_drag(
+    start_local: (f64, f64),
+    start_world: (f64, f64),
+    cur_world: (f64, f64),
+    axis: GizmoAxis,
+    snap: Option<f64>,
+) -> (f64, f64) {
+    let dx = match axis {
+        GizmoAxis::Free | GizmoAxis::X => cur_world.0 - start_world.0,
+        GizmoAxis::Y => 0.0,
+    };
+    let dy = match axis {
+        GizmoAxis::Free | GizmoAxis::Y => cur_world.1 - start_world.1,
+        GizmoAxis::X => 0.0,
+    };
+    let mut nx = start_local.0 + dx;
+    let mut ny = start_local.1 + dy;
+    if let Some(step) = snap {
+        if matches!(axis, GizmoAxis::Free | GizmoAxis::X) {
+            nx = snap_value(nx, step);
+        }
+        if matches!(axis, GizmoAxis::Free | GizmoAxis::Y) {
+            ny = snap_value(ny, step);
+        }
+    }
+    (nx, ny)
+}
+
 /// Minimum and maximum editor viewport zoom multipliers.
 pub(crate) const VIEWPORT_MIN_ZOOM: f32 = 0.25;
 pub(crate) const VIEWPORT_MAX_ZOOM: f32 = 8.0;
@@ -360,12 +415,16 @@ impl EditorApp {
             let consumed = self.handle_plugin_viewport_pointer(ui, view_rect, (view_w, view_h));
             if !consumed {
                 self.handle_tilemap_viewport(ui, &painter, view_rect, (view_w, view_h));
+                self.handle_transform_gizmo(ui, &painter, view_rect, (view_w, view_h));
             }
             draw_collision_overlays(&self.session, &painter, view_rect, (view_w, view_h));
             let snapshot = self.editor_snapshot();
             let (errors, actions) = self.editor_plugins.draw_viewport_overlays(ui, snapshot);
             self.apply_plugin_feedback(errors, actions);
             self.draw_viewport_hud(ui, outer.rect);
+            self.draw_gizmo_snap_hud(ui, outer.rect);
+        } else {
+            self.gizmo_drag = None;
         }
     }
 
@@ -450,6 +509,193 @@ impl EditorApp {
                     });
                 });
         });
+    }
+
+    /// Show a compact snap-to-grid toggle in the top-left of the viewport.
+    fn draw_gizmo_snap_hud(&mut self, ui: &mut egui::Ui, outer_rect: egui::Rect) {
+        let hud_rect = egui::Rect::from_min_size(
+            egui::pos2(outer_rect.left() + 8.0, outer_rect.top() + 8.0),
+            egui::vec2(108.0, 24.0),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(hud_rect), |ui| {
+            egui::Frame::NONE
+                .fill(crate::theme::PANEL)
+                .stroke(egui::Stroke::new(1.0, crate::theme::PANEL_STROKE))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(6, 2))
+                .show(ui, |ui| {
+                    let label = if self.gizmo_snap_enabled {
+                        format!("Snap: {}px", self.gizmo_snap_step as i32)
+                    } else {
+                        "Snap: Off".to_string()
+                    };
+                    let color = if self.gizmo_snap_enabled {
+                        crate::theme::ACCENT
+                    } else {
+                        crate::theme::FAINT
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new(label).small().color(color))
+                                .frame(false),
+                        )
+                        .on_hover_text(
+                            "Toggle grid snap for viewport gizmo (or hold Ctrl while dragging)",
+                        )
+                        .clicked()
+                    {
+                        self.gizmo_snap_enabled = !self.gizmo_snap_enabled;
+                    }
+                });
+        });
+    }
+
+    /// Draw and handle the interactive 2D move gizmo for the selected node.
+    fn handle_transform_gizmo(
+        &mut self,
+        ui: &mut egui::Ui,
+        painter: &egui::Painter,
+        view_rect: egui::Rect,
+        view_size: (u32, u32),
+    ) {
+        let Some(selected_id) = self.selected.clone() else {
+            self.gizmo_drag = None;
+            return;
+        };
+        let node_id = pite_core::NodeId::from(selected_id);
+        let node_info = self.session.host().with_tree(|t| {
+            let n = t.get(&node_id)?;
+            if n.type_name == "TileMap2D"
+                && (self.tilemap_selected_frame.is_some() || self.tilemap_eraser)
+            {
+                return None;
+            }
+            let local_pos = match n.props.get("position") {
+                Some(PropValue::Vec2(x, y)) => (*x, *y),
+                _ => return None,
+            };
+            let global_pos = pite_core::global_position(t, &node_id);
+            Some((local_pos, global_pos))
+        });
+        let Some((local_pos, global_pos)) = node_info else {
+            self.gizmo_drag = None;
+            return;
+        };
+
+        let ((cam_x, cam_y), _) = self.session.camera_view();
+        let eff_zoom = self.session.effective_zoom();
+        let (view_w, view_h) = view_size;
+        let (sx, sy) =
+            pite_render::world_to_screen(global_pos, (cam_x, cam_y), eff_zoom, (view_w, view_h));
+        let origin = egui::pos2(
+            view_rect.min.x + (sx / view_w.max(1) as f32) * view_rect.width(),
+            view_rect.min.y + (sy / view_h.max(1) as f32) * view_rect.height(),
+        );
+
+        const AXIS_LEN: f32 = 38.0;
+        const CENTER_R: f32 = 6.0;
+        let x_tip = origin + egui::vec2(AXIS_LEN, 0.0);
+        let y_tip = origin + egui::vec2(0.0, AXIS_LEN);
+
+        let (hover_pos, primary_pressed, primary_down, space_down, cmd_down) = ui.input(|i| {
+            (
+                i.pointer.hover_pos(),
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.key_down(egui::Key::Space),
+                i.modifiers.command,
+            )
+        });
+
+        let hit_axis = hover_pos.and_then(|p| {
+            if p.distance(origin) <= CENTER_R + 4.0 {
+                Some(GizmoAxis::Free)
+            } else if p.x >= origin.x && p.x <= x_tip.x + 8.0 && (p.y - origin.y).abs() <= 7.0 {
+                Some(GizmoAxis::X)
+            } else if p.y >= origin.y && p.y <= y_tip.y + 8.0 && (p.x - origin.x).abs() <= 7.0 {
+                Some(GizmoAxis::Y)
+            } else {
+                None
+            }
+        });
+
+        let cursor_world = hover_pos.and_then(|cp| {
+            let off = viewport_cursor(view_rect, view_size, cp)?;
+            let w = pite_render::screen_to_world(
+                (off.0 as f32, off.1 as f32),
+                (cam_x, cam_y),
+                eff_zoom,
+                view_size,
+            );
+            Some((w.0 as f64, w.1 as f64))
+        });
+
+        if !space_down && primary_pressed {
+            if let (Some(axis), Some(w)) = (hit_axis, cursor_world) {
+                self.gizmo_drag = Some(GizmoDragState {
+                    node_id: node_id.clone(),
+                    axis,
+                    start_world: w,
+                    start_local_pos: local_pos,
+                });
+            }
+        }
+
+        if !primary_down {
+            if self.gizmo_drag.is_some() {
+                self.gizmo_drag = None;
+                self.undo_history.end_coalesce();
+            }
+        } else if let (Some(drag), Some(cur_w)) = (self.gizmo_drag.clone(), cursor_world) {
+            if drag.node_id == node_id {
+                let snap = if self.gizmo_snap_enabled ^ cmd_down {
+                    Some(self.gizmo_snap_step)
+                } else {
+                    None
+                };
+                let (nx, ny) = apply_gizmo_drag(
+                    drag.start_local_pos,
+                    drag.start_world,
+                    cur_w,
+                    drag.axis,
+                    snap,
+                );
+                let ck = format!("gizmo:{node_id}");
+                self.undo_history.begin_coalesce(ck.clone());
+                let _ =
+                    self.set_prop_recorded(&node_id, "position", PropValue::Vec2(nx, ny), Some(ck));
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+        } else if hit_axis.is_some() && !space_down {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        let active_axis = self.gizmo_drag.as_ref().map(|d| d.axis).or(hit_axis);
+        let x_col = if active_axis == Some(GizmoAxis::X) {
+            egui::Color32::from_rgb(255, 130, 120)
+        } else {
+            egui::Color32::from_rgb(224, 86, 76)
+        };
+        let y_col = if active_axis == Some(GizmoAxis::Y) {
+            egui::Color32::from_rgb(120, 235, 150)
+        } else {
+            egui::Color32::from_rgb(76, 195, 110)
+        };
+        let c_col = if active_axis == Some(GizmoAxis::Free) {
+            crate::theme::ACCENT
+        } else {
+            crate::theme::TEXT
+        };
+
+        painter.line_segment([origin, x_tip], egui::Stroke::new(2.0, x_col));
+        painter.circle_filled(x_tip, 4.0, x_col);
+        painter.line_segment([origin, y_tip], egui::Stroke::new(2.0, y_col));
+        painter.circle_filled(y_tip, 4.0, y_col);
+        painter.rect_filled(
+            egui::Rect::from_center_size(origin, egui::vec2(CENTER_R * 2.0, CENTER_R * 2.0)),
+            2.0,
+            c_col,
+        );
     }
 
     fn handle_plugin_viewport_pointer(
