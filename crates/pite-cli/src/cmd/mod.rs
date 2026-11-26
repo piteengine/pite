@@ -5,6 +5,7 @@ pub mod check;
 pub mod edit;
 pub mod export;
 pub mod new;
+pub mod plugin;
 pub mod run;
 pub mod toolchain;
 pub mod vendor;

@@ -115,6 +115,11 @@ enum Command {
         #[command(subcommand)]
         action: cmd::vendor::VendorAction,
     },
+    /// Manage project plugins under plugins/.
+    Plugin {
+        #[command(subcommand)]
+        action: cmd::plugin::PluginAction,
+    },
 }
 
 fn main() {
@@ -235,6 +240,7 @@ fn dispatch(ui: &mut Ui, command: Option<Command>) -> Result<output::Outcome> {
         ),
         Some(Command::Toolchain { action }) => cmd::toolchain::run(ui, action),
         Some(Command::Vendor { action }) => cmd::vendor::run(ui, action),
+        Some(Command::Plugin { action }) => cmd::plugin::run(ui, action),
     }
 }
 
@@ -248,6 +254,7 @@ fn command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Export { .. }) => "export",
         Some(Command::Toolchain { .. }) => "toolchain",
         Some(Command::Vendor { .. }) => "vendor",
+        Some(Command::Plugin { .. }) => "plugin",
     }
 }
 

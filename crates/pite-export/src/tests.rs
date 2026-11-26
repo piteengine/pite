@@ -848,3 +848,51 @@ fn unknown_platform_fails_loudly() {
     assert!(err.to_string().contains("unsupported export platform"));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn export_bundles_enabled_runtime_plugins_and_strips_editor_code() {
+    let (dir, bin) = fixture("plug-export");
+    std::fs::write(
+        dir.join("pite.toml"),
+        "[project]\nname = \"fixt\"\nmain_scene = \"res://scenes/main.ptscn\"\n\n[plugins]\ndialogue = true\ndisabled_plug = true\n",
+    )
+    .unwrap();
+    // Flip disabled_plug to false cleanly:
+    std::fs::write(
+        dir.join("pite.toml"),
+        "[project]\nname = \"fixt\"\nmain_scene = \"res://scenes/main.ptscn\"\n\n[plugins]\ndialogue = true\ndisabled_plug = false\n",
+    )
+    .unwrap();
+
+    let d_dir = dir.join("plugins").join("dialogue");
+    std::fs::create_dir_all(&d_dir).unwrap();
+    std::fs::write(
+        d_dir.join("plugin.toml"),
+        "id = \"dialogue\"\nversion = \"0.1.0\"\nruntime = \"runtime:Plugin\"\neditor = \"editor:EditorPlugin\"\n",
+    )
+    .unwrap();
+    std::fs::write(d_dir.join("__init__.py"), "").unwrap();
+    std::fs::write(d_dir.join("runtime.py"), "class Plugin: pass\n").unwrap();
+    std::fs::write(d_dir.join("editor.py"), "class EditorPlugin: pass\n").unwrap();
+
+    let off_dir = dir.join("plugins").join("disabled_plug");
+    std::fs::create_dir_all(&off_dir).unwrap();
+    std::fs::write(off_dir.join("plugin.toml"), "id = \"disabled_plug\"\n").unwrap();
+    std::fs::write(off_dir.join("runtime.py"), "class Plugin: pass\n").unwrap();
+
+    let report = export_project(&dir, &opts(&bin), &mut ()).unwrap();
+    let game = report.out_dir.join("game");
+    assert!(game.join("plugins/dialogue/plugin.toml").is_file());
+    assert!(game.join("plugins/dialogue/runtime.py").is_file());
+    assert!(
+        !game.join("plugins/dialogue/editor.py").exists(),
+        "editor-only plugin module must be stripped on export"
+    );
+    assert!(
+        !game.join("plugins/disabled_plug").exists(),
+        "disabled plugin must not be exported"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&report.out_dir).ok();
+}

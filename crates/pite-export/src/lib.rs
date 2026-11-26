@@ -491,6 +491,41 @@ fn stage_tree(dir: &Path, out: &mut std::collections::HashSet<PathBuf>) -> Resul
     Ok(())
 }
 
+fn stage_plugin_tree(
+    plugin_root: &Path,
+    dir: &Path,
+    editor_root: Option<&str>,
+    out: &mut std::collections::HashSet<PathBuf>,
+) -> Result<()> {
+    for entry in
+        std::fs::read_dir(dir).map_err(|e| io_err(format!("cannot read {}", dir.display()), e))?
+    {
+        let path = entry
+            .map_err(|e| io_err(format!("cannot list entry in {}", dir.display()), e))?
+            .path();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if matches!(name, ".git" | "__pycache__" | "_cache") {
+            continue;
+        }
+        if dir == plugin_root {
+            if let Some(ed) = editor_root {
+                if name == ed || name == format!("{ed}.py") {
+                    continue;
+                }
+            }
+        }
+        if path.is_dir() {
+            stage_plugin_tree(plugin_root, &path, editor_root, out)?;
+        } else if path.is_file() {
+            out.insert(path);
+        }
+    }
+    Ok(())
+}
+
 fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Result<Vec<PathBuf>> {
     let mut files = HashSet::new();
     let mut scenes = vec![manifest.project.main_scene.clone()];
@@ -560,6 +595,23 @@ fn collect_referenced(root: &Path, manifest: &pite_project::PiteManifest) -> Res
     let vendor_dir = root.join("vendor");
     if vendor_dir.is_dir() {
         stage_tree(&vendor_dir, &mut files)?;
+    }
+
+    // Stage enabled plugins' runtime files while stripping disabled plugins
+    // and editor-only entrypoints so `pite-player` bundles stay lean.
+    let loaded_plugins = pite_project::load_enabled_plugins(root, manifest);
+    if let Some(err) = loaded_plugins.errors.first() {
+        return Err(ExportError::Message(format!("plugin error: {err}")));
+    }
+    for plug in &loaded_plugins.plugins {
+        let editor_root = plug
+            .manifest
+            .editor
+            .as_deref()
+            .and_then(|ep| ep.split(':').next())
+            .and_then(|m| m.split('.').next())
+            .filter(|s| !s.is_empty());
+        stage_plugin_tree(&plug.dir, &plug.dir, editor_root, &mut files)?;
     }
     let mut files: Vec<PathBuf> = files.into_iter().collect();
     for f in &files {

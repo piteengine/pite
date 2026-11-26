@@ -10,14 +10,21 @@
 #![forbid(unsafe_code)]
 
 mod error;
+mod plugins;
 mod trust;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 pub use error::{ProjectError, Result};
+pub use plugins::{
+    is_pite_version_compatible, is_valid_plugin_id, load_enabled_plugins, load_plugin_manifest,
+    plugin_dir, save_plugin_manifest, LoadedPlugin, LoadedPlugins, PluginEntry, PluginLoadError,
+    PluginManifest, PluginNodeDef, PluginNodePropDef, PluginSignalDef, PLUGINS_DIR,
+    PLUGIN_MANIFEST_FILE,
+};
 pub use trust::{
     config_dir, is_workspace_trusted, is_workspace_trusted_in, load_trusted_workspaces_from,
     normalize_workspace_path, save_trusted_workspaces_to, trust_store_path, trust_workspace,
@@ -47,6 +54,9 @@ pub struct PiteManifest {
     /// that write it fail loudly at the next `set_custom_property`.
     #[serde(default)]
     pub props: HashMap<String, String>,
+    /// Enabled/installed project plugins (`<id> = true|false` or `{ enabled, source, rev }`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub plugins: BTreeMap<String, PluginEntry>,
     #[serde(flatten, default)]
     pub extra: HashMap<String, toml::Value>,
 }

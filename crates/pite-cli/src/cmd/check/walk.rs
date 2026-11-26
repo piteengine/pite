@@ -15,6 +15,7 @@ pub struct Walker<'a> {
     asset_registry: &'a pite_assets::AssetRegistry,
     by_hash: &'a HashMap<&'a str, &'a str>,
     schemas: pite_core::SchemaRegistry,
+    plugin_ids: HashSet<String>,
     pub findings: Vec<Finding>,
     pub cache: Vec<CacheEntry>,
     pub atlas_uses: Vec<pite_assets::AtlasUse>,
@@ -37,6 +38,7 @@ impl<'a> Walker<'a> {
             asset_registry,
             by_hash,
             schemas: pite_core::SchemaRegistry::new(),
+            plugin_ids: HashSet::new(),
             findings: Vec::new(),
             cache: Vec::new(),
             atlas_uses: Vec::new(),
@@ -45,6 +47,17 @@ impl<'a> Walker<'a> {
             cache_seen: HashSet::new(),
             referenced: HashSet::new(),
         }
+    }
+
+    /// Configures the [`SchemaRegistry`] and enabled plugin IDs used during checks.
+    pub fn with_plugins(
+        mut self,
+        schemas: pite_core::SchemaRegistry,
+        plugin_ids: HashSet<String>,
+    ) -> Self {
+        self.schemas = schemas;
+        self.plugin_ids = plugin_ids;
+        self
     }
 
     fn error(&mut self, finding: Finding) {
@@ -163,7 +176,7 @@ impl<'a> Walker<'a> {
             return;
         };
         for module in script_imports(&text) {
-            if module == "pite" || module == "__future__" {
+            if module == "pite" || module == "__future__" || self.plugin_ids.contains(module) {
                 continue;
             }
             let sibling = script_path.parent().is_some_and(|dir| {

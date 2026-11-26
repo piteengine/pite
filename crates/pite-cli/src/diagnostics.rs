@@ -33,6 +33,7 @@ pub enum Severity {
 pub enum Kind {
     Project,
     Manifest,
+    Plugin,
     Scene,
     Asset,
     Audio,
@@ -166,6 +167,45 @@ impl Finding {
                 .plain("Add the icon at that path, or point ")
                 .info("project.icon")
                 .plain(" at another image."),
+        )
+    }
+
+    pub fn plugin_load_error(id: &str, error: &str) -> Self {
+        Self::error(
+            Kind::Plugin,
+            Location::file(format!("plugins/{id}/plugin.toml")),
+            Spans::new()
+                .plain("Plugin ")
+                .strong(id)
+                .plain(" could not be loaded."),
+            Spans::text(error),
+            Spans::new()
+                .plain("Fix the plugin manifest or disable it under ")
+                .info("[plugins]")
+                .plain(" in ")
+                .info("pite.toml")
+                .plain("."),
+        )
+    }
+
+    pub fn plugin_missing_dependency(id: &str, pkg: &str, spec: &str) -> Self {
+        Self::warning(
+            Kind::Plugin,
+            Location::file(format!("plugins/{id}/plugin.toml")),
+            Spans::new()
+                .plain("Plugin ")
+                .strong(id)
+                .plain(" requires ")
+                .info(format!("{pkg}{spec}"))
+                .plain(" (not vendored)."),
+            Spans::new()
+                .plain("Third-party packages outside ")
+                .info("vendor/")
+                .plain(" are excluded from standalone exports."),
+            Spans::new()
+                .plain("Run ")
+                .info(format!("pite vendor add {pkg}{spec}"))
+                .plain("."),
         )
     }
 

@@ -129,9 +129,40 @@ pub fn run(
                 }
             }
 
-            let mut walker = Walker::new(root, &manifest.props, &registry, &by_hash);
+            let loaded_plugins = pite_project::load_enabled_plugins(root, manifest);
+            for err in &loaded_plugins.errors {
+                let id = match err {
+                    pite_project::PluginLoadError::InvalidId { id }
+                    | pite_project::PluginLoadError::ManifestIo { id, .. }
+                    | pite_project::PluginLoadError::ManifestParse { id, .. }
+                    | pite_project::PluginLoadError::IdMismatch { id, .. }
+                    | pite_project::PluginLoadError::IncompatibleEngineVersion { id, .. }
+                    | pite_project::PluginLoadError::InvalidNodeProp { id, .. }
+                    | pite_project::PluginLoadError::Schema { id, .. }
+                    | pite_project::PluginLoadError::DuplicateAutoload { id, .. }
+                    | pite_project::PluginLoadError::DuplicateCustomProp { id, .. } => id.as_str(),
+                };
+                findings.push(Finding::plugin_load_error(id, &err.to_string()));
+            }
+            let vendor_dir = root.join("vendor");
+            let mut plugin_ids = HashSet::new();
+            for plug in &loaded_plugins.plugins {
+                plugin_ids.insert(plug.id.clone());
+                for (pkg, spec) in &plug.manifest.dependencies {
+                    if !crate::cmd::vendor::vendor_provides(&vendor_dir, pkg) {
+                        findings.push(Finding::plugin_missing_dependency(&plug.id, pkg, spec));
+                    }
+                }
+            }
+
+            let mut walker = Walker::new(root, &loaded_plugins.custom_props, &registry, &by_hash)
+                .with_plugins(loaded_plugins.schemas, plugin_ids);
             if manifest.project.icon.starts_with("res://") {
                 walker.referenced.insert(manifest.project.icon.clone());
+            }
+            // Mark any res:// references inside enabled plugin directories as referenced.
+            for plug in &loaded_plugins.plugins {
+                collect_plugin_asset_refs(root, &plug.dir, &mut walker.referenced);
             }
             walker.walk(&manifest.project.main_scene);
             scenes_checked = walker.visited_len();
@@ -253,6 +284,37 @@ fn format_elapsed(elapsed: std::time::Duration) -> String {
         format!("{:.2}s", elapsed.as_secs_f32())
     } else {
         format!("{millis}ms")
+    }
+}
+
+fn collect_plugin_asset_refs(root: &Path, dir: &Path, referenced: &mut HashSet<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_plugin_asset_refs(root, &path, referenced);
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) == Some("py") {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                for asset in pite_assets::played_assets(&text) {
+                    referenced.insert(asset.to_string());
+                }
+            }
+        }
+        if let Some(rel) = pite_project::to_res_path(root, &path) {
+            if rel.ends_with(".png")
+                || rel.ends_with(".ptatlas")
+                || rel.ends_with(".wav")
+                || rel.ends_with(".ogg")
+                || rel.ends_with(".mp3")
+                || rel.ends_with(".flac")
+            {
+                referenced.insert(rel);
+            }
+        }
     }
 }
 
