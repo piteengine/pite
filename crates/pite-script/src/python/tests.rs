@@ -730,3 +730,62 @@ fn tilemap2d_python_api_methods() {
         assert!(used_after.is_empty());
     });
 }
+
+#[test]
+fn noop_pass_process_is_skipped_and_inheritance_works() {
+    let dir = std::env::temp_dir().join(format!("pite-noop-skip-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("inherit.py");
+    std::fs::write(
+        &script,
+        r#"
+import pite
+
+class BasePass(pite.Node2D):
+    def _process(self, delta: float) -> None:
+        pass
+
+class ChildPass(BasePass):
+    pass
+
+class ChildOverride(BasePass):
+    def _process(self, delta: float) -> None:
+        self.position.x += delta
+
+class BaseActive(pite.Node2D):
+    def _process(self, delta: float) -> None:
+        self.position.x += delta
+
+class ChildInheritActive(BaseActive):
+    pass
+"#,
+    )
+    .unwrap();
+
+    let mut base_pass = Pyo3Backend::new("a");
+    base_pass
+        .load(script.to_str().unwrap(), "BasePass")
+        .unwrap();
+    assert!(!base_pass.has_process());
+
+    let mut child_pass = Pyo3Backend::new("b");
+    child_pass
+        .load(script.to_str().unwrap(), "ChildPass")
+        .unwrap();
+    assert!(!child_pass.has_process());
+
+    let mut child_override = Pyo3Backend::new("c");
+    child_override
+        .load(script.to_str().unwrap(), "ChildOverride")
+        .unwrap();
+    assert!(child_override.has_process());
+
+    let mut child_inherit_active = Pyo3Backend::new("d");
+    child_inherit_active
+        .load(script.to_str().unwrap(), "ChildInheritActive")
+        .unwrap();
+    assert!(child_inherit_active.has_process());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

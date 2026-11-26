@@ -97,19 +97,20 @@ impl GameSession {
             }
         }
 
-        let anim_sprites: Vec<(NodeId, String)> = self.host.with_tree(|tree| {
-            tree.iter()
-                .filter(|n| n.type_name == "AnimatedSprite2D")
-                .filter_map(|n| {
-                    if let Some(PropValue::Str(autoplay)) = n.props.get("autoplay") {
-                        if !autoplay.is_empty() {
-                            return Some((n.id.clone(), autoplay.clone()));
-                        }
+        let (any_anim, anim_sprites) = self.host.with_tree(|tree| {
+            let mut any = false;
+            let mut list = Vec::new();
+            for n in tree.iter().filter(|n| n.type_name == "AnimatedSprite2D") {
+                any = true;
+                if let Some(PropValue::Str(autoplay)) = n.props.get("autoplay") {
+                    if !autoplay.is_empty() {
+                        list.push((n.id.clone(), autoplay.clone()));
                     }
-                    None
-                })
-                .collect()
+                }
+            }
+            (any, list)
         });
+        self.has_animated_sprites = any_anim;
         self.host.with_tree_mut(|tree| {
             for (id, autoplay) in anim_sprites {
                 if let Some(node) = tree.get_mut(&id) {

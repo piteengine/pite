@@ -72,6 +72,17 @@ pub fn with_gil<R>(f: impl FnOnce() -> R) -> R {
     Python::attach(|_| f())
 }
 
+/// Hold the Python GIL once and box `delta` into a single `PyFloat` reused across the batch.
+pub fn with_gil_delta<R>(
+    delta: f64,
+    f: impl FnOnce(Python<'_>, &Bound<'_, pyo3::types::PyFloat>) -> R,
+) -> R {
+    Python::attach(|py| {
+        let py_delta = pyo3::types::PyFloat::new(py, delta);
+        f(py, &py_delta)
+    })
+}
+
 #[pymodule]
 fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
@@ -420,6 +431,46 @@ pub struct ScriptError {
     pub traceback: String,
 }
 
+fn is_noop_python_method(py: Python<'_>, attr: &Bound<'_, PyAny>) -> bool {
+    let Ok(func) = attr.getattr("__func__") else {
+        // Built-in / Rust #[pyclass] methods (Timer._process, Button._process) have no __func__.
+        return false;
+    };
+    let Ok(code) = func.getattr("__code__") else {
+        return false;
+    };
+    let Ok(dis) = py.import("dis") else {
+        return false;
+    };
+    let Ok(instrs) = dis.call_method1("get_instructions", (&code,)) else {
+        return false;
+    };
+    let Ok(iter) = instrs.try_iter() else {
+        return false;
+    };
+    for item in iter {
+        let Ok(inst) = item else {
+            return false;
+        };
+        let Ok(op) = inst.getattr("opname").and_then(|v| v.extract::<String>()) else {
+            return false;
+        };
+        match op.as_str() {
+            "RESUME" | "NOP" | "RETURN_VALUE" => {}
+            "LOAD_CONST" | "RETURN_CONST" => {
+                let Ok(val) = inst.getattr("argval") else {
+                    return false;
+                };
+                if !val.is_none() {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 pub fn extract_script_error(py: Python<'_>, err: &PyErr, ctx: &str) -> ScriptError {
     let mut file = None;
     let mut line = None;
@@ -476,6 +527,8 @@ pub struct Pyo3Backend {
     has_process: bool,
     has_physics_process: bool,
     has_draw: bool,
+    process_fn: Option<Py<PyAny>>,
+    physics_process_fn: Option<Py<PyAny>>,
 }
 
 impl Pyo3Backend {
@@ -494,6 +547,8 @@ impl Pyo3Backend {
             has_process: false,
             has_physics_process: false,
             has_draw: false,
+            process_fn: None,
+            physics_process_fn: None,
         }
     }
 
@@ -669,30 +724,67 @@ impl Pyo3Backend {
     /// Query the instance once for `_ready` / `_process` / `_physics_process`
     /// presence. Inherited methods count (getattr resolves through MRO), so
     /// a `Player(prite.Sprite2D)` that only overrides `_process` reports
-    /// `has_ready = false, has_process = true`.
+    /// `has_ready = false, has_process = true`. Pure `pass` Python methods
+    /// are detected via bytecode inspection and skipped.
     fn probe_lifecycle(&mut self) {
-        let (ready, process, physics, draw) = Python::attach(|py| {
+        let (ready, process_fn, physics_fn, draw) = Python::attach(|py| {
             let Some(inst) = &self.instance else {
-                return (false, false, false, false);
+                return (false, None, None, false);
             };
             let b = inst.bind(py);
-            let check = |name: &str| -> bool {
+            let check_bool = |name: &str| -> bool {
                 b.getattr(name)
                     .ok()
                     .map(|attr| !attr.is_none() && attr.is_callable())
                     .unwrap_or(false)
             };
+            let probe_cached = |name: &str| -> Option<Py<PyAny>> {
+                let attr = b.getattr(name).ok()?;
+                if attr.is_none() || !attr.is_callable() || is_noop_python_method(py, &attr) {
+                    return None;
+                }
+                Some(attr.unbind())
+            };
             (
-                check("_ready"),
-                check("_process"),
-                check("_physics_process"),
-                check("_draw"),
+                check_bool("_ready"),
+                probe_cached("_process"),
+                probe_cached("_physics_process"),
+                check_bool("_draw"),
             )
         });
         self.has_ready = ready;
-        self.has_process = process;
-        self.has_physics_process = physics;
+        self.has_process = process_fn.is_some();
+        self.has_physics_process = physics_fn.is_some();
         self.has_draw = draw;
+        self.process_fn = process_fn;
+        self.physics_process_fn = physics_fn;
+    }
+
+    fn call_cached_py(
+        &mut self,
+        py: Python<'_>,
+        cached: Option<&Py<PyAny>>,
+        method: &str,
+        py_delta: &Bound<'_, pyo3::types::PyFloat>,
+    ) -> Result<()> {
+        let Some(func) = cached else {
+            return Ok(());
+        };
+        if let Err(err) = func.bind(py).call1((py_delta,)) {
+            let ctx = format!(
+                "{} ({}:{}.{})",
+                self.node_path,
+                self.file.display(),
+                self.class,
+                method
+            );
+            let script_err = extract_script_error(py, &err, &ctx);
+            let msg = script_err.message.clone();
+            self.last_script_error = Some(script_err);
+            self.last_error = Some(msg.clone());
+            anyhow::bail!("{msg}");
+        }
+        Ok(())
     }
 
     fn call_opt(&mut self, method: &str, arg: Option<f64>) -> Result<()> {
@@ -885,6 +977,24 @@ impl ScriptBackend for Pyo3Backend {
 
     fn call_physics_process(&mut self, delta: f64) -> Result<()> {
         self.call_opt("_physics_process", Some(delta))
+    }
+
+    fn call_process_py(
+        &mut self,
+        py: Python<'_>,
+        py_delta: &Bound<'_, pyo3::types::PyFloat>,
+    ) -> Result<()> {
+        let cached = self.process_fn.as_ref().map(|f| f.clone_ref(py));
+        self.call_cached_py(py, cached.as_ref(), "_process", py_delta)
+    }
+
+    fn call_physics_process_py(
+        &mut self,
+        py: Python<'_>,
+        py_delta: &Bound<'_, pyo3::types::PyFloat>,
+    ) -> Result<()> {
+        let cached = self.physics_process_fn.as_ref().map(|f| f.clone_ref(py));
+        self.call_cached_py(py, cached.as_ref(), "_physics_process", py_delta)
     }
 
     fn call_draw(&mut self, origin: (f64, f64), z_index: i32) -> Result<Vec<crate::DrawCommand>> {

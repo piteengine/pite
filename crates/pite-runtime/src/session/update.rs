@@ -24,23 +24,40 @@ impl GameSession {
             self.physics_accumulator = 0.25;
         }
 
+        let has_physics_scripts = self
+            .instances
+            .iter()
+            .any(|s| !s.errored && s.has_physics_process);
+        let has_physics_bodies = !self
+            .physics
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty();
+
         while self.physics_accumulator >= FIXED_STEP {
             let mut scripted_ids = Vec::new();
-            pite_script::with_gil(|| {
-                for slot in &mut self.instances {
-                    if slot.errored || !slot.has_physics_process {
-                        continue;
-                    }
-                    if let Err(e) = slot.backend.call_physics_process(FIXED_STEP) {
-                        tracing::error!(node = %slot.id, "physics process error: {e:#}");
-                        slot.errored = true;
-                        if self.pause_on_error && self.last_error.is_none() {
-                            self.last_error = slot.backend.last_script_error();
+            if has_physics_scripts {
+                pite_script::with_gil_delta(FIXED_STEP, |py, py_delta| {
+                    for slot in &mut self.instances {
+                        if slot.errored || !slot.has_physics_process {
+                            continue;
                         }
+                        if let Err(e) = slot.backend.call_physics_process_py(py, py_delta) {
+                            tracing::error!(node = %slot.id, "physics process error: {e:#}");
+                            slot.errored = true;
+                            if self.pause_on_error && self.last_error.is_none() {
+                                self.last_error = slot.backend.last_script_error();
+                            }
+                        }
+                        scripted_ids.push(slot.id.clone());
                     }
-                    scripted_ids.push(slot.id.clone());
-                }
-            });
+                });
+            }
+
+            if !has_physics_bodies {
+                self.physics_accumulator -= FIXED_STEP;
+                continue;
+            }
 
             // Collect all tree positions in one read lock (no nested tree -> physics locking).
             let (scripted_positions, all_global_positions) = self.host.with_tree(|tree| {
@@ -155,26 +172,31 @@ impl GameSession {
         // `_process` (via the probe cached in `InstanceSlot`). Base `Timer`
         // and `Button` now carry engine-owned `_process` here — no
         // `tick_timers`/`poll_buttons` dispatch.
-        pite_script::with_gil(|| {
-            for slot in &mut self.instances {
-                if slot.errored || !slot.has_process {
-                    continue;
-                }
-                if let Err(e) = slot.backend.call_process(delta) {
-                    tracing::error!(node = %slot.id, "{e:#}");
-                    slot.errored = true;
-                    if self.pause_on_error && self.last_error.is_none() {
-                        self.last_error = slot.backend.last_script_error();
+        let has_process_scripts = self.instances.iter().any(|s| !s.errored && s.has_process);
+        if has_process_scripts || !self.plugin_host.is_empty() {
+            pite_script::with_gil_delta(delta, |py, py_delta| {
+                if has_process_scripts {
+                    for slot in &mut self.instances {
+                        if slot.errored || !slot.has_process {
+                            continue;
+                        }
+                        if let Err(e) = slot.backend.call_process_py(py, py_delta) {
+                            tracing::error!(node = %slot.id, "{e:#}");
+                            slot.errored = true;
+                            if self.pause_on_error && self.last_error.is_none() {
+                                self.last_error = slot.backend.last_script_error();
+                            }
+                        }
                     }
                 }
-            }
 
-            for (plugin_id, msg) in self.plugin_host.on_process(&self.host, delta) {
-                let formatted = format!("plugin {plugin_id} _process: {msg}");
-                tracing::error!("{formatted}");
-                self.plugin_errors.push(formatted);
-            }
-        });
+                for (plugin_id, msg) in self.plugin_host.on_process(&self.host, delta) {
+                    let formatted = format!("plugin {plugin_id} _process: {msg}");
+                    tracing::error!("{formatted}");
+                    self.plugin_errors.push(formatted);
+                }
+            });
+        }
 
         self.tick_animations(delta);
         for err in pite_script::tween_tick(&self.host, delta) {
@@ -183,6 +205,9 @@ impl GameSession {
     }
 
     fn tick_animations(&mut self, delta: f64) {
+        if !self.has_animated_sprites {
+            return;
+        }
         let nodes: Vec<(String, String, String, i64, f64, Option<bool>)> =
             self.host.with_tree(|tree| {
                 tree.iter()

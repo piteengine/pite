@@ -8,7 +8,8 @@ All notable changes to the Pite game engine are documented here.
     - Added runtime-managed property and callback tweens via `pite.tween()` (`PropertyTweener` with `.property(target, prop, final_val, duration)`, `.ease(...)`, `.trans(...)`, `.from_(...)`, `.delay(...)`, `.parallel()`, `.callback(...)`, `.interval(...)`, `.loops(...)`, `.on_finished(...)`, `.pause()`, `.play()`, `.stop()`, `.kill()`, `.is_running()`).
     - Supports `Num`/`Int`, `Vec2`, and `Color` interpolation across `linear`, `quad`, `cubic`, `sine`, `back`, `bounce`, and `elastic` transitions (`in`, `out`, `in_out`, `out_in`), auto-cleans finished tweens, and clears active tweens on scene rebuild.
 - **Scripting & GIL Performance**:
-    - Evaluated `input.pite.toml` action chords in-place under `ACTION_MAP` read lock without cloning, batched GIL acquisition (`with_gil`) across `_process` / `_physics_process` loops with `call_method1` + `pyo3::intern!`, and updated `Vec2` axis writes under a single `NodeTree` lock (`set_vec2_axis`).
+    - Evaluated `input.pite.toml` action chords in-place under `ACTION_MAP` read lock without cloning, batched GIL acquisition (`with_gil_delta`) with a shared `PyFloat` and cached bound `_process` / `_physics_process` methods, and updated `Vec2` axis writes under a single `NodeTree` lock (`set_vec2_axis`).
+    - Added bytecode `pass`-method skipping (`is_noop_python_method`) preserving inheritance, and early-exit guards in `GameSession::update` for empty GIL passes, empty `PhysicsWorld` (`global_positions` / `step`), and scenes without `AnimatedSprite2D` (`tick_animations`).
 - **Editor Viewport Pan & Zoom**:
     - Added middle-mouse drag and `Space`+drag panning, cursor-centered scroll/pinch zooming (`0.25x`–`8.0x`), `Ctrl+0` reset, and a compact zoom HUD pill in the editor viewport (disabled during Play mode so game framing stays 1:1).
 - **Editor Undo/Redo History**:

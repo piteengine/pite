@@ -63,6 +63,7 @@ pub struct GameSession {
     animation_times: HashMap<String, f64>,
     atlas_cache: HashMap<PathBuf, pite_render::atlas::Atlas>,
     tilemap_cache: HashMap<String, BakedTileMap>,
+    has_animated_sprites: bool,
 }
 
 impl GameSession {
@@ -112,6 +113,7 @@ impl GameSession {
             animation_times: HashMap::new(),
             atlas_cache: HashMap::new(),
             tilemap_cache: HashMap::new(),
+            has_animated_sprites: false,
         };
         pite_script::set_current_host(session.host.clone());
         pite_script::set_current_physics(Some(session.physics.clone()));

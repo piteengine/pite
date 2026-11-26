@@ -45,7 +45,8 @@ pub fn ensure_python_init() {
 }
 pub use pyo3;
 pub use python::{
-    is_stdlib_module, with_gil, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError,
+    is_stdlib_module, with_gil, with_gil_delta, InputQueryKind, PyInputQuery, Pyo3Backend,
+    ScriptError,
 };
 pub use tween::{tween_clear, tween_tick};
 pub use vec2::Vec2;
@@ -82,6 +83,24 @@ pub trait ScriptBackend {
     fn call_process(&mut self, delta: f64) -> Result<()>;
     fn call_physics_process(&mut self, _delta: f64) -> Result<()> {
         Ok(())
+    }
+    fn call_process_py(
+        &mut self,
+        _py: pyo3::Python<'_>,
+        py_delta: &pyo3::Bound<'_, pyo3::types::PyFloat>,
+    ) -> Result<()> {
+        use pyo3::prelude::PyAnyMethods;
+        let delta: f64 = py_delta.extract()?;
+        self.call_process(delta)
+    }
+    fn call_physics_process_py(
+        &mut self,
+        _py: pyo3::Python<'_>,
+        py_delta: &pyo3::Bound<'_, pyo3::types::PyFloat>,
+    ) -> Result<()> {
+        use pyo3::prelude::PyAnyMethods;
+        let delta: f64 = py_delta.extract()?;
+        self.call_physics_process(delta)
     }
     fn call_draw(&mut self, _origin: (f64, f64), _z_index: i32) -> Result<Vec<DrawCommand>> {
         Ok(Vec::new())

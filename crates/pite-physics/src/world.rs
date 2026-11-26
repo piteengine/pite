@@ -134,6 +134,11 @@ impl Default for ColliderProps {
 }
 
 impl PhysicsWorld {
+    /// Return `true` when the physics world contains no rigid bodies or colliders.
+    pub fn is_empty(&self) -> bool {
+        self.rigid_body_set.is_empty() && self.collider_set.is_empty()
+    }
+
     /// Creates a new 2D physics world initialized with 60 Hz fixed timestep and downward gravity.
     pub fn new() -> Self {
         let character_controller = KinematicCharacterController {
