@@ -6,22 +6,7 @@ class Player(pite.CharacterBody2D):
 
     def _process(self, delta: float):
         # Gather directional input
-        move_x = 0.0
-        move_y = 0.0
-
-        if pite.held.right or pite.held.d:
-            move_x += 1.0
-        if pite.held.left or pite.held.a:
-            move_x -= 1.0
-        if pite.held.down or pite.held.s:
-            move_y += 1.0
-        if pite.held.up or pite.held.w:
-            move_y -= 1.0
-
-        # Normalize diagonal movement speed
-        if move_x != 0.0 and move_y != 0.0:
-            move_x *= 0.7071
-            move_y *= 0.7071
+        move_x, move_y = pite.action.vector("left", "right", "up", "down")
 
         # Apply movement scaled by frame delta
         self.position.x += move_x * self.speed * delta

@@ -91,6 +91,54 @@ Inspect the project settings and design resolution:
 
 ---
 
+## Setup Action Mapping
+
+Pite's action mapping system lets you map keys and their combinations to named input actions which are meaningful and centralized across game project. To setup action mapping for game follow these steps:
+
+=== "In Editor"
+    1. In the editor menu bar, open **Project > Project Settings…**
+    2. Switch to **Input Map** Tab.
+    3. Add these actions and map keys:
+        - `up` = `W`, `ArrowUp`
+        - `left` = `A`, `ArrowLeft`
+        - `down`: `S`, `ArrowDown`
+        - `right` = `D`, `ArrowRight`
+    4. Click on **Save**, editor creates a new file: `input.pite.toml`
+
+=== "Direct File Edit"
+    Create `input.pite.toml` at project root with this content:
+
+    ```toml title="input.pite.toml"
+    format_version = 1
+
+    [actions]
+    down = [
+        "S",
+        "ArrowDown",
+    ]
+    left = [
+        "A",
+        "ArrowLeft",
+    ]
+    right = [
+        "D",
+        "ArrowRight",
+    ]
+    up = [
+        "W",
+        "ArrowUp",
+    ]
+    ```
+
+Now Pite maps ++w++ / ++up++, ++a++ / ++left++, ++s++ / ++down++, ++d++ / ++right++,  to `up`, `left`, `down`, `right` actions respectively. Using action mapping has some advantages:
+
+- Adds meaning to used input keys inside Python code.
+- Reduces boilerplate code in Python scripts: No need to use long `... and ...` for combinations and `... or ...` for alternatives.
+- Provides single place to define and control what each key does and reduces conflicts.
+- Makes `pite.action.axis()` and `pite.action.vector()` utilities accessible. (discussed below)
+
+---
+
 ## Build the Main Scene
 
 Construct the scene hierarchy containing the camera, HUD label, player body, and gem trigger:
@@ -232,7 +280,7 @@ Construct the scene hierarchy containing the camera, HUD label, player body, and
 
 Create the player script with smooth 8-directional movement:
 
-```python title="scripts/player.py"
+```python title="scripts/player.py" hl_lines="8-9"
 import pite
 
 
@@ -241,22 +289,7 @@ class Player(pite.CharacterBody2D):
 
     def _process(self, delta: float):
         # Gather directional input
-        move_x = 0.0
-        move_y = 0.0
-
-        if pite.held.right or pite.held.d:
-            move_x += 1.0
-        if pite.held.left or pite.held.a:
-            move_x -= 1.0
-        if pite.held.down or pite.held.s:
-            move_y += 1.0
-        if pite.held.up or pite.held.w:
-            move_y -= 1.0
-
-        # Normalize diagonal movement speed
-        if move_x != 0.0 and move_y != 0.0:
-            move_x *= 0.7071
-            move_y *= 0.7071
+        move_x, move_y = pite.action.vector("left", "right", "up", "down")
 
         # Apply movement scaled by frame delta
         self.position.x += move_x * self.speed * delta
@@ -266,6 +299,39 @@ class Player(pite.CharacterBody2D):
         self.position.x = max(30.0, min(1250.0, self.position.x))
         self.position.y = max(30.0, min(690.0, self.position.y))
 ```
+
+!!! Tip "Action mapping over plain input handling"
+
+    `pite.action.vector(left, right, up, down)` gets four action names (which we were defined in [the Action Mapping Setup Step](#setup-action-mapping)) and returns a `Vec2` with x and y direction, normalized to have always `1.0` length (so holding ++right++ and ++up++ won't speed-up our player). Otherwise we had to use this snipped to calculate same `move_x` and `move_y`:
+
+    ```python title="Plain way to get movement direction:"
+    ...
+
+    def _process(self, delta: float):
+            # Gather directional input
+            move_x = 0.0
+            move_y = 0.0
+
+            if pite.held.right or pite.held.d:
+                move_x += 1.0
+            if pite.held.left or pite.held.a:
+                move_x -= 1.0
+            if pite.held.down or pite.held.s:
+                move_y += 1.0
+            if pite.held.up or pite.held.w:
+                move_y -= 1.0
+
+            # Normalize diagonal movement speed
+            if move_x != 0.0 and move_y != 0.0:
+                move_x *= 0.7071
+                move_y *= 0.7071
+
+            ...
+    ```
+
+    Pite's action mapping collapses all of these lines into one clean and robust line of code.
+
+    Same pattern can be used in 1-axis with `pite.action.axis(negative, positive) -> float`, which returns `-1.0`, `0.0`, or `1.0`.
 
 ### Attaching the Script to the player
 
