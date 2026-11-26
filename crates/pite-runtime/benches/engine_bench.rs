@@ -222,11 +222,55 @@ fn bench_scene_loading() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+fn bench_tweens_500() {
+    let dir = std::env::temp_dir().join(format!("pite-bench-tweens-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+
+    std::fs::write(
+        dir.join("pite.toml"),
+        "[project]\nname = \"bench\"\npite_version = \"0.5.0\"\nmain_scene = \"res://scenes/main.ptscn\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scripts/tween_setup.py"),
+        "import pite\n\nclass TweenSetup(pite.Node2D):\n    def _ready(self) -> None:\n        for i in range(500):\n            pite.tween().property(f\"n_{i}\", \"position\", (200.0, 0.0), 10.0).loops(0)\n",
+    )
+    .unwrap();
+
+    let mut scene = String::from(
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\nname = \"root\"\ntype = \"Node2D\"\nscript = { path = \"res://scripts/tween_setup.py\", class = \"TweenSetup\" }\n",
+    );
+    for i in 0..500 {
+        scene.push_str(&format!(
+            "\n[[node]]\nid = \"n_{i}\"\nname = \"n_{i}\"\ntype = \"Node2D\"\nparent = \"root\"\n"
+        ));
+    }
+    std::fs::write(dir.join("scenes/main.ptscn"), scene).unwrap();
+
+    let mut session = GameSession::open_with_options(
+        &dir.join("scenes/main.ptscn"),
+        SessionOptions {
+            no_reload: true,
+            safe_mode: false,
+            allow_plugin_errors: false,
+        },
+    )
+    .unwrap();
+    bench("game_session_frame_500_tweens", 20, 100, || {
+        session.frame(1.0 / 60.0);
+    });
+    pite_script::tween_clear();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn main() {
     println!("Pite Baseline Benchmarks (release)");
     println!("--------------------------------------------------------------------------");
     bench_node_tree();
     bench_session_frames();
+    bench_tweens_500();
     bench_physics_world();
     bench_scene_loading();
     bench_input_actions();

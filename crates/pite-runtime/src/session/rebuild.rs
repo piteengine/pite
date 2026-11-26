@@ -31,6 +31,7 @@ fn slot_still_valid(
 
 impl GameSession {
     pub(super) fn rebuild(&mut self) -> Result<()> {
+        pite_script::tween_clear();
         self.tilemap_cache.clear();
         let doc = pite_scene::load_scene_cached(&self.scene)
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;

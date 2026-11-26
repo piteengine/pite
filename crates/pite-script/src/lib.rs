@@ -14,6 +14,7 @@ mod input;
 pub mod physics_bridge;
 pub mod plugin_host;
 mod python;
+mod tween;
 pub mod vec2;
 
 use anyhow::Result;
@@ -46,6 +47,7 @@ pub use pyo3;
 pub use python::{
     is_stdlib_module, with_gil, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError,
 };
+pub use tween::{tween_clear, tween_tick};
 pub use vec2::Vec2;
 
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];

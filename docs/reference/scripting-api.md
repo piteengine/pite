@@ -165,6 +165,20 @@ if pite.action.pressed("jump"):
 - `pite.action.vector(left, right, up, down) -> Vec2` returns a 2D directional vector normalized to length `1.0` on diagonals.
 - Querying an undefined action returns `False` / `0.0` and logs a one-time warning.
 
+### Tweens (`pite.tween()`)
+
+```python
+t = pite.tween()
+t.property(self, "position", (200.0, 100.0), 0.5).ease("out").trans("cubic")
+t.parallel().property(self, "modulate", "#ffffff80", 0.5)
+t.callback(lambda: print("done!"))
+```
+
+- `pite.tween()` creates a runtime-managed sequential tween (use `.parallel()` before a step to overlap it with the previous step).
+- `property(target, prop, final_val, duration)` interpolates `Num`/`Int`, `Vec2`/`(x, y)`, or `Color`/`(r, g, b, a)`/`#rrggbbaa`, returning a `PropertyTweener` with `.ease("in"|"out"|"in_out"|"out_in")`, `.trans("linear"|"quad"|"cubic"|"sine"|"back"|"bounce"|"elastic")`, `.from_(val)`, and `.delay(seconds)`.
+- Control & sequencing: `.callback(fn, delay=0.0)`, `.interval(duration)`, `.loops(count)` (`0` = infinite), `.on_finished(fn)`, `.pause()`, `.play()`, `.stop()`, `.kill()`, and `.is_running()`.
+- Missing target nodes are skipped cleanly, finished tweens are removed automatically, and active tweens are cleared on scene reload/stop.
+
 ## Audio
 
 ```python

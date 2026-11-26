@@ -91,6 +91,9 @@ fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::vec2::Vec2>()?;
     m.add_class::<PyInputQuery>()?;
     m.add_class::<PyInputAction>()?;
+    m.add_class::<crate::tween::PyTween>()?;
+    m.add_class::<crate::tween::PyPropertyTweener>()?;
+    m.add_function(wrap_pyfunction!(tween, m)?)?;
     m.add("action", PyInputAction)?;
     m.add_class::<crate::descriptor::PyChildDescriptor>()?;
     m.add_class::<crate::descriptor::PyNodeDescriptor>()?;
@@ -285,6 +288,11 @@ impl PyInputAction {
         let (x, y) = crate::action_vector(left, right, up, down);
         crate::vec2::Vec2::new(x, y)
     }
+}
+
+#[pyfunction]
+fn tween() -> crate::tween::PyTween {
+    crate::tween::create_tween()
 }
 
 #[pyfunction]

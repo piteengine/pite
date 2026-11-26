@@ -177,6 +177,9 @@ impl GameSession {
         });
 
         self.tick_animations(delta);
+        for err in pite_script::tween_tick(&self.host, delta) {
+            tracing::error!("tween callback error: {err}");
+        }
     }
 
     fn tick_animations(&mut self, delta: f64) {
