@@ -33,3 +33,7 @@ pite-project.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "engine_bench"
+harness = false
