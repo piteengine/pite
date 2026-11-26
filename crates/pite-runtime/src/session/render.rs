@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::Result;
-use pite_core::{global_position, Node, NodeTree, PropValue};
+use pite_core::{global_position, Node, NodeTree, PropValue, SchemaRegistry};
 use pite_render::Renderer2D;
 
-use super::physics::prop_num;
+use super::physics::prop_num_in;
 use super::tilemap_cache::{BakedTileMap, CHUNK_SIZE};
 use super::GameSession;
 
@@ -20,15 +20,18 @@ pub(crate) enum RenderRole {
     TileMap,
 }
 
-pub(crate) fn render_role(type_name: &str) -> Option<RenderRole> {
-    match type_name {
-        "Sprite2D" => Some(RenderRole::Sprite),
-        "AnimatedSprite2D" => Some(RenderRole::AnimatedSprite),
-        "Label" => Some(RenderRole::Label),
-        "Button" => Some(RenderRole::Button),
-        "TileMap2D" => Some(RenderRole::TileMap),
-        _ => None,
+pub(crate) fn render_role_in(schemas: &SchemaRegistry, type_name: &str) -> Option<RenderRole> {
+    for ancestor in schemas.inheritance_chain(type_name) {
+        match ancestor {
+            "Sprite2D" => return Some(RenderRole::Sprite),
+            "AnimatedSprite2D" => return Some(RenderRole::AnimatedSprite),
+            "Label" => return Some(RenderRole::Label),
+            "Button" => return Some(RenderRole::Button),
+            "TileMap2D" => return Some(RenderRole::TileMap),
+            _ => {}
+        }
     }
+    None
 }
 
 /// One node's renderable payload, resolved under the tree lock and drawn
@@ -76,8 +79,12 @@ pub(crate) enum NodeDraw {
     },
 }
 
-pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
-    let role = render_role(&node.type_name)?;
+pub(crate) fn extract_draw(
+    schemas: &SchemaRegistry,
+    node: &Node,
+    tree: &NodeTree,
+) -> Option<NodeDraw> {
+    let role = render_role_in(schemas, &node.type_name)?;
     let pos = global_position(tree, &node.id);
     let z_index = match node.props.get("z_index") {
         Some(PropValue::Int(i)) => *i as i32,
@@ -100,7 +107,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 atlas: prop("atlas"),
                 frame: prop("frame"),
                 pos,
-                rotation: prop_num(node, "rotation"),
+                rotation: prop_num_in(schemas, node, "rotation"),
                 modulate,
                 z_index,
             })
@@ -125,7 +132,7 @@ pub(crate) fn extract_draw(node: &Node, tree: &NodeTree) -> Option<NodeDraw> {
                 animation: prop_str("animation"),
                 frame,
                 pos,
-                rotation: prop_num(node, "rotation"),
+                rotation: prop_num_in(schemas, node, "rotation"),
                 modulate,
                 z_index,
             })
@@ -207,9 +214,12 @@ impl GameSession {
         // order (matching Godot's z-order — reorder the tree to reorder draws).
         // This replaces the previous three per-type filter loops; new
         // renderable types add an arm in `render_role`, not another pass.
-        let draws: Vec<NodeDraw> = self
-            .host
-            .with_tree(|tree| tree.iter().filter_map(|n| extract_draw(n, tree)).collect());
+        let schemas = self.schemas.clone();
+        let draws: Vec<NodeDraw> = self.host.with_tree(|tree| {
+            tree.iter()
+                .filter_map(|n| extract_draw(&schemas, n, tree))
+                .collect()
+        });
 
         for draw in draws {
             match draw {

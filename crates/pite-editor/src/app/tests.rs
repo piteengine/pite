@@ -573,3 +573,50 @@ fn untrusted_workspace_opens_in_safe_mode_and_gates_play() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn dynamic_schema_appears_in_node_hierarchy_and_inherits_icons() {
+    use std::borrow::Cow;
+
+    let mut schemas = pite_core::SchemaRegistry::new();
+    schemas
+        .register(pite_core::NodeSchema {
+            type_name: Cow::Borrowed("DialogueBox"),
+            description: Cow::Borrowed("Dialogue UI node"),
+            inherits: Some(Cow::Borrowed("Control")),
+            props: Vec::new(),
+            signals: Vec::new(),
+            abstract_class: false,
+            plugin_id: Some("dialogue".to_string()),
+        })
+        .unwrap();
+
+    // `Control` is abstract and inherits `Node2D`, so `DialogueBox` flattens under `Node2D`.
+    let hierarchy = super::tree::build_node_hierarchy_from(&schemas);
+    let node_branch = hierarchy
+        .iter()
+        .find(|n| n.type_name == "Node")
+        .expect("root Node must exist");
+    let node2d_branch = node_branch
+        .children
+        .iter()
+        .find(|n| n.type_name == "Node2D")
+        .expect("Node2D must exist under Node");
+    assert!(
+        node2d_branch
+            .children
+            .iter()
+            .any(|c| c.type_name == "DialogueBox"),
+        "DialogueBox should appear under nearest non-abstract ancestor Node2D"
+    );
+
+    // Inherits Control's icon and UI green color.
+    assert!(
+        icons::node_type_icon_in(&schemas, "DialogueBox") == icons::Icon::Control,
+        "DialogueBox should inherit Control icon"
+    );
+    assert_eq!(
+        icons::node_type_color_in(&schemas, "DialogueBox"),
+        icons::node_type_color_in(&schemas, "Control")
+    );
+}

@@ -94,30 +94,46 @@ impl Icon {
     }
 }
 
-pub fn node_type_icon(type_name: &str) -> Icon {
+fn builtin_node_type_icon(type_name: &str) -> Option<Icon> {
     match type_name {
-        "Node2D" => Icon::Node2D,
-        "Sprite2D" => Icon::Sprite2D,
-        "AnimatedSprite2D" => Icon::AnimatedSprite2D,
-        "TileMap2D" => Icon::TileMap2D,
-        "Camera2D" => Icon::Camera2D,
-        "CollisionShape2D" => Icon::CollisionShape2D,
-        "Area2D" => Icon::Area2D,
-        "StaticBody2D" => Icon::StaticBody2D,
-        "CharacterBody2D" => Icon::CharacterBody2D,
-        "RigidBody2D" => Icon::RigidBody2D,
+        "Node" => Some(Icon::Node),
+        "Node2D" => Some(Icon::Node2D),
+        "Sprite2D" => Some(Icon::Sprite2D),
+        "AnimatedSprite2D" => Some(Icon::AnimatedSprite2D),
+        "TileMap2D" => Some(Icon::TileMap2D),
+        "Camera2D" => Some(Icon::Camera2D),
+        "CollisionShape2D" => Some(Icon::CollisionShape2D),
+        "Area2D" => Some(Icon::Area2D),
+        "StaticBody2D" => Some(Icon::StaticBody2D),
+        "CharacterBody2D" => Some(Icon::CharacterBody2D),
+        "RigidBody2D" => Some(Icon::RigidBody2D),
         // Abstract bases may surface as a scene `type` (the registry
         // permits it) or as a section header in the inspector. Give them
         // the nearest concrete descendant's glyph instead of falling
         // through to plain `Node`.
-        "CollisionObject2D" => Icon::Area2D,
-        "PhysicsBody2D" => Icon::RigidBody2D,
-        "Control" => Icon::Control,
-        "Label" => Icon::Label,
-        "Button" => Icon::Button,
-        "Timer" => Icon::Timer,
-        _ => Icon::Node,
+        "CollisionObject2D" => Some(Icon::Area2D),
+        "PhysicsBody2D" => Some(Icon::RigidBody2D),
+        "Control" => Some(Icon::Control),
+        "Label" => Some(Icon::Label),
+        "Button" => Some(Icon::Button),
+        "Timer" => Some(Icon::Timer),
+        _ => None,
     }
+}
+
+pub fn node_type_icon(type_name: &str) -> Icon {
+    builtin_node_type_icon(type_name).unwrap_or(Icon::Node)
+}
+
+/// Resolves a node type's icon by walking `schemas.inheritance_chain(type_name)`
+/// so plugin-defined subclasses inherit their base node's icon.
+pub fn node_type_icon_in(schemas: &pite_core::SchemaRegistry, type_name: &str) -> Icon {
+    for ancestor in schemas.inheritance_chain(type_name) {
+        if let Some(icon) = builtin_node_type_icon(ancestor) {
+            return icon;
+        }
+    }
+    Icon::Node
 }
 
 /// Color category, derived from the inheritance chain: any collision
@@ -126,15 +142,20 @@ pub fn node_type_icon(type_name: &str) -> Icon {
 /// everything else (root `Node`, unknown types) is silver. New types
 /// automatically land in the right family without an editor change.
 pub fn node_type_color(type_name: &str) -> egui::Color32 {
-    let chain = pite_core::inheritance_chain(type_name);
+    node_type_color_in(&pite_core::SchemaRegistry::new(), type_name)
+}
+
+/// Schema-registry-backed variant of [`node_type_color`] for plugin nodes.
+pub fn node_type_color_in(schemas: &pite_core::SchemaRegistry, type_name: &str) -> egui::Color32 {
+    let chain = schemas.inheritance_chain(type_name);
     let has = |name: &str| chain.contains(&name);
 
     // `CollisionShape2D` inherits `Node2D` directly, not `CollisionObject2D`,
     // so it's the one node spelled out here — the "physics by convention"
     // case the schema doesn't otherwise express.
-    if type_name == "CollisionShape2D" || has("CollisionObject2D") {
+    if has("CollisionShape2D") || has("CollisionObject2D") {
         egui::Color32::from_rgb(11, 147, 135) // physics teal
-    } else if type_name == "Timer" {
+    } else if has("Timer") {
         egui::Color32::from_rgb(235, 180, 80) // timer gold
     } else if has("Control") {
         egui::Color32::from_rgb(120, 210, 140) // UI green

@@ -3,8 +3,7 @@ use std::f64::consts::PI;
 
 use eframe::egui;
 use egui_phosphor::regular;
-use pite_core::schema::PropHint;
-use pite_core::PropValue;
+use pite_core::{PropHintSpec, PropValue};
 
 use super::super::assets;
 use super::super::EditorApp;
@@ -32,11 +31,11 @@ impl EditorApp {
         &self,
         ui: &mut egui::Ui,
         current: &PropValue,
-        hint: &PropHint,
+        hint: &PropHintSpec,
         available_w: f32,
     ) -> Option<PropValue> {
         match hint {
-            PropHint::Vec2 { speed } => {
+            PropHintSpec::Vec2 { speed } => {
                 let (x, y) = match current {
                     PropValue::Vec2(vx, vy) => (*vx, *vy),
                     _ => (0.0, 0.0),
@@ -48,7 +47,7 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::AngleDeg => {
+            PropHintSpec::AngleDeg => {
                 let rad = match current {
                     PropValue::Num(f) => *f,
                     PropValue::Int(i) => *i as f64,
@@ -65,7 +64,7 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Num { speed, min, max } => {
+            PropHintSpec::Num { speed, min, max } => {
                 let mut f = match current {
                     PropValue::Num(v) => *v,
                     PropValue::Int(i) => *i as f64,
@@ -83,7 +82,7 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Int { speed, min, max } => {
+            PropHintSpec::Int { speed, min, max } => {
                 let mut i = match current {
                     PropValue::Int(v) => *v,
                     PropValue::Num(f) => *f as i64,
@@ -101,7 +100,7 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Bool => {
+            PropHintSpec::Bool => {
                 let b = match current {
                     PropValue::Bool(v) => *v,
                     _ => false,
@@ -138,7 +137,7 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Text => {
+            PropHintSpec::Text => {
                 let mut s = match current {
                     PropValue::Str(v) => v.clone(),
                     _ => String::new(),
@@ -153,10 +152,10 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Enum(options) => {
+            PropHintSpec::Enum(options) => {
                 let current_str = match current {
                     PropValue::Str(v) => v.as_str(),
-                    _ => options.first().copied().unwrap_or(""),
+                    _ => options.first().map(|s| s.as_ref()).unwrap_or(""),
                 };
                 let mut selected = current_str.to_string();
                 let mut changed = false;
@@ -165,9 +164,9 @@ impl EditorApp {
                     .width(combo_w)
                     .selected_text(&selected)
                     .show_ui(ui, |ui| {
-                        for opt in *options {
+                        for opt in options {
                             if ui
-                                .selectable_value(&mut selected, opt.to_string(), *opt)
+                                .selectable_value(&mut selected, opt.to_string(), opt.as_ref())
                                 .changed()
                             {
                                 changed = true;
@@ -180,7 +179,7 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Color => {
+            PropHintSpec::Color => {
                 let [r, g, b, a] = match current {
                     PropValue::Color(r, g, b, a) => [*r, *g, *b, *a],
                     _ => [255, 255, 255, 255],
@@ -233,7 +232,8 @@ impl EditorApp {
                     None
                 }
             }
-            PropHint::Asset { filter } => {
+            PropHintSpec::Asset { filter } => {
+                let filter_strs: Vec<&str> = filter.iter().map(|s| s.as_ref()).collect();
                 let mut current_str = match current {
                     PropValue::Str(v) => v.clone(),
                     _ => String::new(),
@@ -295,10 +295,10 @@ impl EditorApp {
                 }
 
                 if browse_resp
-                    .on_hover_text(format!("Browse asset ({})", filter.join(", ")))
+                    .on_hover_text(format!("Browse asset ({})", filter_strs.join(", ")))
                     .clicked()
                 {
-                    if let Some(picked) = self.pick_asset_dialog(filter) {
+                    if let Some(picked) = self.pick_asset_dialog(&filter_strs) {
                         changed_val = Some(PropValue::Str(picked));
                     }
                 }

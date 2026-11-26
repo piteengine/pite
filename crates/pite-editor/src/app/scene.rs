@@ -43,10 +43,10 @@ impl EditorApp {
             scene_dir: &scene_dir,
             project_dir: self.project_dir.as_deref(),
         };
-        let built = self
-            .session
-            .host()
-            .with_tree(|tree| ops::build_doc(tree, source.as_ref(), Some(refs)));
+        let schemas = self.session.schemas().clone();
+        let built = self.session.host().with_tree(|tree| {
+            ops::build_doc_with_schemas(tree, source.as_ref(), Some(refs), &schemas)
+        });
         match built.and_then(|doc| Ok(pite_scene::save_scene(&doc)?)) {
             Ok(text) => match ops::save_text(&self.scene_path, &text) {
                 Ok(()) => {

@@ -50,8 +50,9 @@ impl EditorApp {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
 
         // 1. Node Header with type icon, working inline rename edit, and type badge
-        let icon = icons::node_type_icon(&node.type_name);
-        let color = icons::node_type_color(&node.type_name);
+        let schemas = self.session.schemas().clone();
+        let icon = icons::node_type_icon_in(&schemas, &node.type_name);
+        let color = icons::node_type_color_in(&schemas, &node.type_name);
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);

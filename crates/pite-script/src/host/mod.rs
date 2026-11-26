@@ -11,10 +11,10 @@ pub use signal::{
 };
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use anyhow::Context as _;
-use pite_core::{NodeId, NodeTree, SignalRegistry, Vec2};
+use pite_core::{NodeId, NodeTree, SchemaRegistry, SignalRegistry, Vec2};
 use pite_scene::TileMapDoc;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
@@ -106,6 +106,8 @@ pub struct ScriptHost {
     /// by `GameSession::open` from the project manifest. Read by
     /// `set_custom_property` to validate writes.
     custom_prop_schema: RwLock<HashMap<String, String>>,
+    /// Active node schema registry (built-in engine types plus plugin nodes).
+    schemas: RwLock<Arc<SchemaRegistry>>,
     tilemaps: Mutex<TilemapStore>,
 }
 
@@ -131,8 +133,19 @@ impl ScriptHost {
             callable_connections: Mutex::new(HashMap::new()),
             proxy_cache: Mutex::new(HashMap::new()),
             custom_prop_schema: RwLock::new(HashMap::new()),
+            schemas: RwLock::new(Arc::new(SchemaRegistry::new())),
             tilemaps: Mutex::new(TilemapStore::default()),
         }
+    }
+
+    /// Replaces the active node schema registry used for property validation and defaults.
+    pub fn set_schema_registry(&self, schemas: Arc<SchemaRegistry>) {
+        *write_or_recover(&self.schemas) = schemas;
+    }
+
+    /// Returns a shared handle to the active node schema registry.
+    pub fn schema_registry(&self) -> Arc<SchemaRegistry> {
+        read_or_recover(&self.schemas).clone()
     }
 
     /// Read a prop, trusting the `to_node_tree` invariant that every schema
@@ -156,14 +169,14 @@ impl ScriptHost {
         T: Default,
         F: Fn(&pite_core::PropValue) -> Option<T>,
     {
-        self.with_tree(|t| {
+        let fallback_type = self.with_tree(|t| {
             let node_id = NodeId::from(node.to_string());
             let Some(n) = t.get(&node_id) else {
                 tracing::error!(node = %node, key = %key, "node missing; returning type default");
-                return T::default();
+                return Ok(None);
             };
             if let Some(v) = n.props.get(key).and_then(&extract) {
-                return v;
+                return Ok(Some(v));
             }
             #[cfg(not(test))]
             debug_assert!(
@@ -178,12 +191,19 @@ impl ScriptHost {
                 ty = %n.type_name,
                 "prop missing or wrong type; using schema default"
             );
-            pite_core::all_props(&n.type_name)
-                .iter()
+            Err(n.type_name.clone())
+        });
+        match fallback_type {
+            Ok(Some(v)) => v,
+            Ok(None) => T::default(),
+            Err(type_name) => self
+                .schema_registry()
+                .all_props(&type_name)
+                .into_iter()
                 .find(|p| p.key == key)
-                .and_then(|p| extract(&p.default_value.to_prop_value()))
-                .unwrap_or_default()
-        })
+                .and_then(|p| extract(&p.default_value))
+                .unwrap_or_default(),
+        }
     }
 
     pub fn get_f64(&self, node: &str, key: &str) -> f64 {
@@ -248,7 +268,10 @@ impl ScriptHost {
     /// `type_name`. A prop that is schema-backed has its own typed accessor
     /// and must not go through the custom-prop API.
     fn is_schema_prop(&self, type_name: &str, key: &str) -> bool {
-        pite_core::all_props(type_name).iter().any(|p| p.key == key)
+        self.schema_registry()
+            .all_props(type_name)
+            .iter()
+            .any(|p| p.key == key)
     }
 
     /// Read a custom (non-schema) prop. `Ok(None)` when unset.

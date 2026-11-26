@@ -7,7 +7,8 @@ use thiserror::Error;
 
 use crate::props::PropValue;
 
-/// Errors returned when validating custom property definitions or values against `[props]`.
+/// Errors returned when validating custom property definitions or values against `[props]`
+/// or registering node schemas in a [`crate::SchemaRegistry`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SchemaError {
     #[error("unknown custom prop type {got:?} (want one of: {valid})")]
@@ -18,6 +19,31 @@ pub enum SchemaError {
         expected: &'static str,
         got: &'static str,
     },
+
+    #[error("node type name must not be empty")]
+    EmptyNodeType,
+
+    #[error("duplicate node type `{type_name}` (already registered by {existing_owner}, also declared by {new_owner})")]
+    DuplicateNodeType {
+        type_name: String,
+        existing_owner: String,
+        new_owner: String,
+    },
+
+    #[error("node type `{type_name}` inherits from unknown base type `{inherits}`")]
+    UnknownBaseType { type_name: String, inherits: String },
+
+    #[error("node type `{type_name}` cannot have an empty `inherits` target")]
+    MissingBaseType { type_name: String },
+
+    #[error("node type `{type_name}` has an inheritance cycle")]
+    InheritanceCycle { type_name: String },
+
+    #[error("node type `{type_name}` declares duplicate property `{key}`")]
+    DuplicateProp { type_name: String, key: String },
+
+    #[error("node type `{type_name}` declares duplicate signal `{name}`")]
+    DuplicateSignal { type_name: String, name: String },
 }
 
 /// Static representation of a property's default value defined in a node schema.

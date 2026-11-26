@@ -2,6 +2,8 @@
 mod modals;
 mod node_types;
 
+#[cfg(test)]
+pub(super) use node_types::build_node_hierarchy_from;
 pub(super) use node_types::{
     AddNodeModal, DropZone, InstanceSceneModal, NodeDndPayload, RenameNodeModal,
 };
@@ -448,8 +450,9 @@ impl EditorApp {
         }
 
         // Dedicated Node Type Icon
-        let node_icon = icons::node_type_icon(&type_name);
-        let node_color = icons::node_type_color(&type_name);
+        let schemas = self.session.schemas().clone();
+        let node_icon = icons::node_type_icon_in(&schemas, &type_name);
+        let node_color = icons::node_type_color_in(&schemas, &type_name);
         let icon_rect = egui::Rect::from_min_size(
             egui::Pos2::new(rect.left() + 16.0, rect.center().y - 8.0),
             egui::vec2(16.0, 16.0),
@@ -467,8 +470,9 @@ impl EditorApp {
             crate::theme::TEXT,
         );
 
-        let description = pite_core::node_type_schema(&type_name)
-            .map(|s| s.description)
+        let description = schemas
+            .get(&type_name)
+            .map(|s| s.description.as_ref())
             .unwrap_or("");
         let mut hover_info = String::new();
         if !description.is_empty() {

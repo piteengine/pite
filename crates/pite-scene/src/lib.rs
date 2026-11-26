@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use pite_core::{Color, NodeDesc, NodeId, NodeTree, PropValue, Props, ScriptRef};
+use pite_core::{Color, NodeDesc, NodeId, NodeTree, PropValue, Props, SchemaRegistry, ScriptRef};
 use serde::{Deserialize, Serialize};
 
 pub mod cache;
@@ -285,13 +285,13 @@ pub fn prop_to_toml(value: &PropValue) -> toml::Value {
 ///
 /// After this, every schema prop for each node's type is present with a
 /// compatible value — the invariant the runtime getters rely on.
-fn descs_from_doc(doc: &SceneDoc) -> Vec<NodeDesc> {
+fn descs_from_doc_with_schemas(doc: &SceneDoc, schemas: &SchemaRegistry) -> Vec<NodeDesc> {
     doc.node
         .iter()
         .map(|n| {
             let mut props = Props::default();
-            for prop in pite_core::all_props(&n.type_name) {
-                props.insert(prop.key, prop.default_value.to_prop_value());
+            for prop in schemas.all_props(&n.type_name) {
+                props.insert(prop.key.as_ref(), prop.default_value.clone());
             }
             // Overlay scene-set values. Coerce integer literals into floats
             // when the schema expects `Num`, so `mass = 1` (integer syntax)
@@ -323,11 +323,16 @@ fn descs_from_doc(doc: &SceneDoc) -> Vec<NodeDesc> {
         .collect()
 }
 
-/// Convert a scene document into a runtime [`NodeTree`] with schema defaults
-/// filled. Missing scripts are placeholders here, never a load failure.
+/// Convert a scene document into a runtime [`NodeTree`] using built-in engine schemas.
 pub fn to_node_tree(doc: &SceneDoc) -> Result<NodeTree> {
+    to_node_tree_with_schemas(doc, &SchemaRegistry::new())
+}
+
+/// Convert a scene document into a runtime [`NodeTree`] with schema defaults
+/// from `schemas` filled. Missing scripts are placeholders here, never a load failure.
+pub fn to_node_tree_with_schemas(doc: &SceneDoc, schemas: &SchemaRegistry) -> Result<NodeTree> {
     let mut tree = NodeTree::new();
-    for desc in descs_from_doc(doc) {
+    for desc in descs_from_doc_with_schemas(doc, schemas) {
         let id_str = desc.id.to_string();
         tree.insert(desc).map_err(|source| SceneError::TreeInsert {
             context: format!("node {id_str:?}"),
@@ -337,16 +342,27 @@ pub fn to_node_tree(doc: &SceneDoc) -> Result<NodeTree> {
     Ok(tree)
 }
 
-/// Load the referenced scene, fill defaults, remap ids with `prefix`, apply
-/// prop overrides. Returns node records ready to insert into the host tree
-/// plus the remapped id of the referenced scene's root.
+/// Load the referenced scene using built-in engine schemas, fill defaults,
+/// remap ids with `prefix`, and apply prop overrides.
 pub fn instantiate(
     scene_path: &Path,
     prefix: &str,
     overrides: &BTreeMap<String, toml::Value>,
 ) -> Result<(Vec<NodeDesc>, String)> {
+    instantiate_with_schemas(scene_path, prefix, overrides, &SchemaRegistry::new())
+}
+
+/// Load the referenced scene using `schemas`, fill defaults, remap ids with `prefix`,
+/// and apply prop overrides. Returns node records ready to insert into the host tree
+/// plus the remapped id of the referenced scene's root.
+pub fn instantiate_with_schemas(
+    scene_path: &Path,
+    prefix: &str,
+    overrides: &BTreeMap<String, toml::Value>,
+    schemas: &SchemaRegistry,
+) -> Result<(Vec<NodeDesc>, String)> {
     let doc = load_scene_cached(scene_path)?;
-    let mut descs = descs_from_doc(&doc);
+    let mut descs = descs_from_doc_with_schemas(&doc, schemas);
     for desc in &mut descs {
         desc.id = NodeId::from(format!("{prefix}{}", desc.id.as_str()));
         desc.parent = desc
@@ -386,19 +402,30 @@ pub fn resolve_scene_ref(
     )?)
 }
 
-/// Build the full runtime tree: host nodes plus every `[[instance]]`
-/// subtree (loaded, id-remapped, overrides applied).
+/// Build the full runtime tree using built-in engine schemas.
 pub fn build_tree(
     doc: &SceneDoc,
     scene_dir: &Path,
     project_dir: Option<&Path>,
 ) -> Result<NodeTree> {
-    let mut tree = to_node_tree(doc)?;
+    build_tree_with_schemas(doc, scene_dir, project_dir, &SchemaRegistry::new())
+}
+
+/// Build the full runtime tree using `schemas`: host nodes plus every
+/// `[[instance]]` subtree (loaded, id-remapped, overrides applied).
+pub fn build_tree_with_schemas(
+    doc: &SceneDoc,
+    scene_dir: &Path,
+    project_dir: Option<&Path>,
+    schemas: &SchemaRegistry,
+) -> Result<NodeTree> {
+    let mut tree = to_node_tree_with_schemas(doc, schemas)?;
     let host_ids: std::collections::HashSet<&str> =
         doc.node.iter().map(|n| n.id.as_str()).collect();
     for inst in &doc.instance {
         let ref_path = resolve_scene_ref(&inst.scene, scene_dir, project_dir)?;
-        let (mut descs, subtree_root) = instantiate(&ref_path, &inst.prefix, &inst.overrides)?;
+        let (mut descs, subtree_root) =
+            instantiate_with_schemas(&ref_path, &inst.prefix, &inst.overrides, schemas)?;
         let attach_at = inst.parent.clone().unwrap_or_else(|| doc.root.clone());
         if !host_ids.contains(attach_at.as_str())
             && tree.get(&NodeId::from(attach_at.clone())).is_none()
@@ -544,5 +571,62 @@ position = [0.0, 0.0]
         assert_eq!(prop, PropValue::Color(0x4A, 0xDE, 0x80, 0xFF));
         let back = prop_to_toml(&prop);
         assert_eq!(back, toml::Value::String("#4ade80ff".to_string()));
+    }
+
+    #[test]
+    fn to_node_tree_with_schemas_fills_plugin_defaults_and_coerces_numbers() {
+        use std::borrow::Cow;
+        let mut schemas = SchemaRegistry::new();
+        schemas
+            .register(pite_core::NodeSchema {
+                type_name: Cow::Borrowed("DialogueBox"),
+                description: Cow::Borrowed("Plugin dialogue node"),
+                inherits: Some(Cow::Borrowed("Control")),
+                props: vec![pite_core::PropDef {
+                    key: Cow::Borrowed("typing_speed"),
+                    label: Cow::Borrowed("Typing Speed"),
+                    doc: Cow::Borrowed("Chars per sec"),
+                    default_value: PropValue::Num(30.0),
+                    hint: pite_core::PropHintSpec::Num {
+                        speed: 1.0,
+                        min: 1.0,
+                        max: 200.0,
+                    },
+                    read_only: false,
+                }],
+                signals: Vec::new(),
+                abstract_class: false,
+                plugin_id: Some("dialogue".to_string()),
+            })
+            .unwrap();
+
+        let doc = parse_scene_str(
+            r#"
+format_version = 1
+root = "root"
+
+[[node]]
+id = "root"
+type = "Node"
+name = "Root"
+
+[[node]]
+id = "dlg"
+type = "DialogueBox"
+name = "Dlg"
+parent = "root"
+
+[node.props]
+typing_speed = 45
+"#,
+        )
+        .unwrap();
+        let tree = to_node_tree_with_schemas(&doc, &schemas).unwrap();
+        let dlg = tree.get(&NodeId::from("dlg".to_string())).unwrap();
+        // Inherited Control/Node2D props are populated from SchemaRegistry.
+        assert_eq!(dlg.props.get("font_size"), Some(&PropValue::Num(16.0)));
+        assert_eq!(dlg.props.get("position"), Some(&PropValue::Vec2(0.0, 0.0)));
+        // Integer literal `45` coerces to `Num(45.0)` because schema default is `Num`.
+        assert_eq!(dlg.props.get("typing_speed"), Some(&PropValue::Num(45.0)));
     }
 }

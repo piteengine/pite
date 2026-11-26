@@ -19,6 +19,13 @@ pub struct NodeTypeRegistry {
 }
 
 impl NodeTypeRegistry {
+    /// Initializes an empty node type registry with no registered node types.
+    pub fn empty() -> Self {
+        Self {
+            factories: HashMap::new(),
+        }
+    }
+
     /// Initializes a node type registry pre-populated with all engine schema node types.
     pub fn new() -> Self {
         let mut factories: HashMap<String, NodeFactory> = HashMap::new();

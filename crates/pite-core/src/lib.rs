@@ -19,6 +19,7 @@ mod path;
 mod props;
 mod registry;
 pub mod schema;
+pub mod schema_registry;
 mod signals;
 mod tree;
 
@@ -37,5 +38,6 @@ pub use schema::{
     validate_custom_prop_type, DefaultPropVal, NodeTypeSchema, PropHint, PropSchema, SchemaError,
     NODE_SCHEMAS,
 };
+pub use schema_registry::{NodeSchema, PropDef, PropHintSpec, SchemaRegistry, SignalSchema};
 pub use signals::{SignalDef, SignalRegistry};
 pub use tree::NodeTree;

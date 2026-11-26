@@ -196,10 +196,11 @@ impl NodeProxy {
                 .map(|n| n.type_name.clone())
         });
         if let Some(type_name) = node_type {
-            let schema_props = pite_core::schema::all_props(&type_name);
+            let schemas = self.host.schema_registry();
+            let schema_props = schemas.all_props(&type_name);
             if let Some(prop_schema) = schema_props.iter().find(|p| p.key == name) {
-                let prop_val = match prop_schema.hint {
-                    pite_core::schema::PropHint::Color => {
+                let prop_val = match &prop_schema.hint {
+                    pite_core::PropHintSpec::Color => {
                         let (r, g, b, a) = if let Ok(s) = val.extract::<String>() {
                             let c = pite_scene::parse_hex_color(&s).ok_or_else(|| {
                                 pyo3::exceptions::PyValueError::new_err(format!(
@@ -218,20 +219,19 @@ impl NodeProxy {
                         };
                         pite_core::PropValue::Color(r, g, b, a)
                     }
-                    pite_core::schema::PropHint::Num { .. }
-                    | pite_core::schema::PropHint::AngleDeg => {
+                    pite_core::PropHintSpec::Num { .. } | pite_core::PropHintSpec::AngleDeg => {
                         let n = val.extract::<f64>()?;
                         pite_core::PropValue::Num(n)
                     }
-                    pite_core::schema::PropHint::Int { .. } => {
+                    pite_core::PropHintSpec::Int { .. } => {
                         let i = val.extract::<i64>()?;
                         pite_core::PropValue::Int(i)
                     }
-                    pite_core::schema::PropHint::Bool => {
+                    pite_core::PropHintSpec::Bool => {
                         let b = val.extract::<bool>()?;
                         pite_core::PropValue::Bool(b)
                     }
-                    pite_core::schema::PropHint::Vec2 { .. } => {
+                    pite_core::PropHintSpec::Vec2 { .. } => {
                         let (x, y) = if let Ok(v) = val.extract::<crate::vec2::Vec2>() {
                             (v.x(), v.y())
                         } else if let Ok(t) = val.extract::<(f64, f64)>() {

@@ -601,3 +601,78 @@ fn safe_mode_skips_python_until_trusted() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn custom_schema_inherits_signals_and_render_role() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    use std::borrow::Cow;
+
+    let mut schemas = pite_core::SchemaRegistry::new();
+    schemas
+        .register(pite_core::NodeSchema {
+            type_name: Cow::Borrowed("GlowingSprite"),
+            description: Cow::Borrowed("Plugin sprite"),
+            inherits: Some(Cow::Borrowed("Sprite2D")),
+            props: vec![pite_core::PropDef {
+                key: Cow::Borrowed("glow"),
+                label: Cow::Borrowed("Glow"),
+                doc: Cow::Borrowed("Glow intensity"),
+                default_value: PropValue::Num(1.5),
+                hint: pite_core::PropHintSpec::Num {
+                    speed: 0.1,
+                    min: 0.0,
+                    max: 10.0,
+                },
+                read_only: false,
+            }],
+            signals: vec![pite_core::SignalSchema {
+                name: Cow::Borrowed("pulsed"),
+                payload: Vec::new(),
+            }],
+            abstract_class: false,
+            plugin_id: Some("fx".to_string()),
+        })
+        .unwrap();
+
+    let dir = std::env::temp_dir().join(format!("pite-sess-dyn-schema-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::write(dir.join("pite.toml"), "[project]\nname = \"dyn\"\n").unwrap();
+    let scene_path = dir.join("scenes").join("main.ptscn");
+    std::fs::write(
+        &scene_path,
+        "format_version = 1\nroot = \"root\"\n\n[[node]]\nid = \"root\"\ntype = \"Node2D\"\nname = \"Main\"\n\n[[node]]\nid = \"glow\"\ntype = \"GlowingSprite\"\nname = \"Glow\"\nparent = \"root\"\n",
+    )
+    .unwrap();
+
+    let mut session = GameSession::open_with_options(
+        &scene_path,
+        SessionOptions {
+            no_reload: true,
+            safe_mode: true,
+        },
+    )
+    .unwrap();
+    session.set_schemas(Arc::new(schemas));
+    session.rebuild().unwrap();
+
+    // Schema default populated and signal declared from SchemaRegistry.
+    let glow_val = session.host.with_tree(|t| {
+        t.get(&NodeId::from("glow".to_string()))
+            .and_then(|n| n.props.get("glow").cloned())
+    });
+    assert_eq!(glow_val, Some(PropValue::Num(1.5)));
+    assert!(session.host.has_signal("glow", "pulsed"));
+
+    // Render role resolved via inheritance chain (`GlowingSprite` -> `Sprite2D`).
+    let node_draw = session.host.with_tree(|t| {
+        let n = t.get(&NodeId::from("glow".to_string())).unwrap();
+        crate::session::render::extract_draw(session.schemas(), n, t)
+    });
+    assert!(matches!(
+        node_draw,
+        Some(crate::session::render::NodeDraw::Sprite { .. })
+    ));
+
+    std::fs::remove_dir_all(&dir).ok();
+}

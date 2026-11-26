@@ -8,14 +8,18 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use pite_core::{NodeDesc, NodeId, NodeTree, NodeTypeRegistry, PropValue, Props};
+use pite_core::{NodeDesc, NodeId, NodeTree, PropValue, Props, SchemaRegistry};
 use pite_scene::{prop_to_toml, SceneDoc, SceneInstance, SceneNode, SceneScript, FORMAT_VERSION};
 
 /// Instantiable node types, excluding abstract base classes.
 pub fn registered_types() -> Vec<String> {
-    pite_core::NODE_SCHEMAS
+    registered_types_in(&SchemaRegistry::new())
+}
+
+/// Instantiable node types in `schemas`, excluding abstract base classes.
+pub fn registered_types_in(schemas: &SchemaRegistry) -> Vec<String> {
+    schemas
         .iter()
-        .copied()
         .filter(|s| !s.abstract_class)
         .map(|s| s.type_name.to_string())
         .collect()
@@ -45,7 +49,17 @@ pub fn add_node(
     type_name: &str,
     name: &str,
 ) -> Result<NodeId> {
-    let registry = NodeTypeRegistry::new();
+    add_node_with_schemas(tree, parent, type_name, name, &SchemaRegistry::new())
+}
+
+pub fn add_node_with_schemas(
+    tree: &mut NodeTree,
+    parent: Option<NodeId>,
+    type_name: &str,
+    name: &str,
+    schemas: &SchemaRegistry,
+) -> Result<NodeId> {
+    let registry = schemas.to_node_type_registry();
     let slug = slugify(name);
     let mut candidate = slug.clone();
     let mut counter = 2;
@@ -61,9 +75,9 @@ pub fn add_node(
     // Fill schema defaults (inherited included) so a freshly created node
     // already satisfies the "every schema prop present" invariant — same
     // one `to_node_tree` enforces at load time.
-    for prop in pite_core::all_props(type_name) {
+    for prop in schemas.all_props(type_name) {
         node.props
-            .insert(prop.key, prop.default_value.to_prop_value());
+            .insert(prop.key.as_ref(), prop.default_value.clone());
     }
     let parent = match parent {
         Some(p) => {
@@ -366,6 +380,16 @@ pub fn build_doc(
     source: Option<&SceneDoc>,
     refs: Option<InstanceRefs<'_>>,
 ) -> Result<SceneDoc> {
+    build_doc_with_schemas(tree, source, refs, &SchemaRegistry::new())
+}
+
+/// Schema-registry-backed variant of [`build_doc`].
+pub fn build_doc_with_schemas(
+    tree: &NodeTree,
+    source: Option<&SceneDoc>,
+    refs: Option<InstanceRefs<'_>>,
+    schemas: &SchemaRegistry,
+) -> Result<SceneDoc> {
     if let Some(source) = source {
         if !source.instance.is_empty() && refs.is_none() {
             anyhow::bail!(
@@ -404,7 +428,7 @@ pub fn build_doc(
             type_name: n.type_name.clone(),
             name: n.name.clone(),
             parent: n.parent.clone().map(|p| p.to_string()),
-            props: props_to_toml_filtered(&n.type_name, &n.props),
+            props: props_to_toml_filtered(schemas, &n.type_name, &n.props),
             script: n.script.as_ref().map(|s| SceneScript {
                 path: s.path.clone(),
                 class: s.class_name.clone(),
@@ -434,12 +458,16 @@ fn props_to_toml(props: &Props) -> BTreeMap<String, toml::Value> {
 /// default for `type_name`, keeping scene files minimal. Unknown (non-schema)
 /// props always save. A save → load → save round-trip is byte-identical
 /// because load fills the same defaults before comparing.
-fn props_to_toml_filtered(type_name: &str, props: &Props) -> BTreeMap<String, toml::Value> {
-    let schema_defaults: std::collections::HashMap<&str, pite_core::PropValue> =
-        pite_core::all_props(type_name)
-            .iter()
-            .map(|p| (p.key, p.default_value.to_prop_value()))
-            .collect();
+fn props_to_toml_filtered(
+    schemas: &SchemaRegistry,
+    type_name: &str,
+    props: &Props,
+) -> BTreeMap<String, toml::Value> {
+    let schema_defaults: std::collections::HashMap<&str, pite_core::PropValue> = schemas
+        .all_props(type_name)
+        .into_iter()
+        .map(|p| (p.key.as_ref(), p.default_value.clone()))
+        .collect();
     let mut out = BTreeMap::new();
     for (k, v) in &props.0 {
         if let Some(default) = schema_defaults.get(k.as_str()) {

@@ -14,6 +14,7 @@ pub struct Walker<'a> {
     custom_props: &'a HashMap<String, String>,
     asset_registry: &'a pite_assets::AssetRegistry,
     by_hash: &'a HashMap<&'a str, &'a str>,
+    schemas: pite_core::SchemaRegistry,
     pub findings: Vec<Finding>,
     pub cache: Vec<CacheEntry>,
     pub atlas_uses: Vec<pite_assets::AtlasUse>,
@@ -35,6 +36,7 @@ impl<'a> Walker<'a> {
             custom_props,
             asset_registry,
             by_hash,
+            schemas: pite_core::SchemaRegistry::new(),
             findings: Vec::new(),
             cache: Vec::new(),
             atlas_uses: Vec::new(),
@@ -115,9 +117,8 @@ impl<'a> Walker<'a> {
             self.error(Finding::scene_root_missing(&scene_rel, &doc.root));
         }
 
-        let registry = pite_core::NodeTypeRegistry::new();
         for node in &doc.node {
-            self.check_node_type(&scene_rel, node, &registry, &ids);
+            self.check_node_type(&scene_rel, node, &ids);
             self.check_node_script(&scene_rel, node);
             self.check_sprite(&scene_rel, node);
             self.check_animated_sprite(&scene_rel, node);
@@ -131,14 +132,8 @@ impl<'a> Walker<'a> {
         }
     }
 
-    fn check_node_type(
-        &mut self,
-        scene: &str,
-        node: &pite_scene::SceneNode,
-        registry: &pite_core::NodeTypeRegistry,
-        ids: &HashSet<&str>,
-    ) {
-        if !registry.contains(&node.type_name) {
+    fn check_node_type(&mut self, scene: &str, node: &pite_scene::SceneNode, ids: &HashSet<&str>) {
+        if !self.schemas.contains(&node.type_name) {
             self.error(Finding::unregistered_type(scene, &node.id, &node.type_name));
         }
         if let Some(parent) = &node.parent {
@@ -344,9 +339,11 @@ impl<'a> Walker<'a> {
 
     fn check_custom_props(&mut self, scene: &str, node: &pite_scene::SceneNode) {
         // Schema props skip: they have typed accessors and their own checks.
-        let schema_keys: HashSet<&str> = pite_core::all_props(&node.type_name)
-            .iter()
-            .map(|prop| prop.key)
+        let schema_keys: HashSet<String> = self
+            .schemas
+            .all_props(&node.type_name)
+            .into_iter()
+            .map(|prop| prop.key.to_string())
             .collect();
         let mut keys: Vec<&String> = node.props.keys().collect();
         keys.sort();

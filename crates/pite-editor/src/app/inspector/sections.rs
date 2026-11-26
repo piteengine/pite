@@ -3,8 +3,7 @@ use std::collections::HashSet;
 
 use eframe::egui;
 use egui_phosphor::regular;
-use pite_core::schema;
-use pite_core::{Node, NodeId, PropValue};
+use pite_core::{Node, NodeId, PropDef, PropValue};
 
 use crate::icons;
 
@@ -312,29 +311,35 @@ impl EditorApp {
         id: &str,
         node_id: &NodeId,
         node: &Node,
-    ) -> HashSet<&'static str> {
-        // 3. Inherited Property Sections (Driven by schema)
-        let chain = schema::inheritance_chain(&node.type_name);
-        let mut handled_keys = HashSet::new();
+    ) -> HashSet<String> {
+        // 3. Inherited Property Sections (Driven by active SchemaRegistry)
+        let schemas = self.session.schemas().clone();
+        let chain: Vec<String> = schemas
+            .inheritance_chain(&node.type_name)
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let mut handled_keys: HashSet<String> = HashSet::new();
 
-        for section_name in chain {
-            let defs = schema::type_props(section_name);
+        for section_name in &chain {
+            let defs = schemas.type_props(section_name);
             // Chain is leaf→root, so overrides in a descendant are seen first and
             // shadow the ancestor's declaration.
-            let filtered: Vec<&pite_core::PropSchema> = defs
+            let filtered: Vec<PropDef> = defs
                 .iter()
-                .filter(|d| !handled_keys.contains(d.key))
+                .filter(|d| !handled_keys.contains(d.key.as_ref()))
+                .cloned()
                 .collect();
             if filtered.is_empty() {
                 continue;
             }
             for def in &filtered {
-                handled_keys.insert(def.key);
+                handled_keys.insert(def.key.to_string());
             }
 
             let section_id = ui.make_persistent_id(format!("sec_{}_{}", id, section_name));
-            let sec_icon = icons::node_type_icon(section_name);
-            let sec_color = icons::node_type_color(section_name);
+            let sec_icon = icons::node_type_icon_in(&schemas, section_name);
+            let sec_color = icons::node_type_color_in(&schemas, section_name);
             let is_open =
                 draw_section_header(ui, section_id, section_name, sec_icon.as_str(), sec_color);
 
@@ -355,17 +360,18 @@ impl EditorApp {
                     .spacing(grid_spacing)
                     .show(ui, |ui| {
                         for def in &filtered {
-                            let is_present = node.props.0.contains_key(def.key);
-                            let live_val = node.props.get(def.key);
-                            let is_modified = is_present
-                                && live_val.is_some_and(|v| !def.default_value.matches(v));
+                            let key = def.key.as_ref();
+                            let is_present = node.props.0.contains_key(key);
+                            let live_val = node.props.get(key);
+                            let is_modified =
+                                is_present && live_val.is_some_and(|v| !def.matches_default(v));
 
                             let label_style = if is_modified {
-                                egui::RichText::new(def.label)
+                                egui::RichText::new(def.label.as_ref())
                                     .color(crate::theme::TEXT)
                                     .strong()
                             } else {
-                                egui::RichText::new(def.label).color(crate::theme::FAINT)
+                                egui::RichText::new(def.label.as_ref()).color(crate::theme::FAINT)
                             };
 
                             // Col 0: Label
@@ -375,7 +381,7 @@ impl EditorApp {
                                 |ui| {
                                     let resp = ui.add(egui::Label::new(label_style).truncate());
                                     if !def.doc.is_empty() {
-                                        resp.on_hover_text(def.doc);
+                                        resp.on_hover_text(def.doc.as_ref());
                                     }
                                 },
                             );
@@ -396,7 +402,7 @@ impl EditorApp {
 
                                     let current_val = live_val
                                         .cloned()
-                                        .unwrap_or_else(|| def.default_value.to_prop_value());
+                                        .unwrap_or_else(|| def.default_value.clone());
 
                                     let atlas_ref = match node.props.get("atlas") {
                                         Some(PropValue::Str(s)) if !s.is_empty() => {
@@ -405,16 +411,16 @@ impl EditorApp {
                                         _ => None,
                                     };
                                     let is_atlas_picker = (section_name == "Sprite2D"
-                                        && def.key == "frame")
+                                        && key == "frame")
                                         || (section_name == "AnimatedSprite2D"
-                                            && def.key == "animation");
+                                            && key == "animation");
                                     let handled_by_picker = if is_atlas_picker {
                                         if let Some(a_ref) = atlas_ref {
                                             self.render_atlas_member_picker(
                                                 ui,
                                                 node_id,
                                                 a_ref,
-                                                def.key,
+                                                key,
                                                 &current_val,
                                                 val_w,
                                             )
@@ -431,7 +437,7 @@ impl EditorApp {
                                             &def.hint,
                                             val_w,
                                         ) {
-                                            self.set_prop(node_id, def.key, new_val);
+                                            self.set_prop(node_id, key, new_val);
                                         }
                                     }
 
@@ -447,7 +453,7 @@ impl EditorApp {
                                             .on_hover_text("Reset to default")
                                             .clicked()
                                         {
-                                            self.remove_prop(node_id, def.key);
+                                            self.remove_prop(node_id, key);
                                         }
                                     }
                                 },
@@ -600,7 +606,7 @@ impl EditorApp {
         id: &str,
         node_id: &NodeId,
         node: &Node,
-        handled_keys: &HashSet<&'static str>,
+        handled_keys: &HashSet<String>,
     ) {
         // 4. Custom Properties Section (unknown / extra props)
         let mut custom_keys: Vec<String> = node

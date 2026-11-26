@@ -28,62 +28,37 @@ fn slot_still_valid(
     }
 }
 
-type EngineSignal<'a> = (&'a str, &'a [(&'a str, &'a [&'a str])]);
-
-/// Engine-owned signals every node of that type declares before `_ready`
-/// runs. Subclasses that re-declare `pressed`/`timeout` still work
-/// (`declare_signals` is idempotent). Adding a new engine signal = one
-/// row here, no code change in `rebuild`.
-const ENGINE_SIGNALS: &[EngineSignal] = &[
-    ("Button", &[("pressed", &[])]),
-    ("Timer", &[("timeout", &[])]),
-    (
-        "AnimatedSprite2D",
-        &[
-            ("animation_finished", &["str"]),
-            ("animation_looped", &["str"]),
-        ],
-    ),
-    (
-        "Area2D",
-        &[
-            ("body_entered", &["str"]),
-            ("body_exited", &["str"]),
-            ("area_entered", &["str"]),
-            ("area_exited", &["str"]),
-        ],
-    ),
-];
-
 impl GameSession {
     pub(super) fn rebuild(&mut self) -> Result<()> {
         self.tilemap_cache.clear();
         let doc = pite_scene::load_scene_cached(&self.scene)
             .with_context(|| format!("cannot load scene {}", self.scene.display()))?;
-        let tree = pite_scene::build_tree(&doc, &self.scene_dir, self.project_dir.as_deref())?;
+        let tree = pite_scene::build_tree_with_schemas(
+            &doc,
+            &self.scene_dir,
+            self.project_dir.as_deref(),
+            &self.schemas,
+        )?;
         self.host.with_tree_mut(|t| *t = tree);
 
-        // Engine-owned signals come from one table; every matching node declares
-        // its type's signals before `_ready` runs. Subclasses that re-declare
-        // inherit through Python MRO as before.
+        // Built-in and plugin-declared signals come from `SchemaRegistry`; every
+        // matching node declares its type's (and ancestors') signals before `_ready` runs.
         let nodes: Vec<(String, String)> = self.host.with_tree(|tree| {
             tree.iter()
                 .map(|n| (n.type_name.clone(), n.id.to_string()))
                 .collect()
         });
         for (type_name, id) in &nodes {
-            let Some((_, signals)) = ENGINE_SIGNALS
-                .iter()
-                .find(|(t, _)| *t == type_name.as_str())
-            else {
+            let signals = self.schemas.signals_for(type_name);
+            if signals.is_empty() {
                 continue;
-            };
+            }
             let defs: Vec<(String, Vec<String>)> = signals
-                .iter()
-                .map(|(name, payload)| {
+                .into_iter()
+                .map(|sig| {
                     (
-                        name.to_string(),
-                        payload.iter().map(|s| s.to_string()).collect(),
+                        sig.name.to_string(),
+                        sig.payload.iter().map(|s| s.to_string()).collect(),
                     )
                 })
                 .collect();

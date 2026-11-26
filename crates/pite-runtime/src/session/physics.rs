@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use pite_core::{global_positions, Node, PropValue};
+use pite_core::{global_positions, Node, PropValue, SchemaRegistry};
 use pite_physics::{
     world::{ColliderProps, CollisionData},
     PhysicsWorld, ShapeConfig,
@@ -8,53 +8,54 @@ use pite_physics::{
 
 use super::GameSession;
 
-/// Read `key` from `node.props`, falling back to the type's schema default
-/// (and coercing integer literals to numbers). `rebuild_physics` uses these
-/// instead of hardcoded fallbacks so a schema default change propagates
-/// without touching the runtime.
-pub(crate) fn prop_num(node: &Node, key: &str) -> f32 {
+/// Read `key` from `node.props`, falling back to the type's schema default in `schemas`
+/// (and coercing integer literals to numbers).
+pub(crate) fn prop_num_in(schemas: &SchemaRegistry, node: &Node, key: &str) -> f32 {
     if let Some(PropValue::Num(n)) = node.props.get(key) {
         return *n as f32;
     }
     if let Some(PropValue::Int(n)) = node.props.get(key) {
         return *n as f32;
     }
-    pite_core::all_props(&node.type_name)
-        .iter()
+    schemas
+        .all_props(&node.type_name)
+        .into_iter()
         .find(|p| p.key == key)
         .and_then(|p| match p.default_value {
-            pite_core::DefaultPropVal::Num(n) => Some(n as f32),
-            pite_core::DefaultPropVal::Int(n) => Some(n as f32),
+            PropValue::Num(n) => Some(n as f32),
+            PropValue::Int(n) => Some(n as f32),
             _ => None,
         })
         .unwrap_or(0.0)
 }
 
-pub(crate) fn prop_int(node: &Node, key: &str) -> i64 {
+pub(crate) fn prop_int_in(schemas: &SchemaRegistry, node: &Node, key: &str) -> i64 {
     if let Some(PropValue::Int(n)) = node.props.get(key) {
         return *n;
     }
     if let Some(PropValue::Num(n)) = node.props.get(key) {
         return *n as i64;
     }
-    pite_core::all_props(&node.type_name)
-        .iter()
+    schemas
+        .all_props(&node.type_name)
+        .into_iter()
         .find(|p| p.key == key)
         .and_then(|p| match p.default_value {
-            pite_core::DefaultPropVal::Int(n) => Some(n),
+            PropValue::Int(n) => Some(n),
             _ => None,
         })
         .unwrap_or(0)
 }
 
-pub(crate) fn prop_bool(node: &Node, key: &str) -> bool {
+pub(crate) fn prop_bool_in(schemas: &SchemaRegistry, node: &Node, key: &str) -> bool {
     if let Some(PropValue::Bool(b)) = node.props.get(key) {
         return *b;
     }
-    pite_core::all_props(&node.type_name)
-        .iter()
+    schemas
+        .all_props(&node.type_name)
+        .into_iter()
         .find(|p| p.key == key)
-        .map(|p| matches!(p.default_value, pite_core::DefaultPropVal::Bool(true)))
+        .map(|p| matches!(p.default_value, PropValue::Bool(true)))
         .unwrap_or(false)
 }
 
@@ -69,25 +70,29 @@ pub(crate) enum PhysicsRole {
     Area,
 }
 
-pub(crate) fn physics_role(type_name: &str) -> Option<PhysicsRole> {
-    match type_name {
-        "StaticBody2D" => Some(PhysicsRole::Static),
-        "CharacterBody2D" => Some(PhysicsRole::Character),
-        "RigidBody2D" => Some(PhysicsRole::Rigid),
-        "Area2D" => Some(PhysicsRole::Area),
-        _ => None,
+pub(crate) fn physics_role_in(schemas: &SchemaRegistry, type_name: &str) -> Option<PhysicsRole> {
+    for ancestor in schemas.inheritance_chain(type_name) {
+        match ancestor {
+            "StaticBody2D" => return Some(PhysicsRole::Static),
+            "CharacterBody2D" => return Some(PhysicsRole::Character),
+            "RigidBody2D" => return Some(PhysicsRole::Rigid),
+            "Area2D" => return Some(PhysicsRole::Area),
+            _ => {}
+        }
     }
+    None
 }
 
 impl GameSession {
     pub fn rebuild_physics(&mut self) {
+        let schemas = self.schemas.clone();
         let mut world = PhysicsWorld::new();
         self.host.with_tree(|tree| {
             let globals = global_positions(tree);
             for node in tree.iter() {
                 let pos = globals.get(&node.id).copied().unwrap_or((0.0, 0.0));
-                let rot = prop_num(node, "rotation");
-                if let Some(role) = physics_role(&node.type_name) {
+                let rot = prop_num_in(&schemas, node, "rotation");
+                if let Some(role) = physics_role_in(&schemas, &node.type_name) {
                     match role {
                         PhysicsRole::Static => {
                             world.add_static_body(
@@ -108,9 +113,9 @@ impl GameSession {
                                 node.id.clone(),
                                 (pos.0 as f32, pos.1 as f32),
                                 rot,
-                                prop_num(node, "mass"),
-                                prop_num(node, "gravity_scale"),
-                                prop_bool(node, "lock_rotation"),
+                                prop_num_in(&schemas, node, "mass"),
+                                prop_num_in(&schemas, node, "gravity_scale"),
+                                prop_bool_in(&schemas, node, "lock_rotation"),
                             );
                         }
                         PhysicsRole::Area => {
@@ -153,7 +158,7 @@ impl GameSession {
                 let mut parent_body: Option<&pite_core::Node> = None;
                 while let Some(pid) = parent_id {
                     if let Some(pnode) = tree.get(&pid) {
-                        if physics_role(&pnode.type_name).is_some() {
+                        if physics_role_in(&schemas, &pnode.type_name).is_some() {
                             parent_body = Some(pnode);
                             break;
                         }
@@ -215,15 +220,16 @@ impl GameSession {
                     }
                 };
 
-                let layer = prop_int(body, "collision_layer") as u32;
-                let mask = prop_int(body, "collision_mask") as u32;
+                let layer = prop_int_in(&schemas, body, "collision_layer") as u32;
+                let mask = prop_int_in(&schemas, body, "collision_mask") as u32;
                 // `friction`/`restitution` live on `PhysicsBody2D`; Area2D
                 // doesn't inherit them, so it falls through to 0.0 (harmless
                 // — sensors don't apply either).
-                let friction = prop_num(body, "friction");
-                let restitution = prop_num(body, "restitution");
+                let friction = prop_num_in(&schemas, body, "friction");
+                let restitution = prop_num_in(&schemas, body, "restitution");
 
-                let is_sensor = body.type_name == "Area2D";
+                let is_sensor =
+                    physics_role_in(&schemas, &body.type_name) == Some(PhysicsRole::Area);
 
                 world.attach_shape(
                     &body.id,

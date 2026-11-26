@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use pite_core::{global_position, NodeId, NodeTree, PropValue};
+use pite_core::{global_position, NodeId, NodeTree, PropValue, SchemaRegistry};
 use pite_physics::PhysicsWorld;
 use pite_script::{Pyo3Backend, ScriptBackend, ScriptHost};
 
@@ -39,6 +39,7 @@ pub struct SessionOptions {
 /// and live hot reload.
 pub struct GameSession {
     host: Arc<ScriptHost>,
+    schemas: Arc<SchemaRegistry>,
     instances: Vec<InstanceSlot>,
     scene: PathBuf,
     scene_dir: PathBuf,
@@ -75,9 +76,13 @@ impl GameSession {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
         let project_dir = pite_project::find_project_root(scene);
+        let schemas = Arc::new(SchemaRegistry::new());
+        let host = Arc::new(ScriptHost::new(NodeTree::new()));
+        host.set_schema_registry(schemas.clone());
         let physics = Arc::new(Mutex::new(PhysicsWorld::new()));
         let mut session = Self {
-            host: Arc::new(ScriptHost::new(NodeTree::new())),
+            host,
+            schemas,
             instances: Vec::new(),
             scene: scene.to_path_buf(),
             scene_dir,
@@ -131,6 +136,17 @@ impl GameSession {
 
     pub fn host(&self) -> &Arc<ScriptHost> {
         &self.host
+    }
+
+    /// Returns the active [`SchemaRegistry`] for this session.
+    pub fn schemas(&self) -> &Arc<SchemaRegistry> {
+        &self.schemas
+    }
+
+    /// Installs an updated [`SchemaRegistry`] and propagates it to the script host.
+    pub fn set_schemas(&mut self, schemas: Arc<SchemaRegistry>) {
+        self.host.set_schema_registry(schemas.clone());
+        self.schemas = schemas;
     }
 
     pub fn set_pause_on_error(&mut self, pause: bool) {

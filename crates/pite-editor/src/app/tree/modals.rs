@@ -9,7 +9,7 @@ use crate::icons::{self, Icon};
 use crate::ops;
 
 use super::super::EditorApp;
-use super::node_types::{node_hierarchy, node_type_matches_search, NodeTypeInfo};
+use super::node_types::{build_node_hierarchy_from, node_type_matches_search, NodeTypeInfo};
 
 impl EditorApp {
     pub(in crate::app) fn show_node_modals(&mut self, ctx: &egui::Context) {
@@ -49,6 +49,8 @@ impl EditorApp {
 
                 ui.separator();
 
+                let schemas = self.session.schemas().clone();
+                let hierarchy = build_node_hierarchy_from(&schemas);
                 let search_lower = modal.search.to_lowercase();
                 let tree_height = ui.available_height() - 140.0;
                 egui::ScrollArea::vertical()
@@ -56,7 +58,8 @@ impl EditorApp {
                     .show(ui, |ui| {
                         render_node_hierarchy(
                             ui,
-                            node_hierarchy(),
+                            &schemas,
+                            &hierarchy,
                             &search_lower,
                             &mut modal.selected_type,
                             &mut modal.name,
@@ -67,16 +70,17 @@ impl EditorApp {
                 ui.separator();
 
                 // Description card
-                let desc = pite_core::node_type_schema(&modal.selected_type)
-                    .map(|s| s.description)
+                let desc = schemas
+                    .get(&modal.selected_type)
+                    .map(|s| s.description.as_ref())
                     .unwrap_or("Engine scene node.");
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(16, 20, 24))
                     .corner_radius(4.0)
                     .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
-                        let icon = icons::node_type_icon(&modal.selected_type);
-                        let color = icons::node_type_color(&modal.selected_type);
+                        let icon = icons::node_type_icon_in(&schemas, &modal.selected_type);
+                        let color = icons::node_type_color_in(&schemas, &modal.selected_type);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(icon.as_str()).color(color).size(16.0));
                             ui.label(egui::RichText::new(&modal.selected_type).strong());
@@ -117,8 +121,15 @@ impl EditorApp {
                 .or_else(|| self.selected.clone().map(NodeId::from))
                 .or_else(|| self.session.host().with_tree(|t| t.root().cloned()));
 
+            let schemas = self.session.schemas().clone();
             match self.session.host().with_tree_mut(|t| {
-                ops::add_node(t, parent.clone(), &modal.selected_type, &modal.name)
+                ops::add_node_with_schemas(
+                    t,
+                    parent.clone(),
+                    &modal.selected_type,
+                    &modal.name,
+                    &schemas,
+                )
             }) {
                 Ok(new_id) => {
                     self.selected = Some(new_id.to_string());
@@ -303,6 +314,7 @@ impl EditorApp {
 
 fn render_node_hierarchy(
     ui: &mut egui::Ui,
+    schemas: &pite_core::SchemaRegistry,
     items: &[NodeTypeInfo],
     search: &str,
     selected_type: &mut String,
@@ -314,7 +326,7 @@ fn render_node_hierarchy(
             continue;
         }
 
-        let is_selected = selected_type == item.type_name;
+        let is_selected = *selected_type == item.type_name;
         let has_children = !item.children.is_empty();
 
         let row_width = ui.available_width();
@@ -330,8 +342,8 @@ fn render_node_hierarchy(
         }
 
         let p = ui.painter();
-        let icon = icons::node_type_icon(item.type_name);
-        let color = icons::node_type_color(item.type_name);
+        let icon = icons::node_type_icon_in(schemas, &item.type_name);
+        let color = icons::node_type_color_in(schemas, &item.type_name);
         let icon_rect = egui::Rect::from_min_size(
             egui::Pos2::new(rect.left() + 4.0, rect.center().y - 8.0),
             egui::vec2(16.0, 16.0),
@@ -341,24 +353,32 @@ fn render_node_hierarchy(
         p.text(
             egui::Pos2::new(rect.left() + 24.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            item.type_name,
+            &item.type_name,
             egui::FontId::new(13.0, egui::FontFamily::Proportional),
             crate::theme::TEXT,
         );
 
         if resp.clicked() {
-            *selected_type = item.type_name.to_string();
-            *name = item.type_name.to_string();
+            *selected_type = item.type_name.clone();
+            *name = item.type_name.clone();
         }
         if resp.double_clicked() {
-            *selected_type = item.type_name.to_string();
-            *name = item.type_name.to_string();
+            *selected_type = item.type_name.clone();
+            *name = item.type_name.clone();
             *create = true;
         }
 
         if has_children {
-            ui.indent(item.type_name, |ui| {
-                render_node_hierarchy(ui, &item.children, search, selected_type, name, create);
+            ui.indent(&item.type_name, |ui| {
+                render_node_hierarchy(
+                    ui,
+                    schemas,
+                    &item.children,
+                    search,
+                    selected_type,
+                    name,
+                    create,
+                );
             });
         }
     }

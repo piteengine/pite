@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
-use pite_core::{NodeId, NodeTypeSchema};
+use pite_core::{NodeId, NodeSchema, SchemaRegistry};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DropZone {
@@ -39,30 +38,22 @@ pub struct InstanceSceneModal {
 }
 
 pub struct NodeTypeInfo {
-    pub type_name: &'static str,
-    pub description: &'static str,
+    pub type_name: String,
+    pub description: String,
     pub children: Vec<NodeTypeInfo>,
 }
 
-/// Add-node tree derived from `pite_core::NODE_SCHEMAS`: every concrete
-/// type sits under its nearest **non-abstract** ancestor. Abstract bases
-/// (`Control`, `CollisionObject2D`, `PhysicsBody2D`) flatten out, so
-/// `Label`/`Button` hang off `Node` and physics bodies off `Node2D` —
-/// the same shape the old hardcoded tree had, now impossible to drift
-/// from the schema.
-pub fn node_hierarchy() -> &'static [NodeTypeInfo] {
-    static HIERARCHY: OnceLock<Vec<NodeTypeInfo>> = OnceLock::new();
-    HIERARCHY.get_or_init(build_node_hierarchy).as_slice()
-}
-
-fn build_node_hierarchy() -> Vec<NodeTypeInfo> {
-    let mut by_parent: HashMap<&'static str, Vec<&'static NodeTypeSchema>> = HashMap::new();
-    let mut roots: Vec<&'static NodeTypeSchema> = Vec::new();
-    for &schema in pite_core::NODE_SCHEMAS {
+/// Add-node tree derived from a [`SchemaRegistry`]: every concrete type sits
+/// under its nearest **non-abstract** ancestor. Abstract bases flatten out, so
+/// plugin nodes inheriting `Control` or `Node2D` appear directly in the tree.
+pub fn build_node_hierarchy_from(schemas: &SchemaRegistry) -> Vec<NodeTypeInfo> {
+    let mut by_parent: HashMap<&str, Vec<&NodeSchema>> = HashMap::new();
+    let mut roots: Vec<&NodeSchema> = Vec::new();
+    for schema in schemas.iter() {
         if schema.abstract_class {
             continue;
         }
-        match nearest_visible_ancestor(schema.type_name) {
+        match nearest_visible_ancestor(schemas, schema.type_name.as_ref()) {
             Some(parent) => by_parent.entry(parent).or_default().push(schema),
             None => roots.push(schema),
         }
@@ -73,30 +64,30 @@ fn build_node_hierarchy() -> Vec<NodeTypeInfo> {
         .collect()
 }
 
-fn build_branch(
-    schema: &'static NodeTypeSchema,
-    by_parent: &HashMap<&'static str, Vec<&'static NodeTypeSchema>>,
-) -> NodeTypeInfo {
+fn build_branch(schema: &NodeSchema, by_parent: &HashMap<&str, Vec<&NodeSchema>>) -> NodeTypeInfo {
     let children = by_parent
-        .get(schema.type_name)
+        .get(schema.type_name.as_ref())
         .map(|kids| kids.iter().map(|s| build_branch(s, by_parent)).collect())
         .unwrap_or_default();
     NodeTypeInfo {
-        type_name: schema.type_name,
-        description: schema.description,
+        type_name: schema.type_name.to_string(),
+        description: schema.description.to_string(),
         children,
     }
 }
 
 /// Walk `inherits` until a non-abstract ancestor; `None` for the root.
-fn nearest_visible_ancestor(type_name: &'static str) -> Option<&'static str> {
-    let mut current = pite_core::node_type_schema(type_name)?.inherits;
+fn nearest_visible_ancestor<'a>(
+    schemas: &'a SchemaRegistry,
+    type_name: &'a str,
+) -> Option<&'a str> {
+    let mut current = schemas.get(type_name)?.inherits.as_deref();
     while let Some(name) = current {
-        let schema = pite_core::node_type_schema(name)?;
+        let schema = schemas.get(name)?;
         if !schema.abstract_class {
-            return Some(schema.type_name);
+            return Some(schema.type_name.as_ref());
         }
-        current = schema.inherits;
+        current = schema.inherits.as_deref();
     }
     None
 }
