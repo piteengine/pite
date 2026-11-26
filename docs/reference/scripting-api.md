@@ -151,6 +151,19 @@ if pite.pressed.space:
 - `pite.screen_to_world((screen_x, screen_y)) -> (world_x, world_y)` transforms screen pixel coordinates to world coordinates using the current camera view (used e.g. for button hit-testing).
 - String-based input calls (e.g., `pite.held("Space")`) are deprecated and raise `TypeError`. Input is pumped on the main thread and visible inside `_process` and `_physics_process`.
 
+### Input Actions (`res://input.pite.toml`)
+
+```python
+move = pite.action.vector("move_left", "move_right", "move_up", "move_down")
+if pite.action.pressed("jump"):
+    self.velocity.y = -320.0
+```
+
+- `pite.action.held(name)` / `pite.action.pressed(name)` / `pite.action.released(name)` query named actions defined in `res://input.pite.toml` (supporting multi-key and modifier chords such as `"Control+S"` or `"Shift+Space"`).
+- `pite.action.axis(negative, positive) -> float` returns `-1.0`, `0.0`, or `1.0`.
+- `pite.action.vector(left, right, up, down) -> Vec2` returns a 2D directional vector normalized to length `1.0` on diagonals.
+- Querying an undefined action returns `False` / `0.0` and logs a one-time warning.
+
 ## Audio
 
 ```python

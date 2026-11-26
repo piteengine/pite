@@ -40,6 +40,7 @@ The workspace is organized into five functional regions:
 The **Viewport** renders your game using the same camera and rendering pipeline as the standalone game runner:
 
 - **Resolution Scaling**: The viewport automatically contain-fits your game's design resolution (configured in `pite.toml`) into the available panel space, preserving your aspect ratio with clean letterboxing.
+- **Pan & Zoom**: While editing, pan with **middle-mouse drag** or **`Space` + left-drag**, zoom around the cursor (`0.25x`–`8.0x`) with the **scroll wheel** or trackpad pinch, and press ++ctrl+0++ (or click **Reset** in the top-right zoom HUD) to return to `100%`. Play mode resets framing to 1:1.
 - **Playtesting**: Press the **Play (`▶`)** icon or ++ctrl+r++ / ++f5++ to start gameplay simulation directly in the viewport. Press **Stop (`■`)** or ++ctrl+r++ again to halt playback.
 
 !!! Note "Input Forwarding"
@@ -253,26 +254,30 @@ Open **Project > Project Settings…** to configure project metadata without edi
 - **Project Metadata**: Edit project `name`, `author`, `main_scene`, and `icon`.
 - **Display Resolution**: Adjust `window_width` and `window_height`. The viewport updates its aspect framing immediately upon saving.
 - **Export Inclusions**: Add non-code files or assets that must be included in exported bundles.
+- **Input Map Tab**: Switch to **Input Map** to add/remove named actions and chord bindings (e.g., `Space`, `Control+S`, `MouseLeft`), saved to `res://input.pite.toml` and applied immediately.
 
-Clicking **Save** validates the fields and rewrites `pite.toml` cleanly.
+Clicking **Save** validates the fields and rewrites `pite.toml` (and `input.pite.toml` when modified) cleanly.
 
 ---
 
 ## Keyboard Shortcuts
 
-| Shortcut                   | Action                              | Scope                     |
-| :------------------------- | :---------------------------------- | :------------------------ |
-| ++ctrl+s++                 | Save open scene and script at once  | Global                    |
-| ++ctrl+shift+s++           | Save Scene As…                      | Global                    |
-| ++ctrl+o++                 | Open Scene file                     | Global                    |
-| ++ctrl+n++                 | New Scene                           | Global                    |
-| ++ctrl+r++ / ++f5++        | Play / Stop simulation              | Global                    |
-| ++ctrl+q++                 | Quit Pite Editor                    | Global                    |
-| ++ctrl+d++                 | Duplicate node / Duplicate asset    | Scene Tree / Assets Panel |
-| ++f2++                     | Rename node / Rename asset          | Scene Tree / Assets Panel |
-| ++ctrl+shift+a++           | Instantiate Child Scene…            | Scene Tree                |
-| ++del++                    | Delete selected node / Delete asset | Scene Tree / Assets Panel |
-| ++ctrl+x++ / ++c++ / ++v++ | Cut / Copy / Paste asset            | Assets Panel              |
-| ++ctrl+space++             | Force LSP autocomplete popup        | Code Tab                  |
-| ++ctrl+h++                 | Show type hover info                | Code Tab                  |
-| ++esc++                    | Dismiss autocomplete popup          | Code Tab                  |
+| Shortcut                      | Action                                        | Scope                     |
+| :---------------------------- | :-------------------------------------------- | :------------------------ |
+| ++ctrl+s++                    | Save open scene and script at once            | Global                    |
+| ++ctrl+shift+s++              | Save Scene As…                                | Global                    |
+| ++ctrl+z++                    | Undo scene, inspector, tilemap, or atlas edit | Non-Code panels           |
+| ++ctrl+y++ / ++ctrl+shift+z++ | Redo undone edit                              | Non-Code panels           |
+| ++ctrl+0++                    | Reset viewport pan & zoom                     | Viewport (editing)        |
+| ++ctrl+o++                    | Open Scene file                               | Global                    |
+| ++ctrl+n++                    | New Scene                                     | Global                    |
+| ++ctrl+r++ / ++f5++           | Play / Stop simulation                        | Global                    |
+| ++ctrl+q++                    | Quit Pite Editor                              | Global                    |
+| ++ctrl+d++                    | Duplicate node / Duplicate asset              | Scene Tree / Assets Panel |
+| ++f2++                        | Rename node / Rename asset                    | Scene Tree / Assets Panel |
+| ++ctrl+shift+a++              | Instantiate Child Scene…                      | Scene Tree                |
+| ++del++                       | Delete selected node / Delete asset           | Scene Tree / Assets Panel |
+| ++ctrl+x++ / ++c++ / ++v++    | Cut / Copy / Paste asset                      | Assets Panel              |
+| ++ctrl+space++                | Force LSP autocomplete popup                  | Code Tab                  |
+| ++ctrl+h++                    | Show type hover info                          | Code Tab                  |
+| ++esc++                       | Dismiss autocomplete popup                    | Code Tab                  |

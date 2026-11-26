@@ -2,6 +2,18 @@
 
 All notable changes to the Pite game engine are documented here.
 
+## Unreleased
+
+- **Editor Viewport Pan & Zoom**:
+    - Added middle-mouse drag and `Space`+drag panning, cursor-centered scroll/pinch zooming (`0.25x`–`8.0x`), `Ctrl+0` reset, and a compact zoom HUD pill in the editor viewport (disabled during Play mode so game framing stays 1:1).
+- **Editor Undo/Redo History**:
+    - Added typed inverse-command undo/redo (`Ctrl+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` and **Edit → Undo / Redo**) across Scene Tree operations, Inspector property edits, TileMap2D brush/eraser strokes, and Visual Atlas (`.ptatlas`) edits, while preserving built-in text undo in the Code tab.
+    - Coalesces continuous Inspector drags, TileMap strokes, and Atlas frame drags into single undo steps, and tracks the saved state across `Ctrl+S`.
+- **Input Action Mapping (`res://input.pite.toml`)**:
+    - Added `res://input.pite.toml` (`format_version = 1`, `[actions]`) supporting multiple bindings per action and `+`-separated key/mouse chords (e.g., `"Space"`, `"Control+S"`, `"MouseLeft"`).
+    - Exposed `pite.action.held(name)`, `pite.action.pressed(name)`, `pite.action.released(name)`, `pite.action.axis(neg, pos)`, and `pite.action.vector(left, right, up, down)` in Python scripts and `pite-stubs`.
+    - Added the **Input Map** tab in **Project Settings**, validation in `pite check`, and staging in `pite export`.
+
 ## v0.5.0 - 2026-11-26
 
 - **Plugin System (v1)**:
