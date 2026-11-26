@@ -26,19 +26,21 @@ impl GameSession {
 
         while self.physics_accumulator >= FIXED_STEP {
             let mut scripted_ids = Vec::new();
-            for slot in &mut self.instances {
-                if slot.errored || !slot.has_physics_process {
-                    continue;
-                }
-                if let Err(e) = slot.backend.call_physics_process(FIXED_STEP) {
-                    tracing::error!(node = %slot.id, "physics process error: {e:#}");
-                    slot.errored = true;
-                    if self.pause_on_error && self.last_error.is_none() {
-                        self.last_error = slot.backend.last_script_error();
+            pite_script::with_gil(|| {
+                for slot in &mut self.instances {
+                    if slot.errored || !slot.has_physics_process {
+                        continue;
                     }
+                    if let Err(e) = slot.backend.call_physics_process(FIXED_STEP) {
+                        tracing::error!(node = %slot.id, "physics process error: {e:#}");
+                        slot.errored = true;
+                        if self.pause_on_error && self.last_error.is_none() {
+                            self.last_error = slot.backend.last_script_error();
+                        }
+                    }
+                    scripted_ids.push(slot.id.clone());
                 }
-                scripted_ids.push(slot.id.clone());
-            }
+            });
 
             // Collect all tree positions in one read lock (no nested tree -> physics locking).
             let (scripted_positions, all_global_positions) = self.host.with_tree(|tree| {
@@ -153,24 +155,26 @@ impl GameSession {
         // `_process` (via the probe cached in `InstanceSlot`). Base `Timer`
         // and `Button` now carry engine-owned `_process` here — no
         // `tick_timers`/`poll_buttons` dispatch.
-        for slot in &mut self.instances {
-            if slot.errored || !slot.has_process {
-                continue;
-            }
-            if let Err(e) = slot.backend.call_process(delta) {
-                tracing::error!(node = %slot.id, "{e:#}");
-                slot.errored = true;
-                if self.pause_on_error && self.last_error.is_none() {
-                    self.last_error = slot.backend.last_script_error();
+        pite_script::with_gil(|| {
+            for slot in &mut self.instances {
+                if slot.errored || !slot.has_process {
+                    continue;
+                }
+                if let Err(e) = slot.backend.call_process(delta) {
+                    tracing::error!(node = %slot.id, "{e:#}");
+                    slot.errored = true;
+                    if self.pause_on_error && self.last_error.is_none() {
+                        self.last_error = slot.backend.last_script_error();
+                    }
                 }
             }
-        }
 
-        for (plugin_id, msg) in self.plugin_host.on_process(&self.host, delta) {
-            let formatted = format!("plugin {plugin_id} _process: {msg}");
-            tracing::error!("{formatted}");
-            self.plugin_errors.push(formatted);
-        }
+            for (plugin_id, msg) in self.plugin_host.on_process(&self.host, delta) {
+                let formatted = format!("plugin {plugin_id} _process: {msg}");
+                tracing::error!("{formatted}");
+                self.plugin_errors.push(formatted);
+            }
+        });
 
         self.tick_animations(delta);
     }

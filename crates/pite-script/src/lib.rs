@@ -43,7 +43,9 @@ pub fn ensure_python_init() {
     python::ensure_init();
 }
 pub use pyo3;
-pub use python::{is_stdlib_module, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError};
+pub use python::{
+    is_stdlib_module, with_gil, InputQueryKind, PyInputQuery, Pyo3Backend, ScriptError,
+};
 pub use vec2::Vec2;
 
 pub const RESERVED_METHODS: &[&str] = &["emit", "connect"];

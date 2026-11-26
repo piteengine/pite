@@ -67,6 +67,11 @@ fn frames(atlas_ref: &str) -> PyResult<Vec<String>> {
     Ok(atlas.names().into_iter().map(str::to_string).collect())
 }
 
+/// Hold the Python GIL once across a batch of script calls on the current thread.
+pub fn with_gil<R>(f: impl FnOnce() -> R) -> R {
+    Python::attach(|_| f())
+}
+
 #[pymodule]
 fn pite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
@@ -683,30 +688,51 @@ impl Pyo3Backend {
     }
 
     fn call_opt(&mut self, method: &str, arg: Option<f64>) -> Result<()> {
-        let ctx = format!(
-            "{} ({}:{}.{})",
-            self.node_path,
-            self.file.display(),
-            self.class,
-            method
-        );
         Python::attach(|py| {
             let Some(inst) = &self.instance else {
                 return Ok(());
             };
             let bound = inst.bind(py);
-            let callable = match bound.getattr(method) {
-                Ok(attr) => attr,
-                Err(_) => return Ok(()),
-            };
-            if callable.is_none() || !callable.is_callable() {
-                return Ok(());
-            }
-            let result = match arg {
-                Some(delta) => callable.call1((delta,)),
-                None => callable.call0(),
+            let result = match method {
+                "_process" => {
+                    let name = pyo3::intern!(py, "_process");
+                    match arg {
+                        Some(delta) => bound.call_method1(name, (delta,)),
+                        None => bound.call_method0(name),
+                    }
+                }
+                "_physics_process" => {
+                    let name = pyo3::intern!(py, "_physics_process");
+                    match arg {
+                        Some(delta) => bound.call_method1(name, (delta,)),
+                        None => bound.call_method0(name),
+                    }
+                }
+                "_ready" => {
+                    let name = pyo3::intern!(py, "_ready");
+                    match arg {
+                        Some(delta) => bound.call_method1(name, (delta,)),
+                        None => bound.call_method0(name),
+                    }
+                }
+                other => match arg {
+                    Some(delta) => bound.call_method1(other, (delta,)),
+                    None => bound.call_method0(other),
+                },
             };
             if let Err(err) = result {
+                if err.is_instance_of::<pyo3::exceptions::PyAttributeError>(py)
+                    && !bound.hasattr(method).unwrap_or(false)
+                {
+                    return Ok(());
+                }
+                let ctx = format!(
+                    "{} ({}:{}.{})",
+                    self.node_path,
+                    self.file.display(),
+                    self.class,
+                    method
+                );
                 let script_err = extract_script_error(py, &err, &ctx);
                 let msg = script_err.message.clone();
                 self.last_script_error = Some(script_err);
